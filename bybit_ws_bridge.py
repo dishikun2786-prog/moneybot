@@ -75,10 +75,12 @@ def _write_snap():
 
 # ---- 现货行情通道 (carry页实时基差需要现货价) ----
 SPOT_LAST_MSG = {"t": time.time()}
+SPOT_SAID = {"hello": False}
 
 
 def spot_on_open(ws):
     ws.send(json.dumps({"op": "subscribe", "args": SPOT_TOPICS}))
+    print("[bridge] spot通道已连接+订阅", flush=True)
 
 
 def spot_on_msg(ws, m):
@@ -93,6 +95,9 @@ def spot_on_msg(ws, m):
     with LOCK:
         PRICES.setdefault(sym, {})
         PRICES[sym]["spot"] = float(t["lastPrice"])
+        if not SPOT_SAID["hello"]:
+            SPOT_SAID["hello"] = True
+            print("[bridge] spot首条行情到达", flush=True)
         SNAP.update(ts=int(time.time() * 1000), prices=dict(PRICES))
     _write_snap()
 
