@@ -22,6 +22,24 @@ MAX_BASIS_BP = 20.0
 NOTIONAL = 10.0
 FEE_SPOT = 0.001
 FEE_PERP = 0.00055
+PARAMS_FILE = f"{BASE}/strategy_params.json"
+
+
+def hot_load():
+    """热加载策略参数 (每轮读取 strategy_params.json, 缺省/异常回退模块常量)"""
+    global TH_IN_ANN, MAX_HOLD_H, MAX_BASIS_BP, NOTIONAL
+    try:
+        d = json.load(open(PARAMS_FILE)).get("carry", {})
+        if d.get("theta_in_ann_pct") is not None:
+            TH_IN_ANN = float(d["theta_in_ann_pct"])
+        if d.get("max_hold_h") is not None:
+            MAX_HOLD_H = float(d["max_hold_h"])
+        if d.get("max_basis_bp") is not None:
+            MAX_BASIS_BP = float(d["max_basis_bp"])
+        if d.get("notional_usd") is not None:
+            NOTIONAL = float(d["notional_usd"])
+    except Exception:
+        pass
 STALE_S = 180
 
 
@@ -63,6 +81,7 @@ def now_ts():
 
 
 def cycle():
+    hot_load()
     data = latest()
     if not data:
         print("  [warn] carry_1m 无数据")

@@ -248,7 +248,22 @@ def fetch_books(tokens):
 
 # σ 校准因子 (校准报告v1, 2026-09-22): PM隐含σ/我们Deribitσ 的方向中位数
 # down(put侧)桶市场隐含波动率比我们低~10% → 原模型系统性高估 down 桶价格
-CAL_SIGMA = {'up': 1.046, 'down': 0.896}
+_CAL_CACHE = {"ts": 0.0, "v": {"up": 1.046, "down": 0.896}}
+
+
+def cal_sigma():
+    """σ方向校准因子热加载 (30s缓存, strategy_params.json monitor组)"""
+    now = time.time()
+    if now - _CAL_CACHE["ts"] > 30:
+        _CAL_CACHE["ts"] = now
+        try:
+            m = json.load(open(os.path.expanduser(
+                "~/polymarket/strategy_params.json"))).get("monitor", {})
+            _CAL_CACHE["v"] = {"up": float(m.get("cal_sigma_up", 1.046)),
+                               "down": float(m.get("cal_sigma_down", 0.896))}
+        except Exception:
+            pass
+    return _CAL_CACHE["v"]
 
 # ---------------------------------------------------------------- cycle
 EVENTS_PATH = os.path.join(LOG_DIR, 'events.jsonl')
@@ -292,7 +307,7 @@ def cycle(csv_writer):
         T = (m['exp'] - now).total_seconds() / (365.0 * 86400)
         if T <= 0: continue
         sig, ename = iv_lookup(m['currency'], m['exp'], m['K'])
-        sig *= CAL_SIGMA.get(m['direction'], 1.0)   # σ 方向校准
+        sig *= cal_sigma().get(m['direction'], 1.0)   # σ 方向校准(热加载)
         model_p = touch_prob(S, m['K'], sig, T, m['direction'])
         book = books.get(m['yes_tok'])
         if not book: continue

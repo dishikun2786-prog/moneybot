@@ -29,6 +29,29 @@ MAX_EXPOSURE_USD = 10.0
 MAX_DAILY_LOSS = 2.0
 
 
+def hot_load():
+    """热加载策略参数 (strategy_params.json paper_pm组 → 模块全局, 每轮调用)"""
+    global TH_IN_C, TH_OUT_C, MAX_HOLD_H, MAX_POSITIONS, MAX_EXPOSURE_USD, MAX_DAILY_LOSS, SHARES
+    try:
+        d = json.load(open(f"{BASE}/strategy_params.json")).get("paper_pm", {})
+        if d.get("min_gross_edge_c") is not None:
+            TH_IN_C = float(d["min_gross_edge_c"])
+        if d.get("theta_out_c") is not None:
+            TH_OUT_C = float(d["theta_out_c"])
+        if d.get("max_hold_h") is not None:
+            MAX_HOLD_H = float(d["max_hold_h"])
+        if d.get("max_positions") is not None:
+            MAX_POSITIONS = int(float(d["max_positions"]))
+        if d.get("max_exposure_usd") is not None:
+            MAX_EXPOSURE_USD = float(d["max_exposure_usd"])
+        if d.get("max_daily_loss") is not None:
+            MAX_DAILY_LOSS = float(d["max_daily_loss"])
+        if d.get("min_opposite_size") is not None:
+            SHARES = float(d["min_opposite_size"])
+    except Exception:
+        pass
+
+
 def fee_c(p):
     return FEE_RATE * p * (1 - p) * 100  # 美分/股
 
@@ -83,6 +106,7 @@ def _f(v):
 
 
 def cycle():
+    hot_load()
     now = time.time()
     snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
     st = load_state()
