@@ -462,9 +462,54 @@ function initTicket(){
     </div>
     <div class="dim" id="pm-hint" style="font-size:10px;margin-top:2px"></div>
   </div>
+  <div class="ticket">
+    <div class="trow"><b>循环恢复策略</b><span class="dim" style="font-size:10px">波段量能择时 · 小单对冲 · 受限恢复阶梯</span></div>
+    <div class="trow">
+      <span id="cycle-status" class="dim" style="font-size:11px">加载中…</span>
+      <button class="abtn ok" id="cycle-toggle" onclick="toggleCycle()">—</button>
+    </div>
+    <div class="dim" id="cycle-info" style="font-size:10px;margin-top:2px"></div>
+    <div id="cycle-rounds" style="margin-top:4px"></div>
+  </div>
   <div id="pos-list"></div>`;
   loadMode();
   loadPmMarkets();
+  loadCycle();
+}
+let cycleState = null;
+async function loadCycle(){
+  const d = await guard('/api/cycle');
+  if(!d) return;
+  cycleState = d;
+  const st = d.state || {};
+  const on = (st.phase !== 'IDLE') || false;
+  document.getElementById('cycle-status').textContent =
+    `阶段: ${st.phase || 'IDLE'} · 阶梯: ${st.ladder || 0}级 · 回合: ${st.n_rounds || 0} · 胜率: ${st.n_rounds ? (st.n_wins / st.n_rounds * 100).toFixed(0) : '—'}%`;
+  document.getElementById('cycle-info').innerHTML =
+    `信号分: ${st.last_score != null ? st.last_score : '—'} · 累计 <b class="num ${(st.cum_pnl||0)>=0?'up':'down'}">${(st.cum_pnl||0)>=0?'+':''}${Number(st.cum_pnl||0).toFixed(2)}$</b>`
+    + ` · 今日 <b class="num">${Number(st.cycle_day_pnl||0).toFixed(2)}$</b>`
+    + (st.frozen_until && st.frozen_until * 1000 > Date.now() ? ' · <b style="color:#ff5252">日亏冻结中</b>' : '');
+  const btn = document.getElementById('cycle-toggle');
+  const enabled = (strategyParams && strategyParams.cycle && Number(strategyParams.cycle.enabled)) || 0;
+  btn.textContent = enabled ? '关闭策略' : '开启策略';
+  btn.className = 'abtn ' + (enabled ? 'bad' : 'ok');
+  const rounds = (d.rounds || []).slice(-6).reverse();
+  document.getElementById('cycle-rounds').innerHTML = rounds.length
+    ? `<table style="width:100%;font-size:10px;border-collapse:collapse">${rounds.map(r =>
+        `<tr><td class="dim">${(r.ts||'').slice(11,16)}</td><td>${r.symbol}</td>
+         <td class="num ${r.win?'up':'down'}">${r.win?'赢':'亏'} ${Number(r.pnl).toFixed(2)}$</td>
+         <td class="dim">阶梯${r.ladder}</td></tr>`).join('')}</table>`
+    : '<span class="dim" style="font-size:10px">暂无回合记录</span>';
+}
+function toggleCycle(){
+  if(!strategyParams || !strategyParams.cycle){ toast('❌ 参数未加载'); return; }
+  const cur = Number(strategyParams.cycle.enabled) || 0;
+  pendingParams = {cycle: {enabled: cur ? 0 : 1}};
+  document.getElementById('cfTitle').textContent = (cur ? '关闭' : '开启') + ' 循环恢复策略';
+  document.getElementById('cfBody').textContent = cur
+    ? '策略将停止开新回合（持仓回合仍由止盈止损自动结算）'
+    : '策略开启后：波段评分≥阈值时自动开小金额裸腿单（强制止盈止损），亏损按恢复阶梯处理。纸面交易，独立预算核算。';
+  openModal('confirmModal');
 }
 function renderPositions(d, live){
   const lp = live || {};
@@ -516,7 +561,7 @@ function renderPositions(d, live){
 async function loadStrategy(){
   const d = await guard('/api/strategy'); if(!d) return;
   strategyParams = d.params || {};
-  const order = [['carry','现货×永续套利'],['paper_pm','预测市场对冲'],['monitor','监控校准']];
+  const order = [['carry','现货×永续套利'],['paper_pm','预测市场对冲'],['cycle','循环恢复策略'],['monitor','监控校准']];
   let html = '';
   for(const [k, name] of order){
     const p = strategyParams[k] || {};
@@ -642,6 +687,9 @@ const PARAM_LABELS = {theta_in_ann_pct:'入场阈值',max_hold_h:'最长持仓',
   notional_usd:'每标的名义($)',compounding_base_usd:'复利基准($)',compounding_min_mult:'名义下限(倍)',
   compounding_max_mult:'名义上限(倍)',entry_window_min:'结算窗口(分钟)',spot_borrow_ann_pct:'现货借贷年化(%)',
   swing_filter_enabled:'波段过滤开关(0关/1开)',swing_min_score:'波段评分阈值(0-100)',
+  enabled:'循环策略开关(0关/1开)',min_score:'循环入场评分阈值',base_notional:'基础单名义($)',
+  mult:'恢复倍率',max_ladder:'恢复阶梯级数上限',tp_pct:'止盈幅度(%)',sl_pct:'止损幅度(%)',
+  daily_loss_cap:'循环日亏限额($)',cooldown_s:'回合冷却(秒)',
   min_gross_edge_c:'最小毛价差',theta_out_c:'平仓阈值',min_opposite_size:'对手档下限',
   max_spread_c:'价差上限',max_exposure_usd:'总敞口上限',max_positions:'最大持仓数',
   max_daily_loss:'日亏限额',cal_sigma_up:'σ校准·涨桶',cal_sigma_down:'σ校准·跌桶'};
@@ -649,12 +697,16 @@ const PARAM_UNITS = {theta_in_ann_pct:'%',max_hold_h:'小时',max_basis_bp:'bp',
   compounding_base_usd:'$',compounding_min_mult:'倍',compounding_max_mult:'倍',entry_window_min:'分钟',
   spot_borrow_ann_pct:'%',min_gross_edge_c:'¢',theta_out_c:'¢',min_opposite_size:'股',
   max_spread_c:'¢',max_exposure_usd:'$',max_positions:'个',max_daily_loss:'$',
-  cal_sigma_up:'×',cal_sigma_down:'×'};
+  cal_sigma_up:'×',cal_sigma_down:'×',
+  enabled:'',min_score:'分',base_notional:'$',mult:'×',max_ladder:'级',
+  tp_pct:'%',sl_pct:'%',daily_loss_cap:'$',cooldown_s:'秒'};
 const PARAM_META = {
   carry:{theta_in_ann_pct:[0,20],max_hold_h:[1,720],max_basis_bp:[0,100],notional_usd:[1,50],
     compounding_base_usd:[1,100],compounding_min_mult:[0.05,1],compounding_max_mult:[1,10],
     entry_window_min:[0,480],spot_borrow_ann_pct:[0,50],
     swing_filter_enabled:[0,1],swing_min_score:[0,100]},
+  cycle:{enabled:[0,1],min_score:[0,100],base_notional:[1,50],mult:[1,3],max_ladder:[0,5],
+    tp_pct:[0.1,5],sl_pct:[0.1,5],daily_loss_cap:[0.5,20],cooldown_s:[0,3600]},
   paper_pm:{min_gross_edge_c:[0.5,20],theta_out_c:[0,5],min_opposite_size:[10,1000],max_spread_c:[1,50],
     max_hold_h:[1,72],max_exposure_usd:[1,100],max_positions:[1,10],max_daily_loss:[0.5,50]},
   monitor:{cal_sigma_up:[0.7,1.5],cal_sigma_down:[0.7,1.5]}
@@ -1069,7 +1121,7 @@ document.getElementById('d-tgl').addEventListener('click', toggleDepth);
 });
 setInterval(()=>{ if(playing) loadKlines(); }, 30000);
 setInterval(()=>{ if(playing) loadTape(); }, 5000);
-setInterval(()=>{ loadPositions(); loadSignals(); }, 15000);
+setInterval(()=>{ loadPositions(); loadSignals(); loadCycle(); }, 15000);
 window.addEventListener('resize', ()=>chart&&chart.resize());
 
 /* ===== AI 策略助手聊天 (SSE) ===== */

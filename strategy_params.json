@@ -13,6 +13,17 @@
     "swing_filter_enabled": 0.0,
     "swing_min_score": 50.0
   },
+  "cycle": {
+    "enabled": 0.0,
+    "min_score": 60.0,
+    "base_notional": 10.0,
+    "mult": 1.5,
+    "max_ladder": 3.0,
+    "tp_pct": 1.0,
+    "sl_pct": 1.0,
+    "daily_loss_cap": 2.0,
+    "cooldown_s": 900.0
+  },
   "paper_pm": {
     "min_gross_edge_c": 5.0,
     "theta_out_c": 0.5,

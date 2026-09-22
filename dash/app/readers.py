@@ -133,7 +133,8 @@ _ACT_ZH = {"OPEN_BOTH_LEGS": "双腿开仓", "CLOSE_PERP_LEG(单边平仓)": "�
            "MANUAL_NAKED_TP": "裸腿·止盈平仓",
            "MANUAL_NAKED_SL": "裸腿·止损平仓",
            "MANUAL_CLOSE_PM": "手动·平PM仓位",
-           "MANUAL_OPEN_PM": "手动·开PM仓位"}
+           "MANUAL_OPEN_PM": "手动·开PM仓位",
+           "MANUAL_OPEN_NAKED": "手动·开裸腿仓"}
 _SIDE_ZH = {"BUY": "买入", "SELL": "卖出"}
 _STRAT_ZH = {"PM桶对冲": "预测市场对冲", "现货×永续": "现货×永续套利"}
 
@@ -418,6 +419,7 @@ _PARAMS_FILE = os.path.expanduser("~/polymarket/strategy_params.json")
 STRATEGY_INFO = {
     "paper_pm": {"name": "预测市场对冲", "zh": "在 Polymarket 预测市场找「价格标错」的碰价期权桶：用数学模型算出桶的合理价格，市场价显著低于模型价时买入（反之卖出），赚价格回归的差价。模拟盘每桶名义 $10。"},
     "carry": {"name": "现货×永续套利", "zh": "同时买入现货+做空永续合约，价格涨跌互相抵消；真正赚的是合约「资金费率」（多头每8小时付给空头的利息）。资金费率年化超过阈值时入场持有，费率翻负时单边平仓锁定利润。"},
+    "cycle": {"name": "循环恢复策略", "zh": "波段量能择时 + 小金额单边对冲 + 受限恢复阶梯：每回合等盘口微结构评分达标才开小单（强制止盈止损），亏损时按×倍率逐级恢复（级数封顶），盈利复位循环。独立预算核算。"},
 }
 
 
@@ -432,6 +434,13 @@ def strategy():
     names = {k: v["name"] for k, v in STRATEGY_INFO.items()}
     return {"params": params, "zh": zh, "names": names,
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+
+def cycle():
+    """循环恢复策略状态 + 最近回合"""
+    st = _json("~/polymarket/logs/swing_cycle.json") or {}
+    rounds = _tail_jsonl("~/polymarket/logs/swing_rounds.jsonl", 20)
+    return {"state": st, "rounds": rounds}
 
 
 def klines(symbol="BTCUSDT", interval="15m", limit=300):

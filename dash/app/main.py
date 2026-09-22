@@ -261,7 +261,7 @@ async def manual_trade(request: Request, __=Depends(require_session)):
     action = str(body.get("action", ""))
     if action not in ("open_hedge", "close_perp_leg", "close_orphan", "close_both",
                       "close_spot_to_naked", "close_naked", "edit_naked_tpsl", "close_pm",
-                      "open_pm"):
+                      "open_pm", "open_naked"):
         return JSONResponse({"ok": False, "error": f"未知动作: {action}"}, status_code=400)
     return paper_ops.execute(action, body)
 
@@ -351,6 +351,11 @@ async def stream_depth(request: Request, __=Depends(require_session)):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/cycle")
+def api_cycle(__=Depends(require_session)):
+    return readers.cycle()
 
 
 @app.get("/api/micro")

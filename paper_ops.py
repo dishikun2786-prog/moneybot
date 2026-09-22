@@ -394,6 +394,50 @@ def open_pm(key, side, size_usd):
         _unlock(f)
 
 
+def open_naked(sym, dir_, notional, tp, sl):
+    """直接开裸腿方向仓 (循环策略/波段单边): 强制止盈止损, 方向感知校验"""
+    if dir_ not in ("fwd", "rev"):
+        return {"ok": False, "error": "方向须 fwd/rev"}
+    try:
+        notional, tp, sl = float(notional), float(tp), float(sl)
+    except Exception:
+        return {"ok": False, "error": "参数非法"}
+    if not (1 <= notional <= 50):
+        return {"ok": False, "error": "名义须1-50$"}
+    px = _prices().get(sym)
+    if not px:
+        return {"ok": False, "error": f"{sym} 无实时价"}
+    entry = px["perp"]
+    if dir_ == "fwd" and not (tp < entry < sl):
+        return {"ok": False, "error": f"方向错误: 空头止盈须<{entry}, 止损须>{entry}"}
+    if dir_ == "rev" and not (sl < entry < tp):
+        return {"ok": False, "error": f"方向错误: 多头止损须<{entry}, 止盈须>{entry}"}
+    row = _latest_carry_row(sym)
+    f = _lock()
+    try:
+        st = _read(CARRY_STATE, {})
+        if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
+            return {"ok": False, "error": f"{sym} 已有持仓/孤儿/裸腿"}
+        naked = st.get("naked", {})
+        if len(naked) >= MAX_NAKED:
+            return {"ok": False, "error": f"裸腿数已达上限{MAX_NAKED}"}
+        fees = FEE_PERP * notional
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
+        st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=notional, tp=tp, sl=sl,
+                                               t0=time.time(), funding_acc=0.0,
+                                               last_fr=(row or {}).get("funding_rate", 0.0),
+                                               next_funding_ts=int((row or {}).get("next_funding_ts", 0)),
+                                               dir=dir_, src="cycle")
+        _write(CARRY_STATE, st)
+        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_OPEN_NAKED",
+                                      perp_entry=entry, notional=notional, tp=tp, sl=sl, dir=dir_))
+        _audit("open_naked", sym, {"entry": entry, "notional": notional, "tp": tp, "sl": sl, "dir": dir_})
+        return {"ok": True, "msg": f"已开裸{'空' if dir_ == 'fwd' else '多'}仓 {sym} @{entry:.1f} "
+                                   f"(名义{notional}$, 止盈{tp} 止损{sl})"}
+    finally:
+        _unlock(f)
+
+
 def close_pm(key):
     """平 PM 纸面桶 (用引擎同源盘口快照定价)"""
     from paper_engine import latest_snapshot, pnl_usd, TICK, FEE_RATE
@@ -429,6 +473,8 @@ DISPATCH = {
     "open_hedge": lambda a: open_hedge(a.get("symbol", ""), a.get("notional", 10.0), a.get("dir", "fwd")),
     "close_perp_leg": lambda a: close_perp_leg(a.get("symbol", "")),
     "close_orphan": lambda a: close_orphan(a.get("symbol", "")),
+    "open_naked": lambda a: open_naked(a.get("symbol", ""), a.get("dir", "fwd"),
+                                       a.get("notional", 10), a.get("tp"), a.get("sl")),
     "open_pm": lambda a: open_pm(a.get("key", ""), a.get("side", ""), a.get("size_usd", 5)),
     "close_both": lambda a: close_both(a.get("symbol", "")),
     "close_spot_to_naked": lambda a: close_spot_to_naked(a.get("symbol", ""), a.get("tp"), a.get("sl")),
