@@ -431,4 +431,19 @@ def system():
             logs[name] = "".join(open(p, encoding="utf-8", errors="replace").readlines()[-40:])
         except Exception:
             logs[name] = ""
-    return dict(units=out, watchdog=wd, logs=logs)
+    # AI 操作审计 (最近12条)
+    ai_actions = []
+    try:
+        with open(os.path.expanduser("~/polymarket/logs/ai_actions.jsonl"), encoding="utf-8") as f:
+            lines = f.readlines()[-12:]
+        for line in lines:
+            try:
+                r = json.loads(line)
+                ai_actions.append({"ts": r.get("ts", ""), "action": r.get("action", ""),
+                                   "msg": r.get("msg", "") or r.get("type", "") or ""})
+            except Exception:
+                continue
+        ai_actions.reverse()
+    except Exception:
+        pass
+    return dict(units=out, watchdog=wd, logs=logs, ai_actions=ai_actions)

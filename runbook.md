@@ -34,6 +34,15 @@
 # 应急（服务器命令行）：
 ./venv/bin/python -c "import bcrypt,os; open(os.path.expanduser('~/polymarket/.dash_passwd_hash'),'wb').write(bcrypt.hashpw(b'<新密码>'.encode(), bcrypt.gensalt()))"
 
+# ── AI 策略助手 ──
+# 密钥: ~/polymarket/.ai_secrets.json (600)。轮换: 编辑该文件换 sk-xxx 即可, 无需重启
+# 审计: tail ~/polymarket/logs/ai_actions.jsonl  (全部操作留痕)
+# 待审批: ~/polymarket/engine/ai_pending.json  (AI改参预览后等待用户点批准)
+# 灾难恢复: git log --oneline 查版本 → 网页AI说「回退到 <rev>」或手动:
+#   git checkout <rev> -- strategy_params.json && 引擎下轮热加载自动生效
+# 频次: 对话 15次/5分钟/IP; 改参单次≤3键且白名单+范围校验; 变更必须用户批准
+# 演练: bash tools/ai_exercise.sh
+
 # 部署（本地执行）
 bash deploy.sh                # 部署当前代码+重启监控+自动备份旧版
 bash deploy.sh --rollback     # 回滚上一版本
