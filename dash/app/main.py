@@ -1,8 +1,18 @@
+import sys
+import os
+import json
+import time
+from collections import defaultdict, deque
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request, Depends, HTTPException, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import iterate_in_threadpool
 from . import auth, config, readers
+
+sys.path.insert(0, os.path.expanduser("~/polymarket"))
+import ai_client  # noqa: E402
+import ai_tools  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -178,6 +188,44 @@ async def api_change_pw(request: Request, __=Depends(require_session)):
         auth.record_fail()
         return JSONResponse({"ok": False, "err": msg}, status_code=400)
     return {"ok": True, "msg": "密码已修改, 请用新密码重新登录"}
+
+
+_AI_LIMIT = defaultdict(deque)
+
+
+def ai_allowed(ip, max_n=15, window=300):
+    q = _AI_LIMIT[ip]
+    now = time.time()
+    while q and now - q[0] > window:
+        q.popleft()
+    if len(q) >= max_n:
+        return False
+    q.append(now)
+    return True
+
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request, __=Depends(require_session)):
+    ip = request.client.host if request.client else "?"
+    if not ai_allowed(ip):
+        return JSONResponse({"error": "频率过高, 请稍后再试"}, status_code=429)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    messages = (body.get("messages") or [])[-20:]
+
+    async def gen():
+        try:
+            agen = iterate_in_threadpool(
+                ai_client.run_agent(messages, ai_tools.TOOLS, ai_tools.execute_tool))
+            async for ev in agen:
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)[:200]}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/system")
