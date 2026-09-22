@@ -65,6 +65,35 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .topnav a{color:#8b98a5;text-decoration:none}
 .topnav a:hover{color:#00c853}
 .livebox{display:inline-flex;align-items:center;gap:8px;margin-left:4px;padding:3px 10px;background:#0d1117;border:1px solid #2a313c;border-radius:7px}
+/* 手动交易 UI */
+.ticket{border:1px solid #2a313c;border-radius:8px;padding:10px;margin-bottom:10px;background:#0d1117}
+.ticket .trow{display:flex;align-items:center;gap:8px;margin:6px 0}
+.ticket select,.ticket input{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6px;padding:6px 8px}
+.abtn{font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #2a313c;background:#1c2129;color:#e6edf3}
+.abtn:hover{border-color:#00c853}
+.abtn.ok{background:rgba(0,200,83,.14);border-color:#00c853;color:#00c853}
+.abtn.bad{background:rgba(255,82,82,.12);border-color:#ff5252;color:#ff5252}
+.abtn.warn{background:rgba(255,179,0,.12);border-color:#ffb300;color:#ffb300}
+.pbtns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.pbtns .abtn{min-height:30px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:70}
+.modal.open{display:flex}
+.mbox{background:#161b22;border:1px solid #2a313c;border-radius:10px;padding:16px;width:400px;max-width:92vw;max-height:86vh;overflow:auto}
+.mbox h3{margin:0 0 6px;font-size:15px}
+.mbox label{display:block;font-size:12px;color:#8b98a5;margin:10px 0 4px}
+.mbox input{width:100%;background:#0d1117;border:1px solid #2a313c;color:#e6edf3;border-radius:6px;padding:9px 10px;font-size:14px;box-sizing:border-box}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#161b22;border:1px solid #00c853;color:#e6edf3;padding:10px 18px;border-radius:8px;font-size:13px;z-index:80;display:none;max-width:86vw}
+.toast.show{display:block;animation:pulse 2.4s}
+@media (max-width:768px){
+  .topbar{flex-wrap:wrap;row-gap:6px}
+  .topnav{order:5;width:100%;overflow-x:auto}
+  .livebox{order:4}
+  .mbox{position:fixed;bottom:10px;left:10px;right:10px;top:auto;width:auto;border-radius:14px 14px 8px 8px}
+  .abtn{min-height:40px;font-size:12px}
+  .chatdrawer{width:100%;right:0;bottom:0;top:auto;height:70vh}
+  .tapebody{overflow-x:auto}
+  .ticket .trow{flex-wrap:wrap}
+}
 @keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
 .livedot{width:8px;height:8px;border-radius:50%;background:#00c853;display:inline-block;animation:pulse 1.6s infinite}
 .paused .livedot{background:#ffb300;animation:none}
@@ -182,6 +211,31 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
   </div>
   <div class="chatinput"><input id="chatinput" placeholder="问点什么… (回车发送)" autocomplete="off"><button onclick="sendChat()">发送</button></div>
 </div>
+<div class="modal" id="tpslModal">
+  <div class="mbox">
+    <h3>平现货腿 → 转裸空仓</h3>
+    <p class="dim" style="font-size:12px" id="tpslInfo"></p>
+    <label>止盈价（空头方向: 必须 <b>低于</b> 入场价）</label>
+    <input type="number" step="0.1" id="tpslTp" class="num">
+    <label>止损价（空头方向: 必须 <b>高于</b> 入场价）</label>
+    <input type="number" step="0.1" id="tpslSl" class="num">
+    <div class="pbtns">
+      <button class="abtn warn" onclick="submitTpsl()">确认转裸仓（止盈止损随仓）</button>
+      <button class="abtn" onclick="closeModal('tpslModal')">取消</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="confirmModal">
+  <div class="mbox">
+    <h3 id="cfTitle">确认操作</h3>
+    <p class="dim" style="font-size:12px;white-space:pre-line" id="cfBody"></p>
+    <div class="pbtns">
+      <button class="abtn bad" onclick="submitConfirm()">确认执行</button>
+      <button class="abtn" onclick="closeModal('confirmModal')">取消</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
 <script>
 let sym='BTCUSDT', tf='15m', conv='cn', playing=true;
 let chart=null, lastTapeKey='';
@@ -258,20 +312,47 @@ async function loadPositions(){
   posCache = d;
   renderPositions(d, lastLivePrices);
 }
+function initTicket(){
+  id('tab-pos').innerHTML = `<div class="ticket">
+    <div class="trow"><b>快速交易 · 一键对冲</b><span class="dim" style="font-size:10px">纸面 · 实时价双腿开仓（现货多+合约空）</span></div>
+    <div class="trow">
+      <select id="tk-sym" class="num"><option value="BTCUSDT">比特币 BTC</option><option value="ETHUSDT">以太坊 ETH</option></select>
+      <input type="number" id="tk-notional" class="num" value="10" min="1" max="50" step="1" style="width:80px" title="名义金额($)">
+      <button class="abtn ok" onclick="confirmTrade('open_hedge', document.getElementById('tk-sym').value, {notional: document.getElementById('tk-notional').value})">一键对冲开仓</button>
+    </div></div><div id="pos-list"></div>`;
+}
 function renderPositions(d, live){
   const lp = live || {};
+  if(!document.getElementById('pos-list')) initTicket();
   const rows = (d.positions||[]).map(p=>{
     let u = null;
     if(p.live && lp[p.live.symbol] && lp[p.live.symbol].last){
       const L = Number(lp[p.live.symbol].last), n = p.live.notional;
-      u = ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
+      u = p.live.naked
+        ? (p.live.perp_entry - L)/p.live.perp_entry * n
+        : ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
     }
     const uhtml = u==null ? '' : ` <b class="num ${u>0?'up':(u<0?'down':'')}" title="实时浮盈">${u>0?'+':''}${u.toFixed(3)}$</b>`;
+    let btns = '';
+    if(p.live && p.live.naked){
+      btns = `<div class="pbtns">
+        <button class="abtn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}')">编辑止盈止损</button>
+        <button class="abtn bad" onclick="confirmTrade('close_naked','${p.live.symbol}')">平仓</button></div>`;
+    } else if(p.live){
+      btns = `<div class="pbtns">
+        <button class="abtn" onclick="confirmTrade('close_perp_leg','${p.live.symbol}')">平合约腿</button>
+        <button class="abtn warn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}')">平现货腿→裸仓</button>
+        <button class="abtn bad" onclick="confirmTrade('close_both','${p.live.symbol}')">全平</button></div>`;
+    } else if(p.key_orig){
+      btns = `<div class="pbtns">
+        <button class="abtn bad" onclick="confirmTrade('close_pm', ${JSON.stringify(p.key_orig)})">平仓</button></div>`;
+    }
     return `<div class="posrow"><div class="h">
     <span><span class="tag ${p.strat==='预测市场对冲'?'zh1':'zh2'}">${p.strat}</span> ${p.key}</div>
     <b class="num">${p.side}</b>${uhtml}</div>
-    <div class="p"><span>入场 <b class="num">${p.entry}</b></span><span>${p.note}</span></div></div>`; }).join('');
-  id('tab-pos').innerHTML = rows || '<p class="zhdesc">(空仓)</p>';
+    <div class="p"><span>入场 <b class="num">${p.entry}</b></span><span>${p.note}</span></div>
+    ${btns}</div>`; }).join('');
+  document.getElementById('pos-list').innerHTML = rows || '<p class="zhdesc">(空仓)</p>';
 }
 async function loadStrategy(){
   const d = await guard('/api/strategy'); if(!d) return;
@@ -365,6 +446,68 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 }));
 document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault();
   playing=!playing; id('play').textContent = playing?'▶ 实时':'⏸ 暂停'; document.body.classList.toggle('paused',!playing); } });
+
+/* ===== 手动交易 (纸面) — 定义须在init之前 ===== */
+let pendingTrade = null, tpslCtx = null;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+function confirmTrade(action, symbol, extra){
+  const zh = {open_hedge:'一键对冲开仓（现货多+合约空）', close_perp_leg:'平合约腿（现货腿转孤儿，可复用）',
+    close_both:'全平双腿（完全退出）', close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位'};
+  const detail = zh[action] || action;
+  const ex = extra && extra.notional ? `名义: ${extra.notional}$` : '';
+  pendingTrade = {action, symbol, extra: extra || {}};
+  document.getElementById('cfTitle').textContent = detail;
+  document.getElementById('cfBody').textContent = `标的: ${symbol}\n${ex}\n执行价格: 点击时刻实时价 (≤0.2s 新鲜)\n此为纸面交易，确认执行？`;
+  openModal('confirmModal');
+}
+async function submitConfirm(){
+  closeModal('confirmModal');
+  if(!pendingTrade) return;
+  const d = await manualTrade(pendingTrade);
+  if(d && d.ok) pendingTrade = null;
+}
+function openTpslModal(symbol, entry){
+  tpslCtx = {symbol, entry: Number(entry)};
+  document.getElementById('tpslInfo').innerHTML =
+    `标的: <b>${symbol}</b> · 合约腿入场价 <b>${entry}</b><br>` +
+    `平掉现货腿后为<b style="color:#ffb300">裸空方向仓</b>（价格下跌盈利），必须设置止盈止损`;
+  document.getElementById('tpslTp').value = (Number(entry) * 0.99).toFixed(1);
+  document.getElementById('tpslSl').value = (Number(entry) * 1.01).toFixed(1);
+  openModal('tpslModal');
+}
+async function submitTpsl(){
+  if(!tpslCtx) return;
+  const tp = Number(document.getElementById('tpslTp').value);
+  const sl = Number(document.getElementById('tpslSl').value);
+  const entry = tpslCtx.entry;
+  if(!(tp < entry && entry < sl)){
+    toast(`❌ 方向错误: 空头止盈须<入场价${entry}, 止损须>入场价${entry}`);
+    return;
+  }
+  closeModal('tpslModal');
+  const d = await manualTrade({action:'close_spot_to_naked', symbol: tpslCtx.symbol, tp, sl});
+  if(d && d.ok) tpslCtx = null;
+}
+async function manualTrade(body){
+  try{
+    const r = await fetch('/api/manual/trade', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)});
+    const d = await r.json();
+    toast(d.ok ? '✅ ' + d.msg : '❌ ' + (d.error || '失败'));
+    if(d.ok){ loadPositions(); loadTape(); }
+    return d;
+  }catch(e){ toast('❌ 请求失败: ' + e); }
+}
 
 /* ===== 实时行情 (Bybit WSS → SSE, 300ms节流) — 定义须在init调用之前 ===== */
 let es = null, pxThrottle = 0;

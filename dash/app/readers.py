@@ -121,8 +121,17 @@ _MONTHS_ZH = {"January": "1月", "February": "2月", "March": "3月", "April": "
               "May": "5月", "June": "6月", "July": "7月", "August": "8月",
               "September": "9月", "October": "10月", "November": "11月", "December": "12月"}
 _ACT_ZH = {"OPEN_BOTH_LEGS": "双腿开仓", "CLOSE_PERP_LEG(单边平仓)": "单边平仓(合约腿)",
-           "FUNDING_SETTLE": "资金费结算", "REUSE_SPOT_LEG": "现货腿复用",
-           "CLOSE_SPOT_LEG": "平现货腿", "OPEN": "开仓", "CLOSE": "平仓"}
+           "FUNDING_SETTLE": "资金费结算", "FUNDING_SETTLE_NAKED": "资金费结算(裸腿)",
+           "REUSE_SPOT_LEG": "现货腿复用",
+           "CLOSE_SPOT_LEG": "平现货腿", "OPEN": "开仓", "CLOSE": "平仓",
+           "MANUAL_OPEN_HEDGE": "手动·一键对冲开仓",
+           "MANUAL_CLOSE_PERP_LEG": "手动·平合约腿",
+           "MANUAL_CLOSE_BOTH": "手动·全平双腿",
+           "MANUAL_SPOT_TO_NAKED": "手动·平现货腿转裸仓",
+           "MANUAL_CLOSE_NAKED": "手动·平裸腿",
+           "MANUAL_NAKED_TP": "裸腿·止盈平仓",
+           "MANUAL_NAKED_SL": "裸腿·止损平仓",
+           "MANUAL_CLOSE_PM": "手动·平PM仓位"}
 _SIDE_ZH = {"BUY": "买入", "SELL": "卖出"}
 _STRAT_ZH = {"PM桶对冲": "预测市场对冲", "现货×永续": "现货×永续套利"}
 
@@ -264,6 +273,7 @@ def pnl_overview():
     for key, p in (pm_st.get("positions") or {}).items():
         positions.append({"strat": _STRAT_ZH.get("PM桶对冲", "预测市场对冲"),
                           "key": zh_market(*key.split("|", 1))[:40],
+                          "key_orig": key,
                           "side": _SIDE_ZH.get(p["side"], p["side"]),
                           "entry": p.get("entry"), "note": f"{p.get('size_usd', 0):.0f}$名义"})
     for sym, p in (cy_st.get("positions") or {}).items():
@@ -275,6 +285,14 @@ def pnl_overview():
                           "live": {"symbol": sym, "spot_entry": p.get("spot_entry"),
                                    "perp_entry": p.get("perp_entry"),
                                    "notional": float(p.get("notional", 10.0))}})
+    for sym, p in (cy_st.get("naked") or {}).items():
+        sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
+                          "key": f"{sym_zh}({sym}) 裸空仓", "side": "裸空合约(手动方向仓)",
+                          "entry": f"{p.get('perp_entry')}",
+                          "note": f"止盈{p.get('tp')} / 止损{p.get('sl')} · 资金费累计{p.get('funding_acc', 0):.3f}$",
+                          "live": {"symbol": sym, "perp_entry": p.get("perp_entry"),
+                                   "notional": float(p.get("notional", 10.0)), "naked": True}})
     return dict(capital=capital,
                 realized_total=round(realized_total, 2),
                 realized_today=round(pm_day + cy_day, 2),

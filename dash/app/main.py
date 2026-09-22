@@ -13,6 +13,7 @@ from . import auth, config, readers
 sys.path.insert(0, os.path.expanduser("~/polymarket"))
 import ai_client  # noqa: E402
 import ai_tools  # noqa: E402
+import paper_ops  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -247,6 +248,20 @@ async def ai_approve(request: Request, __=Depends(require_session)):
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
+
+
+@app.post("/api/manual/trade")
+async def manual_trade(request: Request, __=Depends(require_session)):
+    """手动纸面交易: open_hedge/close_perp_leg/close_both/close_spot_to_naked/close_naked/edit_naked_tpsl/close_pm"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    action = str(body.get("action", ""))
+    if action not in ("open_hedge", "close_perp_leg", "close_both", "close_spot_to_naked",
+                      "close_naked", "edit_naked_tpsl", "close_pm"):
+        return JSONResponse({"ok": False, "error": f"未知动作: {action}"}, status_code=400)
+    return paper_ops.execute(action, body)
 
 
 @app.get("/api/stream/prices")

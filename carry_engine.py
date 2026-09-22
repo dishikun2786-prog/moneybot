@@ -11,6 +11,8 @@ import json
 import os
 import time
 
+import paper_ops
+
 BASE = os.path.expanduser("~/polymarket")
 CARRY = f"{BASE}/logs/carry_1m.jsonl"
 STATE = f"{BASE}/logs/carry_state.json"
@@ -72,6 +74,18 @@ def in_entry_window(r):
 
 
 STALE_S = 180
+_EL = {"f": None}  # 引擎持有锁 (与手动操作/API串行化)
+
+
+def engine_acquire():
+    if _EL["f"] is None:
+        _EL["f"] = paper_ops._lock()
+
+
+def engine_release():
+    if _EL["f"] is not None:
+        paper_ops._unlock(_EL["f"])
+        _EL["f"] = None
 
 
 def latest():
@@ -94,7 +108,7 @@ def load_state():
             return json.load(open(STATE))
         except Exception:
             pass
-    return {"positions": {}, "orphans": {}, "day": time.strftime("%Y-%m-%d", time.gmtime()),
+    return {"positions": {}, "orphans": {}, "naked": {}, "day": time.strftime("%Y-%m-%d", time.gmtime()),
             "day_pnl": 0.0, "cum_pnl": 0.0, "n_rounds": 0}
 
 
@@ -125,16 +139,53 @@ def cycle():
     if stale > STALE_S:
         print(f"  [warn] 数据停滞 {stale:.0f}s, 跳过")
         return
+    engine_acquire()  # 与手动操作/API串行化
     st = load_state()
     today = time.strftime("%Y-%m-%d", time.gmtime())
     if st["day"] != today:
-        # 跨天: 累计PnL沉淀, 保留持仓/孤儿 (修复旧版午夜清仓bug)
+        # 跨天: 累计PnL沉淀, 保留持仓/孤儿/裸腿 (修复旧版午夜清仓bug)
         st["cum_pnl"] = round(st.get("cum_pnl", 0.0) + st.get("day_pnl", 0.0), 4)
         st["day_pnl"] = 0.0
         st["n_rounds"] = 0
         st["day"] = today
+    st.setdefault("naked", {})
     N = effective_notional(st)
     events = []
+
+    # ---- 0) 裸腿持仓: 止盈/止损触发检查 + funding结算 ----
+    for sym, nk in list(st["naked"].items()):
+        r = data.get(sym)
+        if not r:
+            continue
+        live = r["perp_last"]
+        if int(r["next_funding_ts"]) > int(nk.get("next_funding_ts", 0)):
+            n_nk = nk.get("notional", N)
+            st["day_pnl"] = round(st["day_pnl"] + nk.get("last_fr", 0.0) * n_nk, 4)
+            nk["funding_acc"] = round(nk.get("funding_acc", 0.0) + nk.get("last_fr", 0.0) * n_nk, 4)
+            log_trade(dict(ts=now_ts(), symbol=sym, action="FUNDING_SETTLE_NAKED",
+                           rate=nk.get("last_fr", 0.0),
+                           amount=round(nk.get("last_fr", 0.0) * n_nk, 4), notional=n_nk))
+            nk["last_fr"] = r["funding_rate"]
+            nk["next_funding_ts"] = int(r["next_funding_ts"])
+        hit = None
+        if live <= nk["tp"]:
+            hit = "止盈"
+        elif live >= nk["sl"]:
+            hit = "止损"
+        if hit:
+            n_nk = nk.get("notional", N)
+            perp_pnl = (nk["perp_entry"] - live) / nk["perp_entry"] * n_nk
+            fees = FEE_PERP * n_nk
+            st["day_pnl"] = round(st["day_pnl"] + perp_pnl - fees, 4)
+            st.setdefault("n_rounds", 0)
+            st["n_rounds"] += 1
+            log_trade(dict(ts=now_ts(), symbol=sym,
+                           action="MANUAL_NAKED_TP" if hit == "止盈" else "MANUAL_NAKED_SL",
+                           perp_entry=nk["perp_entry"], perp_exit=live,
+                           perp_pnl_usd=round(perp_pnl, 3), tp=nk["tp"], sl=nk["sl"],
+                           funding_acc=nk.get("funding_acc", 0)))
+            events.append(f"裸腿{hit}平仓 {sym} @{live} ({perp_pnl:+.3f}$)")
+            del st["naked"][sym]
 
     # ---- 1) 孤儿现货腿处置 (单边平仓后的遗留敞口) ----
     for sym, orph in list(st["orphans"].items()):
@@ -205,7 +256,7 @@ def cycle():
 
     # ---- 3) 开新仓 ----
     for sym, r in data.items():
-        if sym in st["positions"] or sym in st["orphans"]:
+        if sym in st["positions"] or sym in st["orphans"] or sym in st["naked"]:
             continue
         ann = r["ann_funding_pct"]
         basis = r["basis_mark_bp"]
@@ -229,9 +280,11 @@ def cycle():
             events.append(f"[窗口过滤] {sym} 信号成立但距结算>={ENTRY_WINDOW_MIN:.0f}分钟, 等待结算窗口")
 
     save_state(st)
+    engine_release()
     pos_txt = ", ".join(f"{s}:{('复用' if p.get('reused') else '持有')}" for s, p in st["positions"].items()) or "(空仓)"
     orph_txt = ", ".join(st["orphans"]) or "无"
-    print(f"[{now_ts()}] carry纸面: 持仓[{pos_txt}] 孤儿现货腿[{orph_txt}] | "
+    nkd_txt = ", ".join(f"{s}(TP{nk['tp']}/SL{nk['sl']})" for s, nk in st["naked"].items()) or "无"
+    print(f"[{now_ts()}] carry纸面: 持仓[{pos_txt}] 孤儿现货腿[{orph_txt}] 裸腿[{nkd_txt}] | "
           f"今日 {st['n_rounds']}轮 当日PnL {st['day_pnl']:+.2f}$ "
           f"累计 {st.get('cum_pnl', 0):+.2f}$ 有效名义{N}$({N / max(NOTIONAL, 0.01):.2f}x)")
     for e in events:
@@ -245,6 +298,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.once:
         cycle()
+        engine_release()
     else:
         while True:
             try:
@@ -253,4 +307,6 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 print("  [err]", type(e).__name__, e)
+            finally:
+                engine_release()
             time.sleep(60)
