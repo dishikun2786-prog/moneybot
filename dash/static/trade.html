@@ -351,6 +351,40 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault();
   playing=!playing; id('play').textContent = playing?'▶ 实时':'⏸ 暂停'; document.body.classList.toggle('paused',!playing); } });
 
+/* ===== 实时行情 (Bybit WSS → SSE, 300ms节流) — 定义须在init调用之前 ===== */
+let es = null, pxThrottle = 0;
+function startES(){
+  if(es) return;
+  es = new EventSource('/api/stream/prices');
+  es.onopen = () => { document.getElementById('livelag').textContent = '已连接'; };
+  es.onmessage = e => {
+    let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
+    const now = Date.now();
+    if(now - pxThrottle < 300) return;
+    pxThrottle = now;
+    applyLive(d);
+  };
+  es.onerror = () => {
+    es.close(); es = null;
+    document.getElementById('livelag').textContent = '连接中断, 重连中…';
+    setTimeout(startES, 5000);
+  };
+}
+function applyLive(d){
+  const p = d.prices && d.prices[sym];
+  if(!p || !p.last) return;
+  const el = document.getElementById('livepx');
+  el.textContent = Number(p.last).toLocaleString('en-US', {maximumFractionDigits:2});
+  const prev = Number(el.dataset.prev || p.last);
+  el.style.color = p.last > prev ? '#ff5252' : (p.last < prev ? '#00c853' : '#e6edf3');
+  el.dataset.prev = p.last;
+  const chg = document.getElementById('livechg');
+  const c = Number(p.change_pct || 0);
+  chg.textContent = (c>0?'+':'') + c.toFixed(2) + '%';
+  chg.style.color = c >= 0 ? '#ff5252' : '#00c853';
+  document.getElementById('livelag').textContent = '延迟 ' + ((d.lag_ms||0)/1000).toFixed(1) + 's';
+}
+
 loadKlines(); loadPositions(); loadStrategy(); loadSignals(); loadTape();
 document.getElementById('tzlabel').textContent = '本机时区 ' + tzLabel() + ' · 数据已按本机时间显示';
 startES();
@@ -453,39 +487,5 @@ async function approveAction(aid, ok, el){
     loadStrategy();
   }catch(e){ el.textContent = '请求失败: ' + e; }
 }
-
-/* ===== 实时行情 (Bybit WSS → SSE, 300ms节流) ===== */
-let es = null, pxThrottle = 0;
-function startES(){
-  if(es) return;
-  es = new EventSource('/api/stream/prices');
-  es.onmessage = e => {
-    let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
-    const now = Date.now();
-    if(now - pxThrottle < 300) return;
-    pxThrottle = now;
-    applyLive(d);
-  };
-  es.onerror = () => {
-    es.close(); es = null;
-    document.getElementById('livelag').textContent = '连接中断, 重连中…';
-    setTimeout(startES, 5000);
-  };
-}
-function applyLive(d){
-  const p = d.prices && d.prices[sym];
-  if(!p || !p.last) return;
-  const el = document.getElementById('livepx');
-  el.textContent = Number(p.last).toLocaleString('en-US', {maximumFractionDigits:2});
-  const prev = Number(el.dataset.prev || p.last);
-  el.style.color = p.last > prev ? '#ff5252' : (p.last < prev ? '#00c853' : '#e6edf3');
-  el.dataset.prev = p.last;
-  const chg = document.getElementById('livechg');
-  const c = Number(p.change_pct || 0);
-  chg.textContent = (c>0?'+':'') + c.toFixed(2) + '%';
-  chg.style.color = c >= 0 ? '#ff5252' : '#00c853';
-  document.getElementById('livelag').textContent = '延迟 ' + ((d.lag_ms||0)/1000).toFixed(1) + 's';
-}
-
 </script>
 </body></html>
