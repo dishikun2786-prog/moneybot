@@ -110,6 +110,20 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .dtool select{max-width:100%}
 #d-balance{margin-left:auto}
 .dladder{flex:1;min-height:0;display:flex;overflow:hidden}
+.dcolwrap{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.dhead{display:flex;align-items:center;gap:4px;padding:4px 8px;font-size:10px;color:#8b98a5;border-bottom:1px solid #2a313c;background:#161b22;white-space:nowrap;flex:0 0 auto}
+.dhead.ask{border-bottom-color:rgba(255,138,128,.35)}
+.dhead.bid{border-bottom-color:rgba(79,195,247,.35)}
+.dhead .dbarh{flex:1;min-width:18px;text-align:left}
+.dhead .dp{width:62px;text-align:right}
+.dhead .dr{width:54px;text-align:right}
+.dhead .dt{width:84px;text-align:right}
+.dhead .dc{width:50px;text-align:right}
+.dlegend{display:flex;gap:12px;flex-wrap:wrap;padding:4px 10px;font-size:10px;color:#8b98a5;border-bottom:1px solid #2a313c;background:#0d1117;flex:0 0 auto}
+.lg{white-space:nowrap}
+.lg.ask{color:#ff8a80}
+.lg.bid{color:#4fc3f7}
+.lg.big{color:#ffb300}
 .dcol{flex:1;min-width:0;overflow-y:auto;font-family:var(--mono);font-size:11px}
 .drow{display:flex;align-items:center;gap:4px;padding:2px 8px;white-space:nowrap}
 .drow .dp{width:62px;text-align:right;color:#8b98a5}
@@ -239,10 +253,34 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
         <button class="abtn" id="d-exp" onclick="dExpanded=!dExpanded;renderDepth(lastDepth);document.getElementById('d-exp').textContent=dExpanded?'收起':'展开全部'">展开全部</button>
         <span id="d-balance" class="dim" style="font-size:11px"></span>
       </div>
+      <div class="dlegend">
+        <span class="lg ask">■ <b>卖方</b>挂单/主动卖</span>
+        <span class="lg bid">■ <b>买方</b>挂单/主动买</span>
+        <span class="lg big">■ 大单</span>
+        <span class="lg">│ 挂单量=未成交委托(可撤) · 主动量=真金白银已成交 · 累计=从中向外累计深度 · 柱条=累计占比</span>
+      </div>
       <div class="dladder">
-        <div id="d-asks" class="dcol"></div>
+        <div class="dcolwrap">
+          <div class="dhead ask">
+            <span class="dp" title="该价位的价格档">价格</span>
+            <span class="dr" title="尚未成交的委托量(可撤销)">挂单量</span>
+            <span class="dt" title="该价位实际成交的主动量"><b style="color:#4fc3f7">主动买</b>/<b style="color:#ff8a80">主动卖</b></span>
+            <span class="dc" title="从最新价向外累计的挂单量">累计</span>
+            <span class="dbarh" title="累计量占全场最大累计的比例">深度</span>
+          </div>
+          <div id="d-asks" class="dcol"></div>
+        </div>
         <div class="dmid"><div class="dlast" id="d-last">—</div><div class="dim" id="d-midinfo" style="font-size:10px"></div></div>
-        <div id="d-bids" class="dcol"></div>
+        <div class="dcolwrap">
+          <div class="dhead bid">
+            <span class="dp" title="该价位的价格档">价格</span>
+            <span class="dr" title="尚未成交的委托量(可撤销)">挂单量</span>
+            <span class="dt" title="该价位实际成交的主动量"><b style="color:#4fc3f7">主动买</b>/<b style="color:#ff8a80">主动卖</b></span>
+            <span class="dc" title="从最新价向外累计的挂单量">累计</span>
+            <span class="dbarh" title="累计量占全场最大累计的比例">深度</span>
+          </div>
+          <div id="d-bids" class="dcol"></div>
+        </div>
       </div>
       <div id="d-tape" class="dtape"></div>
       <div id="d-prof" style="height:110px;flex:0 0 auto"></div>
