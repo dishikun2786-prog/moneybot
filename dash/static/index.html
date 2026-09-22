@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>总览 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<nav><a class="brand" href="/">💰 Moneybot</a>
+<a href="/" class="active">总览</a><a href="/markets">标的监控</a><a href="/edge">错价分析</a>
+<a href="/analysis">分析报告</a><a href="/system">系统</a>
+<span class="clock" id="clock"></span></nav>
+<main>
+<h1>对冲监控总览 <small>PM×Bybit 碰价期权对冲 · 都柏林节点 · 数据每60s更新</small></h1>
+<div class="cards">
+  <div class="card"><div class="k">BTC 现货 (Bybit)</div><div class="v" id="btc">—</div></div>
+  <div class="card"><div class="k">ETH 现货 (Bybit)</div><div class="v" id="eth">—</div></div>
+  <div class="card"><div class="k">监控桶数</div><div class="v" id="buckets">—</div></div>
+  <div class="card"><div class="k">买信号 (edge>5¢)</div><div class="v green" id="buy">—</div></div>
+  <div class="card"><div class="k">卖信号 (edge>5¢)</div><div class="v red" id="sell">—</div></div>
+  <div class="card"><div class="k">周期延迟 P50/P99</div><div class="v" id="lat">—</div><div class="sub" id="latp99"></div></div>
+</div>
+<div class="panel"><h2>数据状态</h2>
+  <table><tr><th>最新快照时间 (UTC)</th><th>数据管道</th><th>状态</th></tr>
+  <tr><td id="last_ts">—</td><td>monitor → CSV/JSONL → Parquet → DuckDB</td>
+  <td><span class="badge" id="fresh_badge">—</span></td></tr></table>
+</div>
+<div class="footer">moneybot.openedskill.com · 仅供内部使用</div>
+</main>
+<script>
+async function guard(){
+  try{
+    const r = await fetch('/api/summary');
+    if(r.status===401){ location.href='/login'; return null; }
+    return r.json();
+  }catch(e){ return null; }
+}
+function fmt(x){ return (x==null)?'—':Number(x).toFixed(2); }
+function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
+setInterval(clock,1000); clock();
+async function refresh(){
+  const d = await guard();
+  if(!d) return;
+  document.getElementById('btc').textContent = '$'+fmt(d.btc);
+  document.getElementById('eth').textContent = '$'+fmt(d.eth);
+  document.getElementById('buckets').textContent = d.buckets;
+  document.getElementById('buy').textContent = d.buy_sig;
+  document.getElementById('sell').textContent = d.sell_sig;
+  document.getElementById('lat').textContent = fmt(d.p50_ms)+'ms';
+  document.getElementById('latp99').textContent = 'P99 '+fmt(d.p99_ms)+'ms';
+  document.getElementById('last_ts').textContent = d.last_ts;
+  const age = (Date.now()/1000) - Date.parse(d.last_ts+'Z')/1000;
+  const fb = document.getElementById('fresh_badge');
+  fb.textContent = age < 300 ? '新鲜' : '停滞!';
+  fb.className = 'badge ' + (age < 300 ? 'ok' : 'bad');
+}
+refresh(); setInterval(refresh, 30000);
+</script>
+</body></html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>错价分析 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/echarts.min.js"></script>
+</head><body>
+<nav><a class="brand" href="/">💰 Moneybot</a>
+<a href="/">总览</a><a href="/markets">标的监控</a><a href="/edge" class="active">错价分析</a>
+<a href="/analysis">分析报告</a><a href="/system">系统</a>
+<span class="clock" id="clock"></span></nav>
+<main>
+<h1>错价分析 <small>模型价 vs 市场价 + edge 演变</small></h1>
+<div class="toolbar">
+  <select id="mk" onchange="loadSeries()"></select>
+  <select id="hours" onchange="loadSeries()">
+    <option value="6">近6小时</option><option value="24" selected>近24小时</option><option value="72">近72小时</option>
+  </select>
+  <span class="dim" id="info"></span>
+</div>
+<div class="panel"><div id="chart"></div></div>
+<div class="footer">绿=买edge(模型低估) 红=卖edge(模型高估) · 单位: 美分/股</div>
+</main>
+<script>
+let chart = null;
+function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
+setInterval(clock,1000); clock();
+async function loadList(){
+  const r = await fetch('/api/markets?sort=strike');
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  const sel = document.getElementById('mk');
+  const want = new URLSearchParams(location.search).get('k');
+  sel.innerHTML = '';
+  let found = false;
+  for(const m of d.rows){
+    const key = m.event+'|'+m.market;
+    const o = document.createElement('option');
+    o.value = key; o.textContent = m.event.slice(0,24)+' '+m.market;
+    if(want===key){ o.selected = true; found = true; }
+    sel.appendChild(o);
+  }
+  if(!found && d.rows.length) sel.selectedIndex = 0;
+  loadSeries();
+}
+async function loadSeries(){
+  const key = document.getElementById('mk').value;
+  if(!key) return;
+  const hours = document.getElementById('hours').value;
+  const r = await fetch('/api/market/'+encodeURIComponent(key)+'?hours='+hours);
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  document.getElementById('info').textContent = d.points.length + ' 个快照点';
+  const ts = d.points.map(p=>p.t), mid = d.points.map(p=>((p.bid+p.ask)/2).toFixed(4)),
+        model = d.points.map(p=>Number(p.model).toFixed(4)), eb = d.points.map(p=>p.eb), es = d.points.map(p=>-p.es);
+  chart = chart || echarts.init(document.getElementById('chart'), 'dark');
+  chart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {trigger:'axis'},
+    legend: {data:['模型价','市场mid','买edge','卖edge'], textStyle:{color:'#8b98a5'}},
+    grid: {left:50, right:60, top:40, bottom:40},
+    xAxis: {type:'category', data: ts, axisLabel:{color:'#8b98a5'}},
+    yAxis: [
+      {type:'value', name:'价格', axisLabel:{color:'#8b98a5'}, splitLine:{lineStyle:{color:'#1c2430'}}},
+      {type:'value', name:'edge(¢)', axisLabel:{color:'#8b98a5'}, splitLine:{show:false}}
+    ],
+    series: [
+      {name:'模型价', type:'line', data: model, showSymbol:false, lineStyle:{color:'#4fc3f7', width:2}},
+      {name:'市场mid', type:'line', data: mid, showSymbol:false, lineStyle:{color:'#ffb300', width:2}},
+      {name:'买edge', type:'bar', yAxisIndex:1, data: eb, itemStyle:{color:'#00c853'}, barMaxWidth:6},
+      {name:'卖edge', type:'bar', yAxisIndex:1, data: es, itemStyle:{color:'#ff5252'}, barMaxWidth:6}
+    ]
+  });
+}
+loadList();
+window.addEventListener('resize', ()=>chart && chart.resize());
+</script>
+</body></html>

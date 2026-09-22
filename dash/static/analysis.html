@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分析报告 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<nav><a class="brand" href="/">💰 Moneybot</a>
+<a href="/">总览</a><a href="/markets">标的监控</a><a href="/edge">错价分析</a>
+<a href="/analysis" class="active">分析报告</a><a href="/system">系统</a>
+<span class="clock" id="clock"></span></nav>
+<main>
+<h1>分析报告 <small>σ 校准 + 回测结果</small></h1>
+<div class="panel"><h2>σ 校准状态</h2>
+<p class="dim">校准因子 = PM隐含σ / 我们Deribitσ 的方向中位数。已应用: up×1.046, down×0.896。</p>
+<table id="caltbl"><thead><tr><th>方向</th><th>48h滚动比值(median)</th><th>样本数</th><th>已应用因子</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="panel"><h2>回测结果 (v1, 60s快照回放)</h2>
+<p class="dim">均值回归策略参数网格 · 训练70%/测试30% · 费用含taker+滑点 · <b>修复分组bug后全负</b> → 等WSS 1s数据后重跑</p>
+<div style="overflow-x:auto"><table id="bttbl"><thead></thead><tbody></tbody></table></div>
+</div>
+<div class="footer">moneybot.openedskill.com</div>
+</main>
+<script>
+function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
+setInterval(clock,1000); clock();
+async function refresh(){
+  const r = await fetch('/api/analysis');
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  const ct = document.querySelector('#caltbl tbody');
+  ct.innerHTML = '';
+  for(const c of d.cal){
+    ct.innerHTML += `<tr><td>${c.dir}</td><td>${c.ratio}</td><td>${c.n}</td>
+      <td>${d.applied[c.dir]||'—'}</td></tr>`;
+  }
+  const bt = d.backtest;
+  const bthead = document.querySelector('#bttbl thead');
+  const btbody = document.querySelector('#bttbl tbody');
+  if(bt.length){
+    const cols = Object.keys(bt[0]).filter(k=>k.startsWith('train')||['th_in','th_out','max_h'].includes(k));
+    bthead.innerHTML = '<tr>'+cols.map(c=>`<th>${c.replace('train_','训练·')}</th>`).join('')+'</tr>';
+    btbody.innerHTML = '';
+    for(const row of bt.slice(0,15)){
+      btbody.innerHTML += '<tr>'+cols.map(c=>`<td>${row[c]||''}</td>`).join('')+'</tr>';
+    }
+  }
+}
+refresh();
+</script>
+</body></html>

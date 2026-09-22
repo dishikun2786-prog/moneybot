@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<div class="login-box">
+  <h1>💰 Moneybot</h1>
+  <p class="dim">对冲监控仪表盘 · 请输入访问密码</p>
+  <input type="password" id="pw" placeholder="密码" autofocus>
+  <div class="err" id="err"></div>
+  <button onclick="doLogin()" style="width:100%">登 录</button>
+</div>
+<script>
+async function doLogin(){
+  const pw = document.getElementById('pw').value;
+  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password: pw})});
+  const d = await r.json().catch(()=>({}));
+  if(d.ok){ location.href='/'; }
+  else { document.getElementById('err').textContent = d.err || '登录失败';
+         document.getElementById('pw').value=''; }
+}
+document.getElementById('pw').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+</script>
+</body></html>

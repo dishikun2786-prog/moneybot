@@ -1,0 +1,16 @@
+[Unit]
+Description=Moneybot web dashboard (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/polymarket
+ExecStart=/home/ubuntu/polymarket/venv/bin/uvicorn dash.app.main:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/ubuntu/polymarket/logs/dash_stdout.log
+StandardError=append:/home/ubuntu/polymarket/logs/dash_stderr.log
+
+[Install]
+WantedBy=multi-user.target
