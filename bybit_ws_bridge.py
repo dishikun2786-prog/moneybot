@@ -52,9 +52,13 @@ def on_msg(ws, m):
             return
         lag = int(time.time() * 1000) - int(d["ts"])
         with LOCK:
-            PRICES[sym] = {"last": float(t["lastPrice"]), "change_pct": float(t.get("price24hPcnt", 0) or 0) * 100,
-                           "high": float(t.get("highPrice24h", 0) or 0), "low": float(t.get("lowPrice24h", 0) or 0),
-                           "vol": float(t.get("turnover24h", 0) or 0), "ts": int(d["ts"])}
+            # 用 update 保留 spot 键 (spot通道写在同一dict; 整体替换会每100ms抹掉现货价)
+            PRICES.setdefault(sym, {})
+            PRICES[sym].update({"last": float(t["lastPrice"]),
+                                "change_pct": float(t.get("price24hPcnt", 0) or 0) * 100,
+                                "high": float(t.get("highPrice24h", 0) or 0),
+                                "low": float(t.get("lowPrice24h", 0) or 0),
+                                "vol": float(t.get("turnover24h", 0) or 0), "ts": int(d["ts"])})
             SNAP.update(ts=int(time.time() * 1000), lag_ms=lag, prices=dict(PRICES))
             N_TICKS["n"] += 1
     elif topic.startswith("kline."):
