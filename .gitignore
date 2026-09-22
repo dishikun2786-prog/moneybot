@@ -1,0 +1,12 @@
+*.pem
+*.txt
+logs/
+data/
+.hermes/
+__pycache__/
+私钥*
+HB密码*
+venv/
+node_modules/
+*.db
+.typesafe_key
