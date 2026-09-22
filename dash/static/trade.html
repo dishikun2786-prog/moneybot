@@ -96,6 +96,11 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .mstatus.auto{color:#00c853}
 .mstatus.manual{color:#ffb300}
 #manual-banner{background:rgba(255,179,0,.12);border:1px solid #ffb300;color:#ffb300;font-size:12px;padding:7px 10px;border-radius:6px;margin-top:6px}
+/* 参数编辑 */
+.stratgrp{margin-bottom:12px}
+.param-in{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6px;padding:5px 8px;font-size:12px}
+.param-in:focus{border-color:#00c853;outline:none}
+.param-in.dirty{border-color:#ffb300}
 @media (max-width:768px){
   .topbar{flex-wrap:wrap;row-gap:6px}
   .topnav{order:5;width:100%;overflow-x:auto}
@@ -408,35 +413,64 @@ function renderPositions(d, live){
 }
 async function loadStrategy(){
   const d = await guard('/api/strategy'); if(!d) return;
+  strategyParams = d.params || {};
   const order = [['carry','现货×永续套利'],['paper_pm','预测市场对冲'],['monitor','监控校准']];
   let html = '';
   for(const [k, name] of order){
-    const p = (d.params||{})[k] || {};
+    const p = strategyParams[k] || {};
     const zh = (d.zh||{})[k] || '';
-    const pl = (d.params||{})[k] && d.params[k]._comment ? d.params[k]._comment : '';
-    html += `<div style="margin-bottom:12px"><b>${name}</b><div class="zhdesc">${zh}</div>`;
-    if(k !== 'monitor'){
-      const labels = {theta_in_ann_pct:'入场阈值(年化%)',max_hold_h:'最长持仓(小时)',max_basis_bp:'基差上限(bp)',
-        notional_usd:'每标的名义($)',compounding_base_usd:'复利基准($)',compounding_min_mult:'名义下限(倍)',
-        compounding_max_mult:'名义上限(倍)',entry_window_min:'结算窗口(分钟)',spot_borrow_ann_pct:'现货借贷年化(%)',
-        min_gross_edge_c:'最小毛价差(¢)',theta_out_c:'平仓阈值(¢)',
-        min_opposite_size:'对手档下限(股)',max_spread_c:'价差上限(¢)',max_exposure_usd:'总敞口上限($)',
-        max_positions:'最大持仓数',max_daily_loss:'日亏限额($)'};
-      html += '<table class="param-table"><tr><th>参数</th><th>当前值</th></tr>';
-      for(const [pk, pv] of Object.entries(p)){
-        html += `<tr><td>${labels[pk]||pk}</td><td class="num">${pv}</td></tr>`;
-      }
-      html += '</table>';
-    } else {
-      html += '<table class="param-table"><tr><th>参数</th><th>当前值</th></tr>';
-      for(const [pk, pv] of Object.entries(p)){
-        html += `<tr><td>${pk==='cal_sigma_up'?'σ校准·涨桶':(pk==='cal_sigma_down'?'σ校准·跌桶':pk)}</td><td class="num">${pv}</td></tr>`;
-      }
-      html += '</table>';
+    html += `<div class="stratgrp"><b>${name}</b><div class="zhdesc">${zh}</div>`;
+    html += '<table class="param-table"><tr><th>参数</th><th>当前值</th><th>单位/范围</th></tr>';
+    for(const [pk, pv] of Object.entries(p)){
+      if(String(pk).startsWith('_')) continue;
+      const lab = PARAM_LABELS[pk] || pk;
+      const unit = PARAM_UNITS[pk] || '';
+      const range = (PARAM_META[k]||{})[pk];
+      html += `<tr><td>${lab}</td>
+        <td><input class="param-in num" data-group="${k}" data-key="${pk}" data-orig="${pv}"
+             value="${pv}" style="width:96px" inputmode="decimal"></td>
+        <td class="dim" style="font-size:10px">${unit}${range ? ` (${range[0]}~${range[1]})` : ''}</td></tr>`;
     }
-    html += '</div>';
+    html += '</table></div>';
   }
-  id('tab-strat').innerHTML = html + '<p class="zhdesc">参数单一源 strategy_params.json · AI助手修改后引擎下轮自动生效</p>';
+  html += `<div class="pbtns">
+      <button class="abtn ok" onclick="saveParams()">💾 保存修改</button>
+      <button class="abtn" onclick="loadStrategy()">↺ 重置</button></div>
+    <p class="zhdesc">参数单一源 strategy_params.json · 手动保存立即落盘并 git 留痕 · 引擎下轮热加载生效(≤60s) · AI助手修改走审批流 · 保存后可 AI 对话回退</p>`;
+  id('tab-strat').innerHTML = html;
+}
+function collectParamChanges(){
+  const changes = {};
+  document.querySelectorAll('#tab-strat .param-in').forEach(inp=>{
+    const v = inp.value.trim();
+    if(v === inp.dataset.orig) return;
+    changes[inp.dataset.group] = changes[inp.dataset.group] || {};
+    changes[inp.dataset.group][inp.dataset.key] = v;
+  });
+  return changes;
+}
+function saveParams(){
+  const changes = collectParamChanges();
+  if(!Object.keys(changes).length){ toast('没有修改'); return; }
+  for(const g of Object.keys(changes)){
+    for(const [k, v] of Object.entries(changes[g])){
+      const num = Number(v);
+      if(!Number.isFinite(num)){ toast(`❌ ${PARAM_LABELS[k]||k} 不是数字: ${v}`); return; }
+      const range = (PARAM_META[g]||{})[k];
+      if(range && (num < range[0] || num > range[1])){ toast(`❌ ${PARAM_LABELS[k]||k} 超出范围 ${range[0]}~${range[1]}`); return; }
+    }
+  }
+  pendingParams = changes;
+  const lines = [];
+  for(const g of Object.keys(changes)){
+    for(const [k, v] of Object.entries(changes[g])){
+      const orig = document.querySelector(`[data-group="${g}"][data-key="${k}"]`).dataset.orig;
+      lines.push(`${PARAM_LABELS[k]||k}: ${orig} → ${v}`);
+    }
+  }
+  document.getElementById('cfTitle').textContent = '保存策略参数';
+  document.getElementById('cfBody').textContent = '以下参数将被保存，引擎下轮热加载生效(≤60s):\n' + lines.join('\n') + '\n保存后 git 留痕，可随时回退';
+  openModal('confirmModal');
 }
 async function loadSignals(){
   const c = await guard('/api/carry');
@@ -501,6 +535,26 @@ document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault
 
 /* ===== 手动交易 (纸面) — 定义须在init之前 ===== */
 let pendingTrade = null, tpslCtx = null, pendingMode = null, pmMarkets = [];
+let strategyParams = null, pendingParams = null;
+const PARAM_LABELS = {theta_in_ann_pct:'入场阈值',max_hold_h:'最长持仓',max_basis_bp:'基差上限',
+  notional_usd:'每标的名义',compounding_base_usd:'复利基准',compounding_min_mult:'名义下限',
+  compounding_max_mult:'名义上限',entry_window_min:'结算窗口',spot_borrow_ann_pct:'现货借贷年化',
+  min_gross_edge_c:'最小毛价差',theta_out_c:'平仓阈值',min_opposite_size:'对手档下限',
+  max_spread_c:'价差上限',max_exposure_usd:'总敞口上限',max_positions:'最大持仓数',
+  max_daily_loss:'日亏限额',cal_sigma_up:'σ校准·涨桶',cal_sigma_down:'σ校准·跌桶'};
+const PARAM_UNITS = {theta_in_ann_pct:'%',max_hold_h:'小时',max_basis_bp:'bp',notional_usd:'$',
+  compounding_base_usd:'$',compounding_min_mult:'倍',compounding_max_mult:'倍',entry_window_min:'分钟',
+  spot_borrow_ann_pct:'%',min_gross_edge_c:'¢',theta_out_c:'¢',min_opposite_size:'股',
+  max_spread_c:'¢',max_exposure_usd:'$',max_positions:'个',max_daily_loss:'$',
+  cal_sigma_up:'×',cal_sigma_down:'×'};
+const PARAM_META = {
+  carry:{theta_in_ann_pct:[0,20],max_hold_h:[1,720],max_basis_bp:[0,100],notional_usd:[1,50],
+    compounding_base_usd:[1,100],compounding_min_mult:[0.05,1],compounding_max_mult:[1,10],
+    entry_window_min:[0,480],spot_borrow_ann_pct:[0,50]},
+  paper_pm:{min_gross_edge_c:[0.5,20],theta_out_c:[0,5],min_opposite_size:[10,1000],max_spread_c:[1,50],
+    max_hold_h:[1,72],max_exposure_usd:[1,100],max_positions:[1,10],max_daily_loss:[0.5,50]},
+  monitor:{cal_sigma_up:[0.7,1.5],cal_sigma_down:[0.7,1.5]}
+};
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -525,6 +579,17 @@ function confirmTrade(action, symbol, extra){
 }
 async function submitConfirm(){
   closeModal('confirmModal');
+  if(pendingParams){
+    const pp = pendingParams; pendingParams = null;
+    try{
+      const r = await fetch('/api/params', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({changes: pp})});
+      const d = await r.json();
+      toast(d.ok ? '✅ ' + d.msg + ' · ' + (d.note || '') : '❌ ' + (d.error || '失败'));
+      if(d.ok){ loadStrategy(); loadSignals(); }
+    }catch(e){ toast('❌ ' + e); }
+    return;
+  }
   if(pendingMode){
     const pm = pendingMode; pendingMode = null;
     try{
@@ -710,6 +775,13 @@ function applyLive(d){
 loadKlines(); loadPositions(); loadStrategy(); loadSignals(); loadTape();
 document.getElementById('tzlabel').textContent = '本机时区 ' + tzLabel() + ' · 数据已按本机时间显示';
 startES();
+/* 参数输入脏值高亮 */
+document.addEventListener('input', e => {
+  const t = e.target;
+  if(t.classList && t.classList.contains('param-in')){
+    t.classList.toggle('dirty', t.value.trim() !== t.dataset.orig);
+  }
+});
 setInterval(()=>{ if(playing) loadKlines(); }, 30000);
 setInterval(()=>{ if(playing) loadTape(); }, 5000);
 setInterval(()=>{ loadPositions(); loadSignals(); }, 15000);

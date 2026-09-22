@@ -266,6 +266,19 @@ async def manual_trade(request: Request, __=Depends(require_session)):
     return paper_ops.execute(action, body)
 
 
+@app.post("/api/params")
+async def api_params_save(request: Request, __=Depends(require_session)):
+    """手动保存策略参数 (白名单+范围校验, 原子写, git留痕, 引擎热加载生效)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    changes = body.get("changes")
+    if not isinstance(changes, dict) or not changes:
+        return JSONResponse({"ok": False, "error": "未提供修改内容"}, status_code=400)
+    return ai_tools.apply_params_direct(changes, "manual")
+
+
 @app.get("/api/mode")
 def api_mode(__=Depends(require_session)):
     return engine_mode.load()

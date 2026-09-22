@@ -198,6 +198,26 @@ def t_restart_engine(args):
             "message": "重启预览已生成, 等待用户批准"}
 
 
+def apply_params_direct(changes, source="manual"):
+    """手动直接改参 (无审批流, 用户在UI自己确认): 白名单+范围校验 → 原子写 → git提交 → 审计
+    source: manual(交易室手动) / 其他标识"""
+    diff, err = _validate_changes(changes)
+    if err:
+        return {"ok": False, "error": err}
+    params = _read_json(PARAMS, {})
+    for c in diff:
+        params.setdefault(c["group"], {})[c["key"]] = c["new"]
+    tmp = PARAMS + ".tmp"
+    json.dump(params, open(tmp, "w"), ensure_ascii=False, indent=2)
+    os.replace(tmp, PARAMS)
+    summary = ", ".join(f"{c['group']}.{c['key']}={c['old']}→{c['new']}" for c in diff)
+    out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m '手动改参: {summary}'", 15)
+    _audit("manual_params", {"source": source, "changes": changes,
+                             "summary": summary, "git": out.strip()[:40] or "committed"})
+    return {"ok": True, "msg": f"已保存并提交: {summary}", "diff": diff,
+            "note": "引擎下轮热加载生效(≤60s)"}
+
+
 def apply_pending(action_id, approve):
     """用户批准/拒绝 → 执行或废弃, 记审计"""
     p = _pending()
