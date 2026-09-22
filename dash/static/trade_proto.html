@@ -33,6 +33,11 @@ button.on{background:rgba(0,200,83,.15);border-color:var(--accent);color:var(--a
 .tf button{border:none;background:none;border-radius:4px}
 .tf button.on{background:rgba(0,200,83,.18);color:var(--accent)}
 .clock2{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;line-height:1.5;white-space:nowrap}
+.pnlwidget{border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:5px 12px;text-align:right;white-space:nowrap}
+.pnlwidget .pw1{display:flex;align-items:baseline;gap:8px;justify-content:flex-end}
+.pnlwidget .pw1 .lab{font-size:10px;color:var(--dim)}
+.pnlwidget .pw1 b{font-size:16px}
+.pnlwidget .pw2{font-size:10px;color:var(--dim);margin-top:1px}
 
 /* 主体三栏 */
 .wrap{flex:1;display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr 230px;min-height:0}
@@ -109,6 +114,10 @@ button.on{background:rgba(0,200,83,.15);border-color:var(--accent);color:var(--a
   </div>
   <button id="conv" title="切换涨跌色惯例">红涨绿跌</button>
   <button id="play" class="on" title="空格键暂停/恢复">▶ 实时</button>
+  <div class="pnlwidget" title="模拟盘整体盈亏(对接/api/pnl后实时)">
+    <div class="pw1"><span class="lab">模拟盘资金</span><b class="num" id="pw_cap">$103.02</b><span class="num" id="pw_chg">+3.02%</span></div>
+    <div class="pw2">今日 <span class="num" id="pw_today">+$0.02</span> · 未实现 <span class="num" id="pw_unreal">+$2.50</span></div>
+  </div>
   <div class="clock2"><div id="clk">—</div><div class="livedot" style="margin-left:auto"></div></div>
 </div>
 
@@ -125,10 +134,12 @@ button.on{background:rgba(0,200,83,.15);border-color:var(--accent);color:var(--a
   <div class="right">
     <div class="tabs">
       <button class="on" data-tab="pos">持仓</button>
+      <button data-tab="pnl">盈亏</button>
       <button data-tab="depth">盘口</button>
       <button data-tab="sig">信号</button>
     </div>
     <div class="tabbody" id="tab-pos"></div>
+    <div class="tabbody" id="tab-pnl" style="display:none"></div>
     <div class="tabbody" id="tab-depth" style="display:none"></div>
     <div class="tabbody" id="tab-sig" style="display:none"></div>
   </div>
@@ -149,7 +160,7 @@ button.on{background:rgba(0,200,83,.15);border-color:var(--accent);color:var(--a
 </div>
 
 <div class="footer-note">
-  <span>📐 设计原型 · K线与盘口为<b>示意数据</b>；交易标记/成交带中的 3 笔为<b>真实纸面交易记录</b>（2026-09-22）</span>
+  <span>📐 设计原型 · K线与盘口为<b>示意数据</b>；交易标记/成交带中的 3 笔为<b>真实纸面交易记录</b>（2026-09-22）· 盈亏数据=真实口径(初始$100+已实现+盯市)示意波动</span>
   <span>设计基准: 红涨绿跌(中国惯例) · 北京时间主显 · 等宽数字</span>
 </div>
 
@@ -278,6 +289,20 @@ function tick(){
   const vols = opt.series[3].data; vols[vols.length-1] = {value: vols[vols.length-1].value + Math.round(3+Math.random()*20), itemStyle: vols[vols.length-1].itemStyle};
   chart.setOption({series:[{data:k},{data:vols}]});
   id('price').textContent = c.toLocaleString();
+  // —— 盈亏组件实时跳动 ——
+  const w = (Math.random()-0.5)*0.04;
+  const cap = capBase + w;
+  const chg = (cap-100)/100*100;
+  const ce = id('pw_chg');
+  id('pw_cap').textContent = '$'+cap.toFixed(2);
+  id('pw_cap').className = 'num '+(chg>=0?'up':'down');
+  ce.textContent = (chg>=0?'+':'')+chg.toFixed(2)+'%';
+  ce.className = 'num '+(chg>=0?'up':'down');
+  const p1 = 1.12+w*0.5, p2 = 0.67+w*0.3;
+  const e1=id('pnl_p1'), e2=id('pnl_p2'), e3=id('pnl_cap');
+  if(e1){ e1.textContent='+$'+p1.toFixed(2)+' (+2.4%)'; e1.className='num up'; }
+  if(e2){ e2.textContent='+$'+p2.toFixed(2)+' (+2.5%)'; e2.className='num up'; }
+  if(e3){ e3.textContent='$'+cap.toFixed(2)+' ('+(chg>=0?'+':'')+chg.toFixed(2)+'%)'; }
 }
 function setPlaying(v){
   playing = v;
@@ -290,18 +315,17 @@ function setTf(t){ tf=t; document.querySelectorAll('#tfbar button').forEach(b=>b
 
 /* ================= 右栏: 持仓/盘口/信号 ================= */
 function renderPos(){
-  const wobble = (Math.random()-0.5)*0.14;
   id('tab-pos').innerHTML = `
   <div class="posrow"><div class="h"><span><span class="tag zh1">预测市场</span> 以太坊↓1,750</div><b class="num">买入</b></div>
-    <div class="p"><span>入场 <b class="num">0.100</b></span><span>名义 <b class="num">$10</b></span></div>
-    <div class="p"><span>浮盈(盯市)</span><span class="num up">+$1.12${''}</span></div></div>
+    <div class="p"><span>成本 <b class="num">0.100</b> → 现价 <b class="num">0.111</b></span><span>名义 <b class="num">$10</b></span></div>
+    <div class="p"><span>浮盈(盯市)</span><b class="num up" id="pnl_p1">+$1.12 (+2.4%)</b></div></div>
   <div class="posrow"><div class="h"><span><span class="tag zh1">预测市场</span> 比特币↑94,000</div><b class="num">买入</b></div>
-    <div class="p"><span>入场 <b class="num">0.052</b></span><span>名义 <b class="num">$5</b></span></div>
-    <div class="p"><span>浮盈(盯市)</span><span class="num up">+$0.${(4+wobble).toFixed(0)*0+38}</span></div></div>
+    <div class="p"><span>成本 <b class="num">0.052</b> → 现价 <b class="num">0.059</b></span><span>名义 <b class="num">$5</b></span></div>
+    <div class="p"><span>浮盈(盯市)</span><b class="num up" id="pnl_p2">+$0.67 (+2.5%)</b></div></div>
   <div class="posrow"><div class="h"><span><span class="tag zh2">现货套利</span> 比特币 BTCUSDT</div><b class="num">多现货+空永续</b></div>
     <div class="p"><span>入场 <b class="num">86,202/86,158</b></span><span>名义 <b class="num">$10</b></span></div>
-    <div class="p"><span>资金费累计</span><span class="num">$0.0007</span></div></div>
-  <p style="font-size:11px;color:var(--dim);margin-top:4px">3 笔为真实纸面持仓（2026-09-22），浮盈为示意波动</p>`;
+    <div class="p"><span>资金费累计</span><b class="num up" id="pnl_p3">+$0.0007</b></div></div>
+  <p style="font-size:11px;color:var(--dim);margin-top:4px">3 笔为真实纸面持仓（2026-09-22）· 浮盈按独立盯市计算（示意波动）</p>`;
 }
 function renderDepth(){
   const mid = BASE[sym];
@@ -327,28 +351,59 @@ function renderSig(){
   </div>`;
 }
 
+/* ================= 右栏: 盈亏面板 ================= */
+let pnlChart = null;
+function showPnl(){
+  if(!id('tab-pnl').dataset.done){
+    id('tab-pnl').innerHTML = `
+    <div class="sigrow"><span>整体资金 (含未实现)</span><b class="num up" id="pnl_cap">$103.02 (+3.02%)</b></div>
+    <div class="sigrow"><span>今日已实现 (落袋)</span><b class="num up" id="pnl_today">+$0.02</b></div>
+    <div class="sigrow"><span>累计已实现</span><b class="num up">+$0.02</b></div>
+    <div class="sigrow"><span>未实现 (盯市浮动)</span><b class="num up">+$2.50</b></div>
+    <div style="margin-top:10px;font-size:11px;color:var(--dim)">资金轨迹 (初始$100 · 虚线=初始 · 今日真实采样点+示意)</div>
+    <div id="pnl_chart" style="height:130px"></div>`;
+    id('tab-pnl').dataset.done = '1';
+    pnlChart = echarts.init(id('pnl_chart'),'dark');
+    pnlChart.setOption({backgroundColor:'transparent',
+      grid:{left:44,right:12,top:12,bottom:20},
+      xAxis:{type:'category',data:['08:00','09:00','09:30','10:00','现在'],axisLabel:{color:'#8b98a5',fontSize:9}},
+      yAxis:{type:'value',min:99.5,max:104,axisLabel:{color:'#8b98a5',fontSize:9},splitLine:{lineStyle:{color:'#1c2430'}}},
+      series:[{type:'line',data:[100,102.48,103.03,102.94,103.02],showSymbol:true,
+        lineStyle:{color:'#00c853',width:2},itemStyle:{color:'#00c853'},
+        areaStyle:{color:'rgba(0,200,83,.12)'},
+        markLine:{silent:true,symbol:'none',lineStyle:{color:'#8b98a5',type:'dashed'},
+          label:{formatter:'初始$100',color:'#8b98a5',fontSize:9},data:[{yAxis:100}]}}]});
+  } else {
+    pnlChart && pnlChart.resize();
+  }
+}
+
 /* ================= 底部成交带 ================= */
 const TAPE_BASE = [
-  {t:'10:37:03', strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', note:'BTCUSDT +0.0007$'},
-  {t:'08:50:48', strat:'zh2', tag:'现货套利', txt:'双腿开仓', px:'86,202/86,158', note:'BTCUSDT 年化7.98%'},
-  {t:'08:25:56', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.052', note:'BTC↑94,000 · $5 · edge 6.0¢'},
-  {t:'08:20:08', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.100', note:'ETH↓1,750 · $10 · edge 6.27¢'},
+  {t:'10:37:03', strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', pnl:'+$0.0007', note:'BTCUSDT'},
+  {t:'09:40:00', strat:'zh2', tag:'现货套利', txt:'单边平仓(合约腿)', px:'85,900', pnl:'+$0.30', note:'BTCUSDT 锁定carry利润·示意'},
+  {t:'09:15:00', strat:'zh1', tag:'预测市场', txt:'卖出平仓', px:'0.143', pnl:'+$0.86', note:'ETH↑3,000 · 示意'},
+  {t:'08:50:48', strat:'zh2', tag:'现货套利', txt:'双腿开仓', px:'86,202/86,158', pnl:'—', note:'BTCUSDT 年化7.98%'},
+  {t:'08:25:56', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.052', pnl:'—', note:'BTC↑94,000 · $5 · edge 6.0¢'},
+  {t:'08:20:08', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.100', pnl:'—', note:'ETH↓1,750 · $10 · edge 6.27¢'},
 ];
 let tapeFilter = 'all', tapeRows = [...TAPE_BASE];
 function renderTape(flashTop){
   const f = tapeFilter;
   const rows = tapeRows.filter(r=> f==='all' || r.strat===f);
+  const pcls = (p)=> !p||p==='—' ? '' : (p.startsWith('+')?'up':'down');
   const trs = rows.map((r,i)=>`<tr class="${flashTop&&i===0?'flash':''}">
     <td>${r.t}</td><td><span class="tag ${r.strat}">${r.tag}</span></td>
     <td class="${r.txt.includes('买入')?'up':(r.txt.includes('卖出')?'down':'')}">${r.txt}</td>
-    <td>${r.px}</td><td style="color:var(--dim);font-size:11px">${r.note}</td></tr>`).join('');
-  id('tape').innerHTML = `<thead><tr><th>时间(UTC)</th><th>策略</th><th>动作</th><th>价格</th><th>详情</th></tr></thead><tbody>${trs}</tbody>`;
+    <td>${r.px}</td><td class="num ${pcls(r.pnl)}">${r.pnl}</td>
+    <td style="color:var(--dim);font-size:11px">${r.note}</td></tr>`).join('');
+  id('tape').innerHTML = `<thead><tr><th>时间(UTC)</th><th>策略</th><th>动作</th><th>价格</th><th>盈亏(已实现)</th><th>详情</th></tr></thead><tbody>${trs}</tbody>`;
 }
 function simTapeEvent(){
   if(!playing) return;
   const actions = [
-    {strat:'zh1', tag:'预测市场', txt:'卖出', px:'0.143', note:'ETH↑3,000 · 平仓锁盈 +$0.86'},
-    {strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', note:'BTCUSDT +0.0007$'},
+    {strat:'zh1', tag:'预测市场', txt:'卖出平仓', px:'0.143', pnl:'+$0.86', note:'ETH↑3,000 · 示意'},
+    {strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', pnl:'+$0.0007', note:'BTCUSDT'},
   ];
   const ev = actions[Math.floor(Math.random()*actions.length)];
   tapeRows.unshift({t: new Date().toISOString().slice(11,19), ...ev});
@@ -366,9 +421,8 @@ id('fchips').addEventListener('click', e=>{ const b=e.target.closest('button'); 
   document.querySelectorAll('#fchips button').forEach(x=>x.classList.toggle('on',x===b)); renderTape(); }});
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click', ()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
-  id('tab-pos').style.display = b.dataset.tab==='pos'?'':'none';
-  id('tab-depth').style.display = b.dataset.tab==='depth'?'':'none';
-  id('tab-sig').style.display = b.dataset.tab==='sig'?'':'none';
+  ['pos','pnl','depth','sig'].forEach(t=>{ id('tab-'+t).style.display = b.dataset.tab===t?'':'none'; });
+  if(b.dataset.tab==='pnl') showPnl();
 }));
 document.addEventListener('keydown', e=>{
   if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
@@ -381,6 +435,7 @@ setInterval(()=>{ const now=new Date();
 },1000);
 
 /* ================= 启动 ================= */
+let capBase = 103.02;
 buildChart(); renderPos(); renderDepth(); renderSig(); renderTape();
 timer = setInterval(tick, 1600);
 setInterval(simTapeEvent, 5200);
