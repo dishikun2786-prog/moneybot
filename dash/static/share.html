@@ -1,29 +1,100 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>模拟盘盈亏 · Moneybot</title>
+<title>模拟盘成绩单 · Moneybot</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/echarts.min.js"></script>
+<style>
+.what-box { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 18px; font-size: 13px; line-height: 1.8; color: var(--fg); }
+.what-box b { color: var(--green); }
+.mcard { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.mcard .k { color: var(--dim); font-size: 13px; }
+.mcard .v { font-size: 30px; font-family: var(--mono); font-weight: 700; margin: 6px 0 10px; }
+.mcard .v.pos { color: var(--green); } .mcard .v.neg { color: var(--red); }
+.mcard .why { color: var(--dim); font-size: 12px; line-height: 1.7;
+  border-top: 1px dashed var(--border); padding-top: 8px; }
+.cards4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.caption { color: var(--dim); font-size: 12px; margin: 8px 2px 0; line-height: 1.7; }
+details { border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  margin-bottom: 10px; padding: 0; overflow: hidden; }
+summary { cursor: pointer; padding: 13px 18px; font-size: 14px; color: var(--fg); list-style: none; }
+summary::before { content: "▸ "; color: var(--green); }
+details[open] summary::before { content: "▾ "; }
+details .body { padding: 0 18px 16px; color: var(--dim); font-size: 13px; line-height: 1.9; }
+details .body b { color: var(--fg); font-weight: 600; }
+.badge-note { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px;
+  background: rgba(255,179,0,.12); color: var(--amber); border: 1px solid rgba(255,179,0,.35); margin-left: 8px; }
+</style>
 </head><body>
-<main style="max-width:900px">
-<h1>💰 Moneybot 模拟盘 <small>免密只读视图 · 30s刷新</small></h1>
-<div class="cards">
-  <div class="card"><div class="k">整体资金</div><div class="v" id="capital">—</div></div>
-  <div class="card"><div class="k">今日已实现</div><div class="v" id="today">—</div></div>
-  <div class="card"><div class="k">累计已实现</div><div class="v" id="realized">—</div></div>
-  <div class="card"><div class="k">未实现盈亏</div><div class="v" id="unreal">—</div></div>
+<main style="max-width:960px; padding-top:22px">
+<h1 style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">💰 Moneybot 模拟盘成绩单
+  <small style="margin:0">量化策略演习的实时成绩 · 30秒自动刷新</small></h1>
+
+<div class="what-box">
+<b>这是什么？</b> 一个用 <b>虚拟资金（$100）</b> 真枪实弹测试量化交易策略的「演习账户」。
+所有数字都是模拟盘真实计算的结果，<b>不涉及真实资金</b>。
+它每天自动运行两种策略——「预测市场找标错的价格」和「现货+合约吃利息」——这张成绩单让你一眼看懂它们赚不赚钱。
 </div>
-<div class="panel"><h2>资金曲线</h2><div id="eq_chart" style="height:240px"></div></div>
-<div class="panel"><h2>当前持仓</h2><table><thead>
-<tr><th>策略</th><th>标的</th><th>方向</th><th>入场</th><th>备注</th></tr></thead><tbody id="pos_tbl"></tbody></table></div>
-<div class="footer">moneybot.openedskill.com · 模拟数据, 非真实资金 · <span id="ts"></span></div>
+
+<div class="cards4">
+  <div class="mcard"><div class="k">整体资金 <span class="badge-note">最重要</span></div>
+    <div class="v" id="capital">—</div>
+    <div class="why">如果<b>这一刻把全部持仓卖掉</b>，模拟账户里一共会有这么多钱。
+    涨过 $100 说明策略整体在赚钱，低于 $100 在亏钱。</div></div>
+  <div class="mcard"><div class="k">今日已实现盈亏</div>
+    <div class="v" id="today">—</div>
+    <div class="why"><b>今天真正落袋</b>的钱：已经完成的交易（买入又卖出）赚了或亏了多少。浮动的不算。</div></div>
+  <div class="mcard"><div class="k">累计已实现盈亏</div>
+    <div class="v" id="realized">—</div>
+    <div class="why">从开跑至今，<b>所有已平仓交易</b>赚亏的总和。与「未实现」不同，这些已经是定局。</div></div>
+  <div class="mcard"><div class="k">未实现盈亏（浮动）</div>
+    <div class="v" id="unreal">—</div>
+    <div class="why"><b>还没卖掉的持仓</b>按当前市价估算的浮盈浮亏。价格一变它就变，<b>还没落袋</b>。</div></div>
+</div>
+
+<div class="panel"><h2>账户价值变化（资金曲线）</h2>
+  <div id="eq_chart" style="height:240px"></div>
+  <p class="caption">这条线 = 整体资金随时间的轨迹。<b>往上走</b>=策略在赚钱；<b>往下走</b>=在亏钱；越平缓越稳定。
+  绿色阴影区域表示高于初始资金（跑赢 $100 的部分）。</p></div>
+
+<div class="panel"><h2>现在的持仓</h2>
+  <table><thead><tr><th>策略</th><th>标的</th><th>方向</th><th>入场价</th><th>说明</th></tr></thead>
+  <tbody id="pos_tbl"></tbody></table>
+  <p class="caption">「持仓」= 目前还拿在手里的交易。它们的盈亏属于「未实现盈亏」，要等平仓后才变成「已实现」。</p></div>
+
+<div class="panel"><h2>看懂这些名词</h2>
+  <details><summary>模拟盘 vs 实盘有什么区别？</summary><div class="body">
+  模拟盘用 <b>$100 虚拟资金</b>跑和实盘<b>完全一样</b>的信号与操作，只是不碰真钱。它的作用是：在真金白银投入前，
+  先证明策略「真能赚钱」而不是运气。模拟盘成绩好 ≠ 实盘一定好，但模拟盘成绩差，实盘大概率更差。</div></details>
+  <details><summary>「已实现」和「未实现」有什么不同？</summary><div class="body">
+  <b>已实现</b> = 交易已经结束（买进又卖出），赚亏已成定局、落入口袋。<br>
+  <b>未实现</b> = 交易还没结束，只是按现在的市场价格「如果现在卖」的估算。价格随时变，它只是账面数字。</div></details>
+  <details><summary>策略一「预测市场找标错的价格」在做什么？</summary><div class="body">
+  在 Polymarket 这类预测市场上，每一个事件（比如「比特币年底会涨到 12 万吗？」）都像一个可买卖的彩票。
+  系统用数学模型算出这张「彩票」<b>应该值多少钱</b>，当发现市场上有人<b>卖得太便宜或买得太贵</b>时就出手，
+  赚「价格回归合理」的差价。</div></details>
+  <details><summary>策略二「现货+合约吃利息」在做什么？</summary><div class="body">
+  同时买一份比特币现货、卖一份比特币合约，两份持仓互相抵消，<b>价格涨跌都不影响账户</b>。
+  真正赚的是合约市场的「资金费率」——合约多头每 8 小时付给空头的一笔利息，类似「存款利息」。
+  年化利率高时进场持有，利率翻负就离场。</div></details>
+  <details><summary>「盯市」是什么意思？</summary><div class="body">
+  就是<b>用当前市场价格重新估算</b>持仓价值，而不是用买入时的价格。这样算出来的浮盈浮亏才是真实的「现在值多少」。</div></details>
+</div>
+
+<div class="footer">moneybot.openedskill.com · 模拟数据非真实资金 · <span id="ts">—</span></div>
 </main>
 <script>
 const token = location.pathname.split('/').pop();
 function col(v){ return (v>0)?'pos':(v<0?'neg':''); }
 async function refresh(){
   const r = await fetch('/api/share/'+encodeURIComponent(token));
-  if(r.status===404){ document.body.innerHTML = '<main><h1 style="color:#ff5252">分享链接无效或已被撤销</h1></main>'; return; }
+  if(r.status===404){
+    document.body.innerHTML = '<main style="max-width:600px;margin:15vh auto;text-align:center">'+
+      '<h1 style="color:#ff5252">分享链接无效或已被撤销</h1>'+
+      '<p class="dim">请联系分享者重新生成链接</p></main>';
+    return;
+  }
   const d = await r.json();
   for(const [id, v] of [['capital', d.capital], ['today', d.realized_today],
       ['realized', d.realized_total], ['unreal', d.unrealized]]){
@@ -47,7 +118,8 @@ async function refresh(){
     yAxis:{type:'value',name:'$',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
     series:[{name:'整体资金',type:'line',data:vals,showSymbol:true,
       lineStyle:{color:'#00c853',width:2},itemStyle:{color:'#00c853'},
-      areaStyle:{color:'rgba(0,200,83,0.12)'}}]});
+      areaStyle:{color:'rgba(0,200,83,0.12)'},markLine:{silent:true,symbol:'none',
+        lineStyle:{color:'#8b98a5',type:'dashed'},label:{formatter:'初始$100',color:'#8b98a5'},data:[{yAxis:100}]}}]});
   window.addEventListener('resize',()=>ch.resize());
 }
 refresh(); setInterval(refresh, 30000);

@@ -4,6 +4,24 @@
 <title>盈亏仪表盘 · Moneybot</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/echarts.min.js"></script>
+<style>
+.what-box { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 18px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; }
+.what-box b { color: var(--green); }
+.mcard { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.mcard .k { color: var(--dim); font-size: 13px; }
+.mcard .v { font-size: 26px; font-family: var(--mono); font-weight: 700; margin: 6px 0 8px; }
+.mcard .v.pos { color: var(--green); } .mcard .v.neg { color: var(--red); }
+.mcard .why { color: var(--dim); font-size: 12px; line-height: 1.6;
+  border-top: 1px dashed var(--border); padding-top: 8px; }
+details { border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  margin-bottom: 10px; padding: 0; overflow: hidden; }
+summary { cursor: pointer; padding: 12px 16px; font-size: 13px; color: var(--fg); list-style: none; }
+summary::before { content: "▸ "; color: var(--green); }
+details[open] summary::before { content: "▾ "; }
+details .body { padding: 0 16px 14px; color: var(--dim); font-size: 13px; line-height: 1.9; }
+details .body b { color: var(--fg); font-weight: 600; }
+</style>
 </head><body>
 <nav><a class="brand" href="/">💰 Moneybot</a>
 <a href="/">总览</a><a href="/markets">标的监控</a><a href="/carry">套利监控</a><a href="/edge">错价分析</a>
@@ -11,26 +29,56 @@
 <a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>模拟盘整体盈亏 <small>PM桶对冲 + 现货×永续套利 · 初始资金 $100 · 30s刷新</small></h1>
-<div class="cards">
-  <div class="card"><div class="k">整体资金 (含未实现)</div><div class="v" id="capital">—</div></div>
-  <div class="card"><div class="k">今日已实现</div><div class="v" id="today">—</div></div>
-  <div class="card"><div class="k">累计已实现</div><div class="v" id="realized">—</div></div>
-  <div class="card"><div class="k">未实现盈亏 (盯市)</div><div class="v" id="unreal">—</div></div>
-  <div class="card"><div class="k">PM纸面交易笔数</div><div class="v" id="pmt">—</div><div class="sub" id="cysub"></div></div>
+<h1>模拟盘整体盈亏 <small>两套策略合并 · 初始资金 $100 · 30秒刷新</small></h1>
+
+<div class="what-box">
+<b>口径说明：</b>整体资金 = $100 初始资金 + 累计已实现 + 今日已实现 + 未实现盯市。
+「已实现」= 平仓落袋的钱；「未实现」= 持仓按<b>当前市价</b>（独立盯市，非策略自己的模型价）估算的浮盈浮亏。
+PM桶按市场中间价盯市，现货永续按最新成交价盯市。
 </div>
-<div class="panel"><h2>资金曲线</h2><div id="eq_chart" style="height:260px"></div></div>
-<div class="panel"><h2>当前持仓 (含孤儿腿)</h2><table><thead>
+
+<div class="cards">
+  <div class="mcard"><div class="k">整体资金（含未实现）</div>
+    <div class="v" id="capital">—</div>
+    <div class="why">若此刻全部平仓，账户总价值。<b>&gt;$100=整体盈利</b>。</div></div>
+  <div class="mcard"><div class="k">今日已实现</div>
+    <div class="v" id="today">—</div>
+    <div class="why">今天平仓交易<b>实际落袋</b>的赚亏。</div></div>
+  <div class="mcard"><div class="k">累计已实现</div>
+    <div class="v" id="realized">—</div>
+    <div class="why">开跑至今所有平仓交易的盈亏总和（已成定局）。</div></div>
+  <div class="mcard"><div class="k">未实现盈亏（盯市）</div>
+    <div class="v" id="unreal">—</div>
+    <div class="why">持仓按<b>当前市价</b>估算的浮盈浮亏，未落袋，随价格变动。</div></div>
+  <div class="mcard"><div class="k">PM纸面交易笔数</div>
+    <div class="v" id="pmt">—</div>
+    <div class="why" id="cysub">carry轮数/孤儿腿见下</div></div>
+</div>
+
+<div class="panel"><h2>资金曲线</h2>
+  <div id="eq_chart" style="height:260px"></div>
+  <p class="dim" style="font-size:12px;margin:8px 2px 0">每日23:59 UTC自动快照累计已实现；最新点含今日实时+未实现。虚线=初始$100。</p></div>
+
+<div class="panel"><h2>当前持仓（含孤儿腿）</h2><table><thead>
 <tr><th>策略</th><th>标的</th><th>方向</th><th>入场价</th><th>备注</th></tr></thead><tbody id="pos_tbl"></tbody></table></div>
-<div class="panel"><h2>分享页面管理 (免密访问)</h2>
+
+<div class="panel"><h2>分享页面管理（免密访问）</h2>
   <div class="toolbar">
     <button onclick="genShare()">生成分享链接</button>
     <input id="revoke_tok" placeholder="粘贴token撤销" style="width:280px">
     <button onclick="revokeShare()">撤销</button>
   </div>
   <div id="share_box" class="dim"></div>
+  <p class="dim" style="font-size:12px;margin:10px 2px 0">分享页为面向普通用户的通俗版（含白话解释与名词表），只读、免密、可随时撤销。</p>
 </div>
-<div class="footer">moneybot.openedskill.com · 数据: 纸面引擎状态 + 独立盯市</div>
+
+<div class="panel"><h2>名词速查（通俗版同款）</h2>
+  <details><summary>已实现 vs 未实现</summary><div class="body"><b>已实现</b>=交易结束、落袋定局；<b>未实现</b>=持仓按现价估算，随时变化。</div></details>
+  <details><summary>盯市（Mark-to-Market）</summary><div class="body">用<b>当前市场价格</b>重估持仓，不用入场价——保证浮盈浮亏是"现在真实值多少"，且<b>不用策略自己的模型价</b>（避免自我证明）。</div></details>
+  <details><summary>孤儿腿</summary><div class="body">现货×永续套利在"单边平仓"（先平合约腿锁定利润）后留下的现货腿，等待下一轮复用或平掉，属于临时的单边敞口。</div></details>
+</div>
+
+<div class="footer">moneybot.openedskill.com · 模拟数据, 非真实资金</div>
 </main>
 <script>
 function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
@@ -52,7 +100,6 @@ async function refresh(){
   document.getElementById('pos_tbl').innerHTML = (d.positions||[]).map(p=>
     `<tr><td>${p.strat}</td><td>${p.key}</td><td>${p.side}</td><td>${p.entry}</td><td class="dim">${p.note}</td></tr>`
   ).join('') || '<tr><td class="dim" colspan="5">(空仓)</td></tr>';
-  // 资金曲线: 每日已实现累计 + 今日点
   const eq = d.equity || [];
   let cum = 100;
   const dates = [], vals = [];
@@ -65,7 +112,8 @@ async function refresh(){
     yAxis:{type:'value',name:'$',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
     series:[{name:'整体资金',type:'line',data:vals,showSymbol:true,
       lineStyle:{color:'#00c853',width:2},itemStyle:{color:'#00c853'},
-      areaStyle:{color:'rgba(0,200,83,0.12)'}}]});
+      areaStyle:{color:'rgba(0,200,83,0.12)'},markLine:{silent:true,symbol:'none',
+        lineStyle:{color:'#8b98a5',type:'dashed'},label:{formatter:'初始$100',color:'#8b98a5'},data:[{yAxis:100}]}}]});
 }
 async function genShare(){
   const r = await fetch('/api/share/generate', {method:'POST'});
@@ -73,7 +121,7 @@ async function genShare(){
   const d = await r.json();
   const url = location.protocol+'//'+location.host+'/share/'+d.token;
   document.getElementById('share_box').innerHTML =
-    `分享链接 (免密只读): <a href="${url}" target="_blank">${url}</a>`;
+    `分享链接 (免密只读·通俗版): <a href="${url}" target="_blank">${url}</a>`;
 }
 async function revokeShare(){
   const tok = document.getElementById('revoke_tok').value.trim();
