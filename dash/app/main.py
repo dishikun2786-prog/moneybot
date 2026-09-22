@@ -15,6 +15,18 @@ import ai_client  # noqa: E402
 import ai_tools  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
+
+
+@app.middleware("http")
+async def no_cache_html(request: Request, call_next):
+    """HTML页面禁止缓存 (防旧版页面/编码错乱被浏览器缓存)"""
+    resp = await call_next(request)
+    ct = resp.headers.get("content-type", "")
+    if ct.startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 STATIC = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
