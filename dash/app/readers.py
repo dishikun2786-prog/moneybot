@@ -97,6 +97,21 @@ def analysis():
                 applied={"up": 1.046, "down": 0.896}, backtest=bt)
 
 
+def paper():
+    st = {}
+    try:
+        st = json.load(open(os.path.expanduser("~/polymarket/logs/paper_state.json")))
+    except Exception:
+        pass
+    trades = []
+    tp = os.path.expanduser("~/polymarket/logs/paper_trades.jsonl")
+    if os.path.exists(tp):
+        with open(tp) as f:
+            lines = f.readlines()[-20:]
+        trades = [json.loads(l) for l in lines if l.strip()]
+    return dict(state=st, recent=trades)
+
+
 def system():
     svc = ["pm-monitor", "pm-wss", "pm-dash"]
     tmr = ["pm-hedge", "pm-datawriter", "pm-watchdog"]

@@ -88,6 +88,11 @@ def api_analysis(__=Depends(require_session)):
     return readers.cached("analysis", 60, readers.analysis)
 
 
+@app.get("/api/paper")
+def api_paper(__=Depends(require_session)):
+    return readers.paper()
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

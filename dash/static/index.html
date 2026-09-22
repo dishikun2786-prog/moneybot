@@ -17,7 +17,10 @@
   <div class="card"><div class="k">买信号 (edge>5¢)</div><div class="v green" id="buy">—</div></div>
   <div class="card"><div class="k">卖信号 (edge>5¢)</div><div class="v red" id="sell">—</div></div>
   <div class="card"><div class="k">周期延迟 P50/P99</div><div class="v" id="lat">—</div><div class="sub" id="latp99"></div></div>
+  <div class="card"><div class="k">纸面交易 PnL</div><div class="v" id="paper_pnl">—</div><div class="sub" id="paper_sub"></div></div>
 </div>
+<div class="panel"><h2>纸面持仓</h2><table><thead><tr><th>标的</th><th>方向</th><th>入场价</th><th>持有</th></tr></thead>
+<tbody id="paper_pos"></tbody></table></div>
 <div class="panel"><h2>数据状态</h2>
   <table><tr><th>最新快照时间 (UTC)</th><th>数据管道</th><th>状态</th></tr>
   <tr><td id="last_ts">—</td><td>monitor → CSV/JSONL → Parquet → DuckDB</td>
@@ -52,6 +55,25 @@ async function refresh(){
   fb.textContent = age < 300 ? '新鲜' : '停滞!';
   fb.className = 'badge ' + (age < 300 ? 'ok' : 'bad');
 }
+async function refreshPaper(){
+  const r = await fetch('/api/paper');
+  if(r.status===401){ return; }
+  const d = await r.json();
+  const st = d.state || {};
+  const pnl = st.day_pnl || 0;
+  const el = document.getElementById('paper_pnl');
+  el.textContent = (pnl>0?'+':'')+Number(pnl).toFixed(2)+'$';
+  el.className = 'v ' + (pnl>0?'green':pnl<0?'red':'');
+  document.getElementById('paper_sub').textContent =
+    (st.n_trades||0)+'笔 · 持仓'+(st.positions?Object.keys(st.positions).length:0);
+  const pos = st.positions || {};
+  document.getElementById('paper_pos').innerHTML =
+    Object.entries(pos).map(([k,p])=>{
+      const h = ((Date.now()/1000 - p.t0)/3600).toFixed(1);
+      return `<tr><td>${k.slice(0,45)}</td><td>${p.side}</td><td>${p.entry}</td><td>${h}h</td></tr>`;
+    }).join('') || '<tr><td class="dim" colspan="4">(空仓)</td></tr>';
+}
+refreshPaper(); setInterval(refreshPaper, 30000);
 refresh(); setInterval(refresh, 30000);
 </script>
 </body></html>
