@@ -43,6 +43,14 @@ check("已过结算 → 过滤", not ce.in_entry_window({"next_funding_ts": (now
 ce.ENTRY_WINDOW_MIN = 0
 check("窗口关闭(0) → 不限", ce.in_entry_window({"next_funding_ts": (now + 10800) * 1000}))
 
+# 4. 方向选择 (正向/反向/借贷门槛)
+check("funding+8% → 正向", ce.pick_dir(8.0, -3.0) == "fwd")
+check("funding-3% → 不入场", ce.pick_dir(-3.0, -3.0) is None)
+check("funding-8% → 不入场(未覆盖借贷5%)", ce.pick_dir(-8.0, -3.0) is None)
+check("funding-12% → 反向", ce.pick_dir(-12.0, -3.0) == "rev")
+check("基差过宽 → 不入场", ce.pick_dir(12.0, 25.0) is None)
+check("基差过宽(反向) → 不入场", ce.pick_dir(-15.0, -25.0) is None)
+
 n_fail = sum(1 for _, c in ok if not c)
 print(f"\n结果: {len(ok) - n_fail}/{len(ok)} 通过")
 sys.exit(1 if n_fail else 0)

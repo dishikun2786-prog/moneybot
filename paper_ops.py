@@ -113,8 +113,10 @@ def _latest_carry_row(sym):
 
 # ================= 执行动作 (每个动作: 锁→校验→执行→审计) =================
 
-def open_hedge(sym, notional):
-    """一键对冲: 实时价双腿纸面开仓"""
+def open_hedge(sym, notional, dir_="fwd"):
+    """一键对冲: 实时价双腿纸面开仓 (fwd=多现货+空永续; rev=空现货+多永续)"""
+    if dir_ not in ("fwd", "rev"):
+        return {"ok": False, "error": "方向须 fwd/rev"}
     try:
         notional = float(notional)
     except Exception:
@@ -132,17 +134,24 @@ def open_hedge(sym, notional):
         if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
             return {"ok": False, "error": f"{sym} 已有持仓/孤儿/裸腿, 先平仓"}
         fees = (FEE_SPOT + FEE_PERP) * notional
+        if dir_ == "rev":
+            fees += 0.05 / 365 / 24 * notional  # 空现货借贷成本(5%年化, 预扣1小时)
         st.setdefault("day_pnl", 0.0)
         st["day_pnl"] = round(st["day_pnl"] - fees, 4)
         st.setdefault("positions", {})[sym] = dict(
             spot_entry=px["spot"], perp_entry=px["perp"], t0=time.time(),
             funding_acc=0.0, next_funding_ts=int((row or {}).get("next_funding_ts", 0)),
-            last_fr=(row or {}).get("funding_rate", 0.0), reused=False, notional=notional)
+            last_fr=(row or {}).get("funding_rate", 0.0), reused=False,
+            notional=notional, dir=dir_)
         _write(CARRY_STATE, st)
         _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_OPEN_HEDGE",
-                                      spot_entry=px["spot"], perp_entry=px["perp"], notional=notional))
-        _audit("open_hedge", sym, {"spot": px["spot"], "perp": px["perp"], "notional": notional, "fees": fees})
-        return {"ok": True, "msg": f"已开仓 {sym} 多现货@{px['spot']:.1f} + 空永续@{px['perp']:.1f} (名义{notional}$)"}
+                                      spot_entry=px["spot"], perp_entry=px["perp"],
+                                      notional=notional, dir=dir_))
+        _audit("open_hedge", sym, {"spot": px["spot"], "perp": px["perp"], "notional": notional,
+                                   "dir": dir_, "fees": fees})
+        legs = "多现货+空永续" if dir_ == "fwd" else "空现货+多永续"
+        return {"ok": True, "msg": f"已开仓 {sym} {'正向' if dir_ == 'fwd' else '反向'}({legs}) "
+                                   f"现货@{px['spot']:.1f} 永续@{px['perp']:.1f} (名义{notional}$)"}
     finally:
         _unlock(f)
 
@@ -159,7 +168,9 @@ def close_orphan(sym):
         if not orph:
             return {"ok": False, "error": f"{sym} 无孤儿现货腿"}
         n = orph.get("notional", 10.0)
-        pnl = (px["spot"] - orph["spot_entry"]) / orph["spot_entry"] * n - FEE_SPOT * n
+        d = orph.get("dir", "fwd")
+        pnl = ((px["spot"] - orph["spot_entry"]) if d == "fwd" else
+               (orph["spot_entry"] - px["spot"])) / orph["spot_entry"] * n - FEE_SPOT * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
@@ -185,19 +196,21 @@ def close_perp_leg(sym):
         pos = (st.get("positions") or {}).get(sym)
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
+        d = pos.get("dir", "fwd")
         n = pos.get("notional", 10.0)
-        perp_pnl = (pos["perp_entry"] - px["perp"]) / pos["perp_entry"] * n
+        perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
+                    (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
         fees = FEE_PERP * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         st.setdefault("orphans", {})[sym] = dict(spot_entry=pos["spot_entry"], t0=pos["t0"],
                                                  next_funding_ts=pos.get("next_funding_ts", 0),
-                                                 notional=n)
+                                                 notional=n, dir=d)
         del st["positions"][sym]
         _write(CARRY_STATE, st)
         _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_PERP_LEG",
-                                      perp_entry=pos["perp_entry"], perp_exit=px["perp"],
+                                      perp_entry=pos["perp_entry"], perp_exit=px["perp"], dir=d,
                                       perp_pnl_usd=round(perp_pnl, 3), funding_acc=pos.get("funding_acc", 0)))
-        _audit("close_perp_leg", sym, {"perp_exit": px["perp"], "perp_pnl": round(perp_pnl, 3)})
+        _audit("close_perp_leg", sym, {"perp_exit": px["perp"], "perp_pnl": round(perp_pnl, 3), "dir": d})
         return {"ok": True, "msg": f"已平合约腿 {sym} @{px['perp']:.1f} (合约腿PnL {perp_pnl:+.3f}$, 现货腿转孤儿)"}
     finally:
         _unlock(f)
@@ -215,8 +228,11 @@ def close_both(sym):
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
         n = pos.get("notional", 10.0)
-        spot_pnl = (px["spot"] - pos["spot_entry"]) / pos["spot_entry"] * n
-        perp_pnl = (pos["perp_entry"] - px["perp"]) / pos["perp_entry"] * n
+        d = pos.get("dir", "fwd")
+        spot_pnl = ((px["spot"] - pos["spot_entry"]) if d == "fwd" else
+                    (pos["spot_entry"] - px["spot"])) / pos["spot_entry"] * n
+        perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
+                    (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
         fees = (FEE_SPOT + FEE_PERP) * n
         total = spot_pnl + perp_pnl - fees
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + total, 4)
@@ -225,10 +241,10 @@ def close_both(sym):
         del st["positions"][sym]
         _write(CARRY_STATE, st)
         _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_BOTH",
-                                      spot_entry=pos["spot_entry"], spot_exit=px["spot"],
+                                      spot_entry=pos["spot_entry"], spot_exit=px["spot"], dir=d,
                                       perp_entry=pos["perp_entry"], perp_exit=px["perp"],
                                       pnl_usd=round(total, 3), funding_acc=pos.get("funding_acc", 0)))
-        _audit("close_both", sym, {"pnl": round(total, 3)})
+        _audit("close_both", sym, {"pnl": round(total, 3), "dir": d})
         return {"ok": True, "msg": f"已全平 {sym} (PnL {total:+.3f}$, 含funding累计{pos.get('funding_acc', 0):+.3f}$)"}
     finally:
         _unlock(f)
@@ -250,28 +266,36 @@ def close_spot_to_naked(sym, tp, sl):
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
         entry = pos["perp_entry"]
-        if not (tp < entry < sl):
+        d = pos.get("dir", "fwd")
+        # fwd裸腿=空永续: tp<entry<sl; rev裸腿=多永续: sl<entry<tp
+        if d == "fwd" and not (tp < entry < sl):
             return {"ok": False, "error": f"方向错误: 空头止盈须<入场价{entry}, 止损须>入场价{entry} (收到 止盈{tp}/止损{sl})"}
+        if d == "rev" and not (sl < entry < tp):
+            return {"ok": False, "error": f"方向错误: 多头止损须<入场价{entry}, 止盈须>入场价{entry} (收到 止盈{tp}/止损{sl})"}
         naked = st.get("naked", {})
         if len(naked) >= MAX_NAKED:
             return {"ok": False, "error": f"裸腿数已达上限{MAX_NAKED}"}
         n = pos.get("notional", 10.0)
         if n > MAX_NAKED_NOTIONAL:
             return {"ok": False, "error": f"名义{n}$超过裸腿上限{MAX_NAKED_NOTIONAL}$"}
-        spot_pnl = (px["spot"] - pos["spot_entry"]) / pos["spot_entry"] * n
+        spot_pnl = ((px["spot"] - pos["spot_entry"]) if d == "fwd" else
+                    (pos["spot_entry"] - px["spot"])) / pos["spot_entry"] * n
         fees = FEE_SPOT * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + spot_pnl - fees, 4)
         st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=n, tp=tp, sl=sl,
                                                t0=time.time(), funding_acc=pos.get("funding_acc", 0.0),
                                                last_fr=pos.get("last_fr", 0.0),
-                                               next_funding_ts=pos.get("next_funding_ts", 0))
+                                               next_funding_ts=pos.get("next_funding_ts", 0),
+                                               dir=d)
         del st["positions"][sym]
         _write(CARRY_STATE, st)
         _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_SPOT_TO_NAKED",
-                                      spot_entry=pos["spot_entry"], spot_exit=px["spot"],
+                                      spot_entry=pos["spot_entry"], spot_exit=px["spot"], dir=d,
                                       perp_entry=entry, tp=tp, sl=sl, notional=n))
-        _audit("close_spot_to_naked", sym, {"spot_exit": px["spot"], "perp_entry": entry, "tp": tp, "sl": sl})
-        return {"ok": True, "msg": f"现货腿已平 {sym} ({spot_pnl:+.3f}$), 合约腿转裸空仓 (止盈{tp} 止损{sl})"}
+        _audit("close_spot_to_naked", sym, {"spot_exit": px["spot"], "perp_entry": entry,
+                                            "tp": tp, "sl": sl, "dir": d})
+        leg_zh = "裸空仓" if d == "fwd" else "裸多仓"
+        return {"ok": True, "msg": f"现货腿已平 {sym} ({spot_pnl:+.3f}$), 合约腿转{leg_zh} (止盈{tp} 止损{sl})"}
     finally:
         _unlock(f)
 
@@ -288,7 +312,9 @@ def close_naked(sym):
         if not nk:
             return {"ok": False, "error": f"{sym} 无裸腿持仓"}
         n = nk.get("notional", 10.0)
-        perp_pnl = (nk["perp_entry"] - px["perp"]) / nk["perp_entry"] * n
+        d = nk.get("dir", "fwd")
+        perp_pnl = ((nk["perp_entry"] - px["perp"]) if d == "fwd" else
+                    (px["perp"] - nk["perp_entry"])) / nk["perp_entry"] * n
         fees = FEE_PERP * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         del st["naked"][sym]
@@ -315,8 +341,11 @@ def edit_naked_tpsl(sym, tp, sl):
         if not nk:
             return {"ok": False, "error": f"{sym} 无裸腿持仓"}
         entry = nk["perp_entry"]
-        if not (tp < entry < sl):
+        d = nk.get("dir", "fwd")
+        if d == "fwd" and not (tp < entry < sl):
             return {"ok": False, "error": f"方向错误: 空头止盈须<{entry}, 止损须>{entry}"}
+        if d == "rev" and not (sl < entry < tp):
+            return {"ok": False, "error": f"方向错误: 多头止损须<{entry}, 止盈须>{entry}"}
         old = (nk["tp"], nk["sl"])
         nk["tp"], nk["sl"] = tp, sl
         _write(CARRY_STATE, st)
@@ -397,7 +426,7 @@ def close_pm(key):
 
 
 DISPATCH = {
-    "open_hedge": lambda a: open_hedge(a.get("symbol", ""), a.get("notional", 10.0)),
+    "open_hedge": lambda a: open_hedge(a.get("symbol", ""), a.get("notional", 10.0), a.get("dir", "fwd")),
     "close_perp_leg": lambda a: close_perp_leg(a.get("symbol", "")),
     "close_orphan": lambda a: close_orphan(a.get("symbol", "")),
     "open_pm": lambda a: open_pm(a.get("key", ""), a.get("side", ""), a.get("size_usd", 5)),

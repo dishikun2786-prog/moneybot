@@ -280,29 +280,38 @@ def pnl_overview():
                           "entry": p.get("entry"), "note": f"{p.get('size_usd', 0):.0f}$名义"})
     for sym, p in (cy_st.get("positions") or {}).items():
         sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        d = p.get("dir", "fwd")
         positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
-                          "key": f"{sym_zh}({sym})", "side": "买入现货+卖出合约",
+                          "key": f"{sym_zh}({sym}) {'正向' if d == 'fwd' else '反向'}套利",
+                          "side": "买入现货+卖出合约" if d == "fwd" else "卖出现货+买入合约",
                           "entry": f"{p.get('spot_entry')}/{p.get('perp_entry')}",
                           "note": f"资金费累计 {p.get('funding_acc', 0):.3f}$",
                           "live": {"symbol": sym, "spot_entry": p.get("spot_entry"),
                                    "perp_entry": p.get("perp_entry"),
-                                   "notional": float(p.get("notional", 10.0))}})
+                                   "notional": float(p.get("notional", 10.0)),
+                                   "dir": d}})
     for sym, p in (cy_st.get("naked") or {}).items():
         sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        d = p.get("dir", "fwd")
         positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
-                          "key": f"{sym_zh}({sym}) 裸空仓", "side": "裸空合约(手动方向仓)",
+                          "key": f"{sym_zh}({sym}) 裸{'空' if d == 'fwd' else '多'}仓",
+                          "side": "裸空合约(手动方向仓)" if d == "fwd" else "裸多合约(手动方向仓)",
                           "entry": f"{p.get('perp_entry')}",
                           "note": f"止盈{p.get('tp')} / 止损{p.get('sl')} · 资金费累计{p.get('funding_acc', 0):.3f}$",
                           "live": {"symbol": sym, "perp_entry": p.get("perp_entry"),
-                                   "notional": float(p.get("notional", 10.0)), "naked": True}})
+                                   "notional": float(p.get("notional", 10.0)), "naked": True,
+                                   "dir": d}})
     for sym, p in (cy_st.get("orphans") or {}).items():
         sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        d = p.get("dir", "fwd")
         positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
-                          "key": f"{sym_zh}({sym}) 孤儿现货腿", "side": "仅现货(待处置)",
+                          "key": f"{sym_zh}({sym}) 孤儿{'多' if d == 'fwd' else '空'}现货腿",
+                          "side": "仅现货(待处置)" if d == "fwd" else "仅空现货(待处置)",
                           "entry": f"{p.get('spot_entry')}",
                           "note": "合约腿已平 · 可手动平仓或等信号复用",
                           "live": {"symbol": sym, "spot_entry": p.get("spot_entry"),
-                                   "notional": float(p.get("notional", 10.0)), "orphan": True}})
+                                   "notional": float(p.get("notional", 10.0)), "orphan": True,
+                                   "dir": d}})
     return dict(capital=capital,
                 realized_total=round(realized_total, 2),
                 realized_today=round(pm_day + cy_day, 2),

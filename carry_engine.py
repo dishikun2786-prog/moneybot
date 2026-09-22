@@ -30,13 +30,14 @@ COMP_BASE = 10.0      # 复利基准名义$
 COMP_MIN = 0.2        # 名义最小倍率
 COMP_MAX = 3.0        # 名义最大倍率
 ENTRY_WINDOW_MIN = 60  # 结算前N分钟入场窗口 (0=关闭)
+BORROW_ANN = 5.0      # 反向套利: 空现货的借贷年化成本%
 PARAMS_FILE = f"{BASE}/strategy_params.json"
 
 
 def hot_load():
     """热加载策略参数 (每轮读取 strategy_params.json, 缺省/异常回退模块常量)"""
     global TH_IN_ANN, MAX_HOLD_H, MAX_BASIS_BP, NOTIONAL
-    global COMP_BASE, COMP_MIN, COMP_MAX, ENTRY_WINDOW_MIN
+    global COMP_BASE, COMP_MIN, COMP_MAX, ENTRY_WINDOW_MIN, BORROW_ANN
     try:
         d = json.load(open(PARAMS_FILE)).get("carry", {})
         if d.get("theta_in_ann_pct") is not None:
@@ -55,8 +56,22 @@ def hot_load():
             COMP_MAX = float(d["compounding_max_mult"])
         if d.get("entry_window_min") is not None:
             ENTRY_WINDOW_MIN = float(d["entry_window_min"])
+        if d.get("spot_borrow_ann_pct") is not None:
+            BORROW_ANN = float(d["spot_borrow_ann_pct"])
     except Exception:
         pass
+
+
+def pick_dir(ann, basis_bp, th=TH_IN_ANN, borrow=BORROW_ANN, max_basis=MAX_BASIS_BP):
+    """方向选择: 正向(多现货+空永续, funding正) / 反向(空现货+多永续, funding负且覆盖借贷成本)
+    返回 fwd / rev / None(不入场)"""
+    if abs(basis_bp) >= max_basis:
+        return None
+    if ann > th:
+        return "fwd"
+    if ann < -(th + borrow):
+        return "rev"
+    return None
 
 
 def effective_notional(st):
@@ -159,30 +174,39 @@ def cycle():
         if not r:
             continue
         live = r["perp_last"]
+        nk_dir = nk.get("dir", "fwd")
         if int(r["next_funding_ts"]) > int(nk.get("next_funding_ts", 0)):
             n_nk = nk.get("notional", N)
-            st["day_pnl"] = round(st["day_pnl"] + nk.get("last_fr", 0.0) * n_nk, 4)
-            nk["funding_acc"] = round(nk.get("funding_acc", 0.0) + nk.get("last_fr", 0.0) * n_nk, 4)
+            fr_nk = nk.get("last_fr", 0.0)
+            # 反向裸腿=多永续: funding<0 时收取 → 金额按方向取号
+            amt = fr_nk * n_nk if nk_dir == "fwd" else -fr_nk * n_nk
+            st["day_pnl"] = round(st["day_pnl"] + amt, 4)
+            nk["funding_acc"] = round(nk.get("funding_acc", 0.0) + amt, 4)
             log_trade(dict(ts=now_ts(), symbol=sym, action="FUNDING_SETTLE_NAKED",
-                           rate=nk.get("last_fr", 0.0),
-                           amount=round(nk.get("last_fr", 0.0) * n_nk, 4), notional=n_nk))
+                           rate=fr_nk, amount=round(amt, 4), notional=n_nk))
             nk["last_fr"] = r["funding_rate"]
             nk["next_funding_ts"] = int(r["next_funding_ts"])
         hit = None
-        if live <= nk["tp"]:
-            hit = "止盈"
-        elif live >= nk["sl"]:
-            hit = "止损"
+        if nk_dir == "fwd":
+            if live <= nk["tp"]:
+                hit = "止盈"
+            elif live >= nk["sl"]:
+                hit = "止损"
+        else:
+            if live >= nk["tp"]:
+                hit = "止盈"
+            elif live <= nk["sl"]:
+                hit = "止损"
         if hit:
             n_nk = nk.get("notional", N)
-            perp_pnl = (nk["perp_entry"] - live) / nk["perp_entry"] * n_nk
+            perp_pnl = ((nk["perp_entry"] - live) if nk_dir == "fwd" else (live - nk["perp_entry"])) / nk["perp_entry"] * n_nk
             fees = FEE_PERP * n_nk
             st["day_pnl"] = round(st["day_pnl"] + perp_pnl - fees, 4)
             st.setdefault("n_rounds", 0)
             st["n_rounds"] += 1
             log_trade(dict(ts=now_ts(), symbol=sym,
                            action="MANUAL_NAKED_TP" if hit == "止盈" else "MANUAL_NAKED_SL",
-                           perp_entry=nk["perp_entry"], perp_exit=live,
+                           perp_entry=nk["perp_entry"], perp_exit=live, dir=nk_dir,
                            perp_pnl_usd=round(perp_pnl, 3), tp=nk["tp"], sl=nk["sl"],
                            funding_acc=nk.get("funding_acc", 0)))
             events.append(f"裸腿{hit}平仓 {sym} @{live} ({perp_pnl:+.3f}$)")
@@ -195,11 +219,14 @@ def cycle():
             continue
         if int(r["next_funding_ts"]) > int(pos["next_funding_ts"]):
             n_pos = pos.get("notional", N)
-            st["day_pnl"] = round(st["day_pnl"] + pos["last_fr"] * n_pos, 4)
-            pos["funding_acc"] = round(pos["funding_acc"] + pos["last_fr"] * n_pos, 4)
+            pos_dir = pos.get("dir", "fwd")
+            # 正向=空永续收正funding; 反向=多永续收负funding → 金额取号
+            amt = pos["last_fr"] * n_pos if pos_dir == "fwd" else -pos["last_fr"] * n_pos
+            st["day_pnl"] = round(st["day_pnl"] + amt, 4)
+            pos["funding_acc"] = round(pos["funding_acc"] + amt, 4)
             log_trade(dict(ts=now_ts(), symbol=sym, action="FUNDING_SETTLE",
-                           rate=pos["last_fr"], amount=round(pos["last_fr"] * n_pos, 4),
-                           notional=n_pos))
+                           rate=pos["last_fr"], amount=round(amt, 4),
+                           notional=n_pos, dir=pos_dir))
             pos["last_fr"] = r["funding_rate"]
             pos["next_funding_ts"] = int(r["next_funding_ts"])
 
@@ -207,7 +234,7 @@ def cycle():
     if engine_mode.load()["carry"] == "manual":
         save_state(st)
         engine_release()
-        pos_txt = ", ".join(f"{s}:持有" for s in st["positions"]) or "(空仓)"
+        pos_txt = ", ".join(f"{s}:{'正向' if p.get('dir', 'fwd') == 'fwd' else '反向'}" for s, p in st["positions"].items()) or "(空仓)"
         nkd_txt = ", ".join(f"{s}(TP{nk['tp']}/SL{nk['sl']})" for s, nk in st["naked"].items()) or "无"
         print(f"[{now_ts()}] carry纸面: [手动模式] 自动交易已暂停 | 持仓[{pos_txt}] 裸腿[{nkd_txt}] | "
               f"当日PnL {st['day_pnl']:+.2f}$ 累计 {st.get('cum_pnl', 0):+.2f}$")
@@ -222,26 +249,30 @@ def cycle():
             continue
         ann = r["ann_funding_pct"]
         n_orph = orph.get("notional", N)
-        if ann > TH_IN_ANN:  # 信号仍成立 → 复用为新一轮现货腿
+        o_dir = orph.get("dir", "fwd")
+        reuse_ok = (o_dir == "fwd" and ann > TH_IN_ANN) or \
+                   (o_dir == "rev" and ann < -(TH_IN_ANN + BORROW_ANN))
+        if reuse_ok:  # 信号仍成立 → 复用为新一轮持仓 (方向继承)
             st["positions"][sym] = dict(spot_entry=orph["spot_entry"], perp_entry=r["perp_last"],
                                         t0=time.time(), funding_acc=0.0,
                                         next_funding_ts=orph["next_funding_ts"],
                                         last_fr=r["funding_rate"], reused=True,
-                                        notional=n_orph)
+                                        notional=n_orph, dir=o_dir)
             del st["orphans"][sym]
             fees = FEE_PERP * n_orph  # 只重开合约腿
             st["day_pnl"] = round(st["day_pnl"] - fees, 4)
             log_trade(dict(ts=now_ts(), symbol=sym, action="REUSE_SPOT_LEG",
                            spot_entry=orph["spot_entry"], perp_entry=r["perp_last"],
-                           notional=n_orph))
-            events.append(f"复用现货腿 {sym} (名义{n_orph}$, 省一次现货手续费)")
+                           notional=n_orph, dir=o_dir))
+            events.append(f"复用现货腿 {sym} {'正向' if o_dir=='fwd' else '反向'} (名义{n_orph}$, 省一次现货手续费)")
         else:  # 平掉孤儿现货腿
-            pnl = (r["spot"] - orph["spot_entry"]) / orph["spot_entry"] * n_orph - FEE_SPOT * n_orph
+            pnl = ((r["spot"] - orph["spot_entry"]) if o_dir == "fwd" else
+                   (orph["spot_entry"] - r["spot"])) / orph["spot_entry"] * n_orph - FEE_SPOT * n_orph
             st["day_pnl"] = round(st["day_pnl"] + pnl, 4)
             st["n_rounds"] += 1
             log_trade(dict(ts=now_ts(), symbol=sym, action="CLOSE_SPOT_LEG",
                            spot_entry=orph["spot_entry"], spot_exit=r["spot"],
-                           pnl_usd=round(pnl, 3), notional=n_orph))
+                           pnl_usd=round(pnl, 3), notional=n_orph, dir=o_dir))
             events.append(f"平孤儿现货腿 {sym} {orph['spot_entry']:.2f}→{r['spot']:.2f} {pnl:+.3f}$")
             del st["orphans"][sym]
 
@@ -252,16 +283,22 @@ def cycle():
             continue
         hours = (time.time() - pos["t0"]) / 3600
         fr = r["funding_rate"]
-        exit_now = fr < 0 or hours >= MAX_HOLD_H
-        if exit_now:
+        pos_dir = pos.get("dir", "fwd")
+        if pos_dir == "fwd":
+            exit_now = fr < 0 or hours >= MAX_HOLD_H
             reason = "funding翻负(regime结束)" if fr < 0 else "超时"
+        else:
+            exit_now = fr > 0 or hours >= MAX_HOLD_H
+            reason = "funding转正(regime结束)" if fr > 0 else "超时"
+        if exit_now:
             n_pos = pos.get("notional", N)
-            # 平合约腿: 空永续 PnL = (entry - now)/entry × N
-            perp_pnl = (pos["perp_entry"] - r["perp_last"]) / pos["perp_entry"] * n_pos
+            # 平合约腿: fwd=空永续 (entry-now)/entry; rev=多永续 (now-entry)/entry
+            perp_pnl = ((pos["perp_entry"] - r["perp_last"]) if pos_dir == "fwd" else
+                        (r["perp_last"] - pos["perp_entry"])) / pos["perp_entry"] * n_pos
             fees = (FEE_SPOT + FEE_PERP) * n_pos  # 两腿开仓费 + 合约腿平仓费近似
             st["day_pnl"] = round(st["day_pnl"] + perp_pnl - fees, 4)
             log_trade(dict(ts=now_ts(), symbol=sym, action="CLOSE_PERP_LEG(单边平仓)",
-                           perp_entry=pos["perp_entry"], perp_exit=r["perp_last"],
+                           perp_entry=pos["perp_entry"], perp_exit=r["perp_last"], dir=pos_dir,
                            funding_acc=pos["funding_acc"], perp_pnl_usd=round(perp_pnl, 3),
                            notional=n_pos, reason=reason))
             events.append(f"单边平合约腿 {sym} {reason}: 合约腿{perp_pnl:+.3f}$ "
@@ -269,7 +306,7 @@ def cycle():
             # 现货腿 → 孤儿 (下一轮复用或平掉)
             st["orphans"][sym] = dict(spot_entry=pos["spot_entry"], t0=pos["t0"],
                                       next_funding_ts=int(r["next_funding_ts"]),
-                                      notional=n_pos)
+                                      notional=n_pos, dir=pos_dir)
             del st["positions"][sym]
 
     # ---- 3) 开新仓 ----
@@ -280,21 +317,25 @@ def cycle():
         basis = r["basis_mark_bp"]
         near_settle = (int(r["next_funding_ts"]) / 1000) % 28800 >= 27900
         in_window = in_entry_window(r)
-        if ann > TH_IN_ANN and abs(basis) < MAX_BASIS_BP and not near_settle and in_window:
+        dir_ = pick_dir(ann, basis)
+        if dir_ and not near_settle and in_window:
             st["positions"][sym] = dict(spot_entry=r["spot"], perp_entry=r["perp_last"],
                                         t0=time.time(), funding_acc=0.0,
                                         next_funding_ts=int(r["next_funding_ts"]),
                                         last_fr=r["funding_rate"], reused=False,
-                                        notional=N)
+                                        notional=N, dir=dir_)
             fees = (FEE_SPOT + FEE_PERP) * N
+            if dir_ == "rev":
+                fees += BORROW_ANN / 100 / 365 / 24 * N  # 空现货借贷成本(按小时计, 入场时预扣1小时)
             st["day_pnl"] = round(st["day_pnl"] - fees, 4)
+            legs = "多现货+空永续" if dir_ == "fwd" else "空现货+多永续"
             log_trade(dict(ts=now_ts(), symbol=sym, action="OPEN_BOTH_LEGS",
-                           spot_entry=r["spot"], perp_entry=r["perp_last"],
+                           spot_entry=r["spot"], perp_entry=r["perp_last"], dir=dir_,
                            ann_pct=round(ann, 2), basis_bp=round(basis, 2),
                            notional=N))
-            events.append(f"开仓 {sym} 多现货@{r['spot']} + 空永续@{r['perp_last']} "
-                          f"(年化{ann:.1f}%, 基差{basis:+.1f}bp, 名义{N}$)")
-        elif ann > TH_IN_ANN and not in_window:
+            events.append(f"开仓 {sym} {'正向' if dir_ == 'fwd' else '反向'}({legs}) "
+                          f"(年化{ann:+.1f}%, 基差{basis:+.1f}bp, 名义{N}$)")
+        elif dir_ and not in_window:
             events.append(f"[窗口过滤] {sym} 信号成立但距结算>={ENTRY_WINDOW_MIN:.0f}分钟, 等待结算窗口")
 
     save_state(st)

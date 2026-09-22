@@ -228,9 +228,9 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
   <div class="mbox">
     <h3>平现货腿 → 转裸空仓</h3>
     <p class="dim" style="font-size:12px" id="tpslInfo"></p>
-    <label>止盈价（空头方向: 必须 <b>低于</b> 入场价）</label>
+    <label id="tpslLbl1">止盈价（空头方向: 必须 <b>低于</b> 入场价）</label>
     <input type="number" step="0.1" id="tpslTp" class="num">
-    <label>止损价（空头方向: 必须 <b>高于</b> 入场价）</label>
+    <label id="tpslLbl2">止损价（空头方向: 必须 <b>高于</b> 入场价）</label>
     <input type="number" step="0.1" id="tpslSl" class="num">
     <div class="pbtns">
       <button class="abtn warn" onclick="submitTpsl()">确认转裸仓（止盈止损随仓）</button>
@@ -338,11 +338,12 @@ function initTicket(){
     <div id="manual-banner" style="display:none"></div>
   </div>
   <div class="ticket">
-    <div class="trow"><b>快速交易 · 一键对冲</b><span class="dim" style="font-size:10px">纸面 · 实时价双腿开仓（现货多+合约空）</span></div>
+    <div class="trow"><b>快速交易 · 一键对冲</b><span class="dim" style="font-size:10px">纸面 · 实时价双腿开仓 · 正向=多现货空合约 / 反向=空现货多合约(含借贷成本)</span></div>
     <div class="trow">
       <select id="tk-sym" class="num"><option value="BTCUSDT">比特币 BTC</option><option value="ETHUSDT">以太坊 ETH</option></select>
+      <select id="tk-dir" class="num"><option value="fwd">正向套利</option><option value="rev">反向套利</option></select>
       <input type="number" id="tk-notional" class="num" value="10" min="1" max="50" step="1" style="width:80px" title="名义金额($)">
-      <button class="abtn ok" onclick="confirmTrade('open_hedge', document.getElementById('tk-sym').value, {notional: document.getElementById('tk-notional').value})">一键对冲开仓</button>
+      <button class="abtn ok" onclick="confirmTrade('open_hedge', document.getElementById('tk-sym').value, {notional: document.getElementById('tk-notional').value, dir: document.getElementById('tk-dir').value})">一键对冲开仓</button>
     </div></div>
   <div class="ticket">
     <div class="trow"><b>PM 手动开仓</b><span class="dim" style="font-size:10px">模型价 vs 盘口价 · 自主判断</span></div>
@@ -365,22 +366,26 @@ function renderPositions(d, live){
     let u = null;
     if(p.live && lp[p.live.symbol]){
       const n = p.live.notional;
+      const d = p.live.dir || 'fwd';
       if(p.live.naked){
         const L = Number(lp[p.live.symbol].last);
-        if(L) u = (p.live.perp_entry - L)/p.live.perp_entry * n;
+        if(L) u = (d === 'fwd' ? (p.live.perp_entry - L) : (L - p.live.perp_entry)) / p.live.perp_entry * n;
       } else if(p.live.orphan){
         const S = Number(lp[p.live.symbol].spot);
-        if(S) u = (S - p.live.spot_entry)/p.live.spot_entry * n;
+        if(S) u = (d === 'fwd' ? (S - p.live.spot_entry) : (p.live.spot_entry - S)) / p.live.spot_entry * n;
       } else {
         const L = Number(lp[p.live.symbol].last);
-        if(L) u = ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
+        const S = Number(lp[p.live.symbol].spot);
+        if(L && S) u = d === 'fwd'
+          ? ((S - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n
+          : ((p.live.spot_entry - S)/p.live.spot_entry + (L - p.live.perp_entry)/p.live.perp_entry) * n;
       }
     }
     const uhtml = u==null ? '' : ` <b class="num ${u>0?'up':(u<0?'down':'')}" title="实时浮盈">${u>0?'+':''}${u.toFixed(3)}$</b>`;
     let btns = '';
     if(p.live && p.live.naked){
       btns = `<div class="pbtns">
-        <button class="abtn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}')">编辑止盈止损</button>
+        <button class="abtn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}','${p.live.dir||'fwd'}')">编辑止盈止损</button>
         <button class="abtn bad" onclick="confirmTrade('close_naked','${p.live.symbol}')">平仓</button></div>`;
     } else if(p.live && p.live.orphan){
       btns = `<div class="pbtns">
@@ -388,7 +393,7 @@ function renderPositions(d, live){
     } else if(p.live){
       btns = `<div class="pbtns">
         <button class="abtn" onclick="confirmTrade('close_perp_leg','${p.live.symbol}')">平合约腿</button>
-        <button class="abtn warn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}')">平现货腿→裸仓</button>
+        <button class="abtn warn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}','${p.live.dir||'fwd'}')">平现货腿→裸仓</button>
         <button class="abtn bad" onclick="confirmTrade('close_both','${p.live.symbol}')">全平</button></div>`;
     } else if(p.key_orig){
       btns = `<div class="pbtns">
@@ -413,7 +418,7 @@ async function loadStrategy(){
     if(k !== 'monitor'){
       const labels = {theta_in_ann_pct:'入场阈值(年化%)',max_hold_h:'最长持仓(小时)',max_basis_bp:'基差上限(bp)',
         notional_usd:'每标的名义($)',compounding_base_usd:'复利基准($)',compounding_min_mult:'名义下限(倍)',
-        compounding_max_mult:'名义上限(倍)',entry_window_min:'结算窗口(分钟)',
+        compounding_max_mult:'名义上限(倍)',entry_window_min:'结算窗口(分钟)',spot_borrow_ann_pct:'现货借贷年化(%)',
         min_gross_edge_c:'最小毛价差(¢)',theta_out_c:'平仓阈值(¢)',
         min_opposite_size:'对手档下限(股)',max_spread_c:'价差上限(¢)',max_exposure_usd:'总敞口上限($)',
         max_positions:'最大持仓数',max_daily_loss:'日亏限额($)'};
@@ -605,13 +610,20 @@ function confirmPmOpen(){
   if(!key){ toast('❌ 无市场可选'); return; }
   confirmTrade('open_pm', key, {side, size_usd: size});
 }
-function openTpslModal(symbol, entry){
-  tpslCtx = {symbol, entry: Number(entry)};
+function openTpslModal(symbol, entry, dir){
+  tpslCtx = {symbol, entry: Number(entry), dir: dir || 'fwd'};
+  const fwd = tpslCtx.dir === 'fwd';
   document.getElementById('tpslInfo').innerHTML =
     `标的: <b>${symbol}</b> · 合约腿入场价 <b>${entry}</b><br>` +
-    `平掉现货腿后为<b style="color:#ffb300">裸空方向仓</b>（价格下跌盈利），必须设置止盈止损`;
-  document.getElementById('tpslTp').value = (Number(entry) * 0.99).toFixed(1);
-  document.getElementById('tpslSl').value = (Number(entry) * 1.01).toFixed(1);
+    (fwd
+      ? `平掉现货腿后为<b style="color:#ffb300">裸空方向仓</b>（价格下跌盈利），必须设置止盈止损`
+      : `平掉现货腿后为<b style="color:#ffb300">裸多方向仓</b>（价格上涨盈利），必须设置止盈止损`);
+  document.getElementById('tpslLbl1').innerHTML =
+    fwd ? '止盈价（空头: 必须 <b>低于</b> 入场价）' : '止损价（多头: 必须 <b>低于</b> 入场价）';
+  document.getElementById('tpslLbl2').innerHTML =
+    fwd ? '止损价（空头: 必须 <b>高于</b> 入场价）' : '止盈价（多头: 必须 <b>高于</b> 入场价）';
+  document.getElementById('tpslTp').value = (Number(entry) * (fwd ? 0.99 : 1.01)).toFixed(1);
+  document.getElementById('tpslSl').value = (Number(entry) * (fwd ? 1.01 : 0.99)).toFixed(1);
   openModal('tpslModal');
 }
 async function submitTpsl(){
@@ -619,8 +631,11 @@ async function submitTpsl(){
   const tp = Number(document.getElementById('tpslTp').value);
   const sl = Number(document.getElementById('tpslSl').value);
   const entry = tpslCtx.entry;
-  if(!(tp < entry && entry < sl)){
-    toast(`❌ 方向错误: 空头止盈须<入场价${entry}, 止损须>入场价${entry}`);
+  const fwd = tpslCtx.dir === 'fwd';
+  const ok = fwd ? (tp < entry && entry < sl) : (sl < entry && entry < tp);
+  if(!ok){
+    toast(fwd ? `❌ 空头: 止盈须<入场价${entry}, 止损须>入场价${entry}`
+              : `❌ 多头: 止损须<入场价${entry}, 止盈须>入场价${entry}`);
     return;
   }
   closeModal('tpslModal');
