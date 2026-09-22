@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import secrets
 import subprocess
 import time
 import duckdb
@@ -156,6 +157,135 @@ def carry():
         ["symbol", "ts", "spot", "perp_mark", "funding_rate", "basis_bp", "ann_pct"], r)) for r in rows],
         series=series, fund_hist=[dict(t=r[0], symbol=r[1], ann=r[2]) for r in fund_hist],
         state=st, trades=trades)
+
+
+INITIAL_CAPITAL = 100.0  # 模拟盘初始资金
+TOKENS_FILE = os.path.expanduser("~/polymarket/dash/share_tokens.json")
+
+
+def _json(path, default=None):
+    try:
+        return json.load(open(os.path.expanduser(path)))
+    except Exception:
+        return default
+
+
+def _mtm_pm(st):
+    """PM桶纸面持仓按市场mid独立盯市"""
+    pos = st.get("positions") or {}
+    if not pos:
+        return 0.0
+    rows = _q(f"""WITH latest AS (
+        SELECT event, market, best_bid, best_ask,
+               row_number() OVER (PARTITION BY event, market ORDER BY ts DESC) rn
+        FROM read_parquet('{FV}') WHERE best_bid>0 AND best_ask>0)
+        SELECT event, market, (best_bid+best_ask)/2 AS mid FROM latest WHERE rn=1""")
+    mid_map = {f"{r[0]}|{r[1]}": r[2] for r in rows}
+    tot = 0.0
+    for key, p in pos.items():
+        mid = mid_map.get(key)
+        if mid is None or not p.get("entry"):
+            continue
+        shares = p.get("size_usd", 10.0) / p["entry"]
+        tot += (mid - p["entry"]) * shares if p["side"] == "BUY" else (p["entry"] - mid) * shares
+    return tot
+
+
+def _mtm_carry(st):
+    """现货永续套利持仓按最新ticker盯市"""
+    pos = st.get("positions") or {}
+    if not pos:
+        return 0.0
+    rows = _q(f"""WITH latest AS (
+        SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY ts DESC) rn
+        FROM read_parquet('{config.DATA}/carry_1m/year=*/month=*/*.parquet'))
+        SELECT symbol, spot, perp_mark FROM latest WHERE rn=1""")
+    m = {r[0]: (r[1], r[2]) for r in rows}
+    tot = 0.0
+    for sym, p in pos.items():
+        cur = m.get(sym)
+        if not cur:
+            continue
+        spot_now, perp_now = cur
+        spot_pnl = (spot_now - p["spot_entry"]) / p["spot_entry"] * 10.0
+        perp_pnl = (p["perp_entry"] - perp_now) / p["perp_entry"] * 10.0
+        tot += spot_pnl + perp_pnl + p.get("funding_acc", 0.0)
+    return tot
+
+
+def pnl_overview():
+    """模拟盘整体盈亏: 资金 = 初始100 + Σ每日已实现 + 今日已实现 + 未实现MTM"""
+    eq = []
+    eqp = os.path.expanduser("~/polymarket/logs/equity_daily.jsonl")
+    if os.path.exists(eqp):
+        with open(eqp) as f:
+            for line in f:
+                try:
+                    eq.append(json.loads(line))
+                except Exception:
+                    pass
+    pm_st = _json("~/polymarket/logs/paper_state.json") or {}
+    cy_st = _json("~/polymarket/logs/carry_state.json") or {}
+    pm_day = float(pm_st.get("day_pnl", 0.0))
+    cy_day = float(cy_st.get("day_pnl", 0.0))
+    realized_total = sum(float(e.get("total", 0.0)) for e in eq) + pm_day + cy_day
+    unreal = _mtm_pm(pm_st) + _mtm_carry(cy_st)
+    capital = round(INITIAL_CAPITAL + realized_total + unreal, 2)
+    positions = []
+    for key, p in (pm_st.get("positions") or {}).items():
+        positions.append({"strat": "PM桶对冲", "key": key[:44], "side": p["side"],
+                          "entry": p.get("entry"), "note": f"{p.get('size_usd', 0):.0f}$名义"})
+    for sym, p in (cy_st.get("positions") or {}).items():
+        positions.append({"strat": "现货×永续", "key": sym, "side": "多现货+空永续",
+                          "entry": f"{p.get('spot_entry')}/{p.get('perp_entry')}",
+                          "note": f"funding累计 {p.get('funding_acc', 0):.3f}$"})
+    return dict(capital=capital,
+                realized_total=round(realized_total, 2),
+                realized_today=round(pm_day + cy_day, 2),
+                unrealized=round(unreal, 2),
+                equity=eq,
+                positions=positions,
+                orphans=len(cy_st.get("orphans") or {}),
+                pm_trades=int(pm_st.get("n_trades", 0)),
+                cy_rounds=int(cy_st.get("n_rounds", 0)),
+                ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+
+
+def _tokens():
+    try:
+        return json.load(open(TOKENS_FILE))
+    except Exception:
+        return {}
+
+
+def generate_share():
+    tok = secrets.token_urlsafe(16)
+    t = _tokens()
+    t[tok] = {"created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    json.dump(t, open(TOKENS_FILE, "w"), ensure_ascii=False, indent=1)
+    return tok
+
+
+def valid_share(tok):
+    return tok in _tokens()
+
+
+def revoke_share(tok):
+    t = _tokens()
+    if tok in t:
+        del t[tok]
+        json.dump(t, open(TOKENS_FILE, "w"), ensure_ascii=False, indent=1)
+        return True
+    return False
+
+
+def share_view():
+    """分享页数据: 只读聚合 (无敏感信息)"""
+    d = pnl_overview()
+    return dict(capital=d["capital"], realized_total=d["realized_total"],
+                realized_today=d["realized_today"], unrealized=d["unrealized"],
+                equity=d["equity"], positions=d["positions"],
+                orphans=d["orphans"], ts=d["ts"])
 
 
 def system():

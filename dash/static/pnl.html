@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>盈亏仪表盘 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/echarts.min.js"></script>
+</head><body>
+<nav><a class="brand" href="/">💰 Moneybot</a>
+<a href="/">总览</a><a href="/markets">标的监控</a><a href="/carry">套利监控</a><a href="/edge">错价分析</a>
+<a href="/pnl" class="active">盈亏看板</a>
+<a href="/analysis">分析报告</a><a href="/system">系统</a>
+<span class="clock" id="clock"></span></nav>
+<main>
+<h1>模拟盘整体盈亏 <small>PM桶对冲 + 现货×永续套利 · 初始资金 $100 · 30s刷新</small></h1>
+<div class="cards">
+  <div class="card"><div class="k">整体资金 (含未实现)</div><div class="v" id="capital">—</div></div>
+  <div class="card"><div class="k">今日已实现</div><div class="v" id="today">—</div></div>
+  <div class="card"><div class="k">累计已实现</div><div class="v" id="realized">—</div></div>
+  <div class="card"><div class="k">未实现盈亏 (盯市)</div><div class="v" id="unreal">—</div></div>
+  <div class="card"><div class="k">PM纸面交易笔数</div><div class="v" id="pmt">—</div><div class="sub" id="cysub"></div></div>
+</div>
+<div class="panel"><h2>资金曲线</h2><div id="eq_chart" style="height:260px"></div></div>
+<div class="panel"><h2>当前持仓 (含孤儿腿)</h2><table><thead>
+<tr><th>策略</th><th>标的</th><th>方向</th><th>入场价</th><th>备注</th></tr></thead><tbody id="pos_tbl"></tbody></table></div>
+<div class="panel"><h2>分享页面管理 (免密访问)</h2>
+  <div class="toolbar">
+    <button onclick="genShare()">生成分享链接</button>
+    <input id="revoke_tok" placeholder="粘贴token撤销" style="width:280px">
+    <button onclick="revokeShare()">撤销</button>
+  </div>
+  <div id="share_box" class="dim"></div>
+</div>
+<div class="footer">moneybot.openedskill.com · 数据: 纸面引擎状态 + 独立盯市</div>
+</main>
+<script>
+function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
+setInterval(clock,1000); clock();
+let eqChart=null;
+function col(v){ return (v>0)?'pos':(v<0?'neg':''); }
+async function refresh(){
+  const r = await fetch('/api/pnl');
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  for(const [id, v, cls] of [['capital', d.capital, ''], ['today', d.realized_today, col(d.realized_today)],
+      ['realized', d.realized_total, col(d.realized_total)], ['unreal', d.unrealized, col(d.unrealized)] ]){
+    const el = document.getElementById(id);
+    el.textContent = (v>0?'+':'') + Number(v).toFixed(2) + '$';
+    el.className = 'v ' + cls;
+  }
+  document.getElementById('pmt').textContent = d.pm_trades;
+  document.getElementById('cysub').textContent = 'carry轮数 ' + d.cy_rounds + ' · 孤儿腿 ' + d.orphans;
+  document.getElementById('pos_tbl').innerHTML = (d.positions||[]).map(p=>
+    `<tr><td>${p.strat}</td><td>${p.key}</td><td>${p.side}</td><td>${p.entry}</td><td class="dim">${p.note}</td></tr>`
+  ).join('') || '<tr><td class="dim" colspan="5">(空仓)</td></tr>';
+  // 资金曲线: 每日已实现累计 + 今日点
+  const eq = d.equity || [];
+  let cum = 100;
+  const dates = [], vals = [];
+  for(const e of eq){ cum += e.total; dates.push(e.date.slice(5)); vals.push(+cum.toFixed(2)); }
+  dates.push('今日'); vals.push(+d.capital.toFixed(2));
+  eqChart = eqChart || echarts.init(document.getElementById('eq_chart'),'dark');
+  eqChart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    grid:{left:60,right:30,top:20,bottom:30},
+    xAxis:{type:'category',data:dates,axisLabel:{color:'#8b98a5'}},
+    yAxis:{type:'value',name:'$',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
+    series:[{name:'整体资金',type:'line',data:vals,showSymbol:true,
+      lineStyle:{color:'#00c853',width:2},itemStyle:{color:'#00c853'},
+      areaStyle:{color:'rgba(0,200,83,0.12)'}}]});
+}
+async function genShare(){
+  const r = await fetch('/api/share/generate', {method:'POST'});
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  const url = location.protocol+'//'+location.host+'/share/'+d.token;
+  document.getElementById('share_box').innerHTML =
+    `分享链接 (免密只读): <a href="${url}" target="_blank">${url}</a>`;
+}
+async function revokeShare(){
+  const tok = document.getElementById('revoke_tok').value.trim();
+  if(!tok) return;
+  const r = await fetch('/api/share/revoke', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({token: tok})});
+  const d = await r.json();
+  document.getElementById('share_box').textContent = d.ok ? '已撤销 ✓' : '撤销失败(无效token)';
+}
+refresh(); setInterval(refresh, 30000);
+window.addEventListener('resize',()=>eqChart&&eqChart.resize());
+</script>
+</body></html>

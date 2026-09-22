@@ -103,6 +103,42 @@ def api_carry(__=Depends(require_session)):
     return readers.cached("carry", 15, readers.carry)
 
 
+@app.get("/pnl")
+def pnl_page():
+    return FileResponse(STATIC / "pnl.html")
+
+
+@app.get("/share/{token}")
+def share_page(token: str):
+    return FileResponse(STATIC / "share.html")
+
+
+@app.get("/api/pnl")
+def api_pnl(__=Depends(require_session)):
+    return readers.pnl_overview()
+
+
+@app.get("/api/share/{token}")
+def api_share(token: str):
+    if not readers.valid_share(token):
+        raise HTTPException(status_code=404, detail="分享链接无效或已撤销")
+    return readers.share_view()
+
+
+@app.post("/api/share/generate")
+def api_gen(__=Depends(require_session)):
+    return {"token": readers.generate_share()}
+
+
+@app.post("/api/share/revoke")
+async def api_revoke(request: Request, __=Depends(require_session)):
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False}
+    return {"ok": readers.revoke_share(body.get("token", ""))}
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

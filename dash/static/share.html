@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模拟盘盈亏 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/echarts.min.js"></script>
+</head><body>
+<main style="max-width:900px">
+<h1>💰 Moneybot 模拟盘 <small>免密只读视图 · 30s刷新</small></h1>
+<div class="cards">
+  <div class="card"><div class="k">整体资金</div><div class="v" id="capital">—</div></div>
+  <div class="card"><div class="k">今日已实现</div><div class="v" id="today">—</div></div>
+  <div class="card"><div class="k">累计已实现</div><div class="v" id="realized">—</div></div>
+  <div class="card"><div class="k">未实现盈亏</div><div class="v" id="unreal">—</div></div>
+</div>
+<div class="panel"><h2>资金曲线</h2><div id="eq_chart" style="height:240px"></div></div>
+<div class="panel"><h2>当前持仓</h2><table><thead>
+<tr><th>策略</th><th>标的</th><th>方向</th><th>入场</th><th>备注</th></tr></thead><tbody id="pos_tbl"></tbody></table></div>
+<div class="footer">moneybot.openedskill.com · 模拟数据, 非真实资金 · <span id="ts"></span></div>
+</main>
+<script>
+const token = location.pathname.split('/').pop();
+function col(v){ return (v>0)?'pos':(v<0?'neg':''); }
+async function refresh(){
+  const r = await fetch('/api/share/'+encodeURIComponent(token));
+  if(r.status===404){ document.body.innerHTML = '<main><h1 style="color:#ff5252">分享链接无效或已被撤销</h1></main>'; return; }
+  const d = await r.json();
+  for(const [id, v] of [['capital', d.capital], ['today', d.realized_today],
+      ['realized', d.realized_total], ['unreal', d.unrealized]]){
+    const el = document.getElementById(id);
+    el.textContent = (v>0?'+':'') + Number(v).toFixed(2) + '$';
+    el.className = 'v ' + col(v);
+  }
+  document.getElementById('pos_tbl').innerHTML = (d.positions||[]).map(p=>
+    `<tr><td>${p.strat}</td><td>${p.key}</td><td>${p.side}</td><td>${p.entry}</td><td class="dim">${p.note}</td></tr>`
+  ).join('') || '<tr><td class="dim" colspan="5">(空仓)</td></tr>';
+  document.getElementById('ts').textContent = '更新 ' + d.ts;
+  const eq = d.equity || [];
+  let cum = 100;
+  const dates = [], vals = [];
+  for(const e of eq){ cum += e.total; dates.push(e.date.slice(5)); vals.push(+cum.toFixed(2)); }
+  dates.push('今日'); vals.push(+d.capital.toFixed(2));
+  const ch = echarts.init(document.getElementById('eq_chart'),'dark');
+  ch.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    grid:{left:60,right:30,top:20,bottom:30},
+    xAxis:{type:'category',data:dates,axisLabel:{color:'#8b98a5'}},
+    yAxis:{type:'value',name:'$',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
+    series:[{name:'整体资金',type:'line',data:vals,showSymbol:true,
+      lineStyle:{color:'#00c853',width:2},itemStyle:{color:'#00c853'},
+      areaStyle:{color:'rgba(0,200,83,0.12)'}}]});
+  window.addEventListener('resize',()=>ch.resize());
+}
+refresh(); setInterval(refresh, 30000);
+</script>
+</body></html>
