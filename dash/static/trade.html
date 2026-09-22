@@ -132,7 +132,8 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
     <div class="legend">
       <span style="color:var(--up)">▲ 红涨</span><span style="color:var(--down)">▼ 绿跌</span>
       <span style="color:#4fc3f7">━ MA7</span><span style="color:#b388ff">━ MA25</span>
-      <span style="margin-left:auto">真实数据 · 每60秒更新末根 · 滚轮缩放/拖拽平移 · 空格暂停</span>
+      <span style="margin-left:auto" id="tzlabel"></span>
+      <span style="margin-left:6px">真实数据 · 每60秒更新末根 · 滚轮缩放/拖拽平移 · 空格暂停</span>
     </div>
   </div>
 
@@ -190,11 +191,12 @@ async function guard(url){
 }
 function fmtT(ms){
   const d=new Date(ms), p=n=>String(n).padStart(2,'0');
-  if(tf==='1m'||tf==='5m') return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  if(tf==='15m'||tf==='1h') return `${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  if(tf==='4h') return `${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:00`;
-  if(tf==='W'||tf==='D') return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`;
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}`;
+  // 本机时区渲染 (服务端存UTC, 前端自动换算 — 全球任意地区时间一致校对)
+  if(tf==='1m'||tf==='5m') return `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if(tf==='15m'||tf==='1h') return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  if(tf==='4h') return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`;
+  if(tf==='W'||tf==='D') return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}`;
 }
 function fmtV(v){ return v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':String(v); }
 
@@ -318,9 +320,9 @@ function renderTape(flash){
   const f = document.querySelector('#fchips button.on').dataset.f;
   const rows = tapeRows.filter(r=> f==='all' || r.tag===f);
   const pcls = p => (p==null||p===undefined) ? '' : (Number(p)>0?'up':(Number(p)<0?'down':''));
-  id('tape').innerHTML = `<thead><tr><th>时间(UTC)</th><th>策略</th><th>动作</th><th>标的</th><th>价格</th><th>盈亏</th><th>备注</th></tr></thead><tbody>` +
+  id('tape').innerHTML = `<thead><tr><th>时间(本机)</th><th>策略</th><th>动作</th><th>标的</th><th>价格</th><th>盈亏</th><th>备注</th></tr></thead><tbody>` +
     rows.map((r,i)=>`<tr class="${flash&&i===0?'flash':''}">
-      <td>${(r.ts||'').slice(11,19)}</td>
+      <td>${fmtLocalTime(r.ts)}</td>
       <td><span class="tag ${r.tag==='预测市场'?'zh1':'zh2'}">${r.tag}</span></td>
       <td class="${r.action.includes('买')?'up':(r.action.includes('卖')?'down':'')}">${r.action}</td>
       <td>${r.symbol}</td><td class="num">${r.price??'—'}</td>
@@ -344,6 +346,7 @@ document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault
   playing=!playing; id('play').textContent = playing?'▶ 实时':'⏸ 暂停'; document.body.classList.toggle('paused',!playing); } });
 
 loadKlines(); loadPositions(); loadStrategy(); loadSignals(); loadTape();
+document.getElementById('tzlabel').textContent = '本机时区 ' + tzLabel() + ' · 数据已按本机时间显示';
 setInterval(()=>{ if(playing) loadKlines(); }, 30000);
 setInterval(()=>{ if(playing) loadTape(); }, 5000);
 setInterval(()=>{ loadPositions(); loadSignals(); }, 15000);

@@ -86,7 +86,7 @@ async function refresh(){
     `纸面持仓与孤儿腿 · 今日PnL ${(st.day_pnl||0)>0?'+':''}${Number(st.day_pnl||0).toFixed(2)}$`;
   // 交易
   const tt = document.getElementById('trades_tbl').querySelector('tbody');
-  tt.innerHTML = (d.trades||[]).slice().reverse().map(t=>`<tr><td class="dim">${t.ts}</td>
+  tt.innerHTML = (d.trades||[]).slice().reverse().map(t=>`<tr><td class="dim">${fmtLocalTime(t.ts)}</td>
     <td>${t.symbol}</td><td>${t.action_zh||t.action}</td><td class="dim">${JSON.stringify(Object.fromEntries(
       Object.entries(t).filter(([k])=>!['ts','symbol','action','action_zh'].includes(k))))}</td></tr>`).join('')
     || '<tr><td class="dim" colspan="4">(无)</td></tr>';

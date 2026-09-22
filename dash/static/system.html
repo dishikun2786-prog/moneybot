@@ -23,7 +23,7 @@
   <div id="pw_msg" class="dim"></div>
 </div>
 <div class="panel"><h2>AI 操作记录（最近12条）</h2>
-<table id="aitbl"><thead><tr><th>时间(UTC)</th><th>动作</th><th>摘要</th></tr></thead><tbody></tbody></table>
+<table id="aitbl"><thead><tr><th>时间(本机)</th><th>动作</th><th>摘要</th></tr></thead><tbody></tbody></table>
 <p class="dim" style="font-size:11px;margin-top:6px">AI 助手全部操作留痕（预览/批准/拒绝/执行）· 变更类操作每个对应一个 git 版本可回退</p>
 </div>
 <div class="panel"><h2>看门狗状态</h2><pre id="wd">—</pre></div>
@@ -52,7 +52,7 @@ async function refresh(){
   document.getElementById('monlog').textContent = d.logs.monitor || '(空)';
   const at = d.ai_actions || [];
   document.querySelector('#aitbl tbody').innerHTML = at.map(a=>
-    `<tr><td class="dim">${(a.ts||'').slice(11,19)}</td>
+    `<tr><td class="dim">${fmtLocalTime(a.ts)}</td>
      <td><span class="badge ${a.action==='applied'?'ok':(a.action.includes('reject')?'bad':'')}">${a.action}</span></td>
      <td class="dim">${a.msg||''}</td></tr>`).join('')
     || '<tr><td class="dim" colspan="3">(无)</td></tr>';

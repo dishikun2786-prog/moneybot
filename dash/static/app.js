@@ -28,3 +28,20 @@ function freshnessHtml(iso){
   return `<span class="badge bad">${Math.round(a/60)}分钟前</span>`;
 }
 function zhSide(s){ return s === 'BUY' ? '买入' : (s === 'SELL' ? '卖出' : s); }
+/* —— 时间校对: 服务端一律存UTC(ISO Z/毫秒), 前端按本机时区渲染 —— */
+function parseTs(ts){
+  if(typeof ts === 'number') return new Date(ts);
+  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+}
+function fmtLocalTime(ts){
+  const d = parseTs(ts);
+  return d.toLocaleTimeString('zh-CN', {hour12: false});
+}
+function fmtLocalDT(ts){
+  const d = parseTs(ts);
+  return d.toLocaleString('zh-CN', {hour12: false});
+}
+function tzLabel(){
+  const off = -new Date().getTimezoneOffset() / 60;
+  return 'UTC' + (off >= 0 ? '+' : '') + off;
+}
