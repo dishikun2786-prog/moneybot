@@ -185,6 +185,7 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 <script>
 let sym='BTCUSDT', tf='15m', conv='cn', playing=true;
 let chart=null, lastTapeKey='';
+let klinesBars=null, candleData=null, posCache=null, lastLivePrices=null;
 const CONV={cn:{up:'#f6465d',down:'#2ebd85',label:'红涨绿跌'},intl:{up:'#2ebd85',down:'#f6465d',label:'绿涨红跌'}};
 const TF_LIMIT={ '1m':240, '5m':240, '15m':200, '1h':160, '4h':120, 'D':200, 'W':150, 'M':80 };
 const id=(s)=>document.getElementById(s);
@@ -211,6 +212,8 @@ async function loadKlines(){
   if(!d || !d.bars || !d.bars.length) return;
   const C = CONV[conv];
   const bars = d.bars;
+  klinesBars = bars;
+  candleData = bars.map(b=>[b.o,b.c,b.l,b.h]);
   const ma = (win)=>{ const a=[];
     for(let i=0;i<bars.length;i++){ if(i<win-1){a.push(null);continue;}
       let s=0; for(let j=i-win+1;j<=i;j++) s+=bars[j].c; a.push(+(s/win).toFixed(1)); } return a; };
@@ -252,10 +255,22 @@ async function loadKlines(){
 }
 async function loadPositions(){
   const d = await guard('/api/pnl'); if(!d) return;
-  const rows = (d.positions||[]).map(p=>`<div class="posrow"><div class="h">
+  posCache = d;
+  renderPositions(d, lastLivePrices);
+}
+function renderPositions(d, live){
+  const lp = live || {};
+  const rows = (d.positions||[]).map(p=>{
+    let u = null;
+    if(p.live && lp[p.live.symbol] && lp[p.live.symbol].last){
+      const L = Number(lp[p.live.symbol].last), n = p.live.notional;
+      u = ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
+    }
+    const uhtml = u==null ? '' : ` <b class="num ${u>0?'up':(u<0?'down':'')}" title="实时浮盈">${u>0?'+':''}${u.toFixed(3)}$</b>`;
+    return `<div class="posrow"><div class="h">
     <span><span class="tag ${p.strat==='预测市场对冲'?'zh1':'zh2'}">${p.strat}</span> ${p.key}</div>
-    <b class="num">${p.side}</b></div>
-    <div class="p"><span>入场 <b class="num">${p.entry}</b></span><span>${p.note}</span></div></div>`).join('');
+    <b class="num">${p.side}</b>${uhtml}</div>
+    <div class="p"><span>入场 <b class="num">${p.entry}</b></span><span>${p.note}</span></div></div>`; }).join('');
   id('tab-pos').innerHTML = rows || '<p class="zhdesc">(空仓)</p>';
 }
 async function loadStrategy(){
@@ -371,18 +386,38 @@ function startES(){
   };
 }
 function applyLive(d){
+  lastLivePrices = d.prices || {};
   const p = d.prices && d.prices[sym];
   if(!p || !p.last) return;
+  const px = Number(p.last);
+  // ① 实时价格盒
   const el = document.getElementById('livepx');
-  el.textContent = Number(p.last).toLocaleString('en-US', {maximumFractionDigits:2});
-  const prev = Number(el.dataset.prev || p.last);
-  el.style.color = p.last > prev ? '#ff5252' : (p.last < prev ? '#00c853' : '#e6edf3');
-  el.dataset.prev = p.last;
-  const chg = document.getElementById('livechg');
+  el.textContent = px.toLocaleString('en-US', {maximumFractionDigits:2});
+  const prev = Number(el.dataset.prev || px);
+  el.style.color = px > prev ? '#ff5252' : (px < prev ? '#00c853' : '#e6edf3');
+  el.dataset.prev = px;
+  const chgEl = document.getElementById('livechg');
   const c = Number(p.change_pct || 0);
-  chg.textContent = (c>0?'+':'') + c.toFixed(2) + '%';
-  chg.style.color = c >= 0 ? '#ff5252' : '#00c853';
+  chgEl.textContent = (c>0?'+':'') + c.toFixed(2) + '%';
+  chgEl.style.color = c >= 0 ? '#ff5252' : '#00c853';
   document.getElementById('livelag').textContent = '延迟 ' + ((d.lag_ms||0)/1000).toFixed(1) + 's';
+  // ② 价格大字 + 开高低量 + K线末根蜡烛
+  if(klinesBars && klinesBars.length){
+    const last = klinesBars[klinesBars.length-1];
+    const prevBar = klinesBars[klinesBars.length-2];
+    const chg2 = prevBar ? ((px-prevBar.c)/prevBar.c*100) : 0;
+    id('price').textContent = px.toLocaleString();
+    id('price').className = 'num '+(chg2>=0?'up':'down');
+    id('chg').textContent = (chg2>=0?'+':'')+chg2.toFixed(2)+'%';
+    id('chg').className = 'chg num '+(chg2>=0?'up':'down');
+    id('st_h').textContent = Math.max(last.h, px);
+    id('st_l').textContent = Math.min(last.l, px);
+    last.c = px; last.h = Math.max(last.h, px); last.l = Math.min(last.l, px);
+    candleData[candleData.length-1] = [last.o, last.c, last.l, last.h];
+    if(chart && playing) chart.setOption({series:[{name:'K线', data: candleData}]});
+  }
+  // ③ 持仓实时浮盈
+  if(posCache) renderPositions(posCache, lastLivePrices);
 }
 
 loadKlines(); loadPositions(); loadStrategy(); loadSignals(); loadTape();

@@ -18,6 +18,8 @@ SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 TICKER_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
 KLINE_TOPICS = [f"kline.1.{s}" for s in SYMBOLS]
 ALL_TOPICS = TICKER_TOPICS + KLINE_TOPICS
+SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
+SPOT_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
@@ -71,6 +73,37 @@ def _write_snap():
     os.replace(tmp, SNAP_FILE)
 
 
+# ---- 现货行情通道 (carry页实时基差需要现货价) ----
+def spot_on_open(ws):
+    ws.send(json.dumps({"op": "subscribe", "args": SPOT_TOPICS}))
+
+
+def spot_on_msg(ws, m):
+    d = json.loads(m)
+    if not d.get("topic", "").startswith("tickers."):
+        return
+    sym = d["topic"].split(".")[1]
+    t = d.get("data", {})
+    if t.get("lastPrice") is None:
+        return
+    with LOCK:
+        PRICES.setdefault(sym, {})
+        PRICES[sym]["spot"] = float(t["lastPrice"])
+        SNAP.update(ts=int(time.time() * 1000), prices=dict(PRICES))
+    _write_snap()
+
+
+def spot_loop():
+    while True:
+        ws = websocket.WebSocketApp(SPOT_WS, on_message=spot_on_msg, on_open=spot_on_open)
+        try:
+            ws.run_forever(ping_interval=20, ping_timeout=10)
+        except Exception as e:
+            print(f"[bridge] spot连接异常: {e}", flush=True)
+        print("[bridge] spot连接中断, 5s后重连", flush=True)
+        time.sleep(5)
+
+
 def persist_loop():
     """每秒一条快照 → price_1s.jsonl"""
     last_sec = 0
@@ -118,6 +151,7 @@ def main():
     args = ap.parse_args()
     threading.Thread(target=persist_loop, daemon=True).start()
     threading.Thread(target=state_loop, daemon=True).start()
+    threading.Thread(target=spot_loop, daemon=True).start()
     if args.test:
         threading.Thread(target=test_cb_hook, daemon=True).start()
     backoff = 1

@@ -43,8 +43,8 @@ async function refresh(){
     const ok = ann > 5 && Math.abs(m.basis_bp) < 20;
     cards.innerHTML += `<div class="card">
       <div class="k">${m.symbol_zh} (${m.symbol})</div>
-      <div class="v">现货 ${Number(m.spot).toFixed(1)}</div>
-      <div class="sub">基差 ${m.basis_bp>0?'+':''}${Number(m.basis_bp).toFixed(1)}bp</div>
+      <div class="v">现货 <span id="live-spot-${m.symbol}">${Number(m.spot).toFixed(1)}</span> <span class="badge-live" style="font-size:9px;color:#00c853">实时</span></div>
+      <div class="sub">基差 <span id="live-basis-${m.symbol}">${m.basis_bp>0?'+':''}${Number(m.basis_bp).toFixed(1)}bp</span> <span style="font-size:9px;color:#8b98a5">(实时价)</span></div>
       <div class="sub">资金费率年化 <b class="${ann>0?'pos':'neg'}">${ann>0?'+':''}${ann.toFixed(1)}%</b></div>
       <div class="sub">建议: <span class="badge ${ok?'ok':'bad'}">${ok?'可入场':'等待/离场'}</span></div></div>`;
   }
@@ -91,7 +91,37 @@ async function refresh(){
       Object.entries(t).filter(([k])=>!['ts','symbol','action','action_zh'].includes(k))))}</td></tr>`).join('')
     || '<tr><td class="dim" colspan="4">(无)</td></tr>';
 }
+/* ===== 实时行情 (SSE): 机会卡片现货价/实时基差 — 定义须在init之前 ===== */
+let caryES = null;
+function startCaryES(){
+  if(caryES) return;
+  caryES = new EventSource('/api/stream/prices');
+  caryES.onmessage = e => {
+    let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
+    applyLiveCarry(d);
+  };
+  caryES.onerror = () => { caryES.close(); caryES = null; setTimeout(startCaryES, 5000); };
+}
+function applyLiveCarry(d){
+  const prices = d.prices || {};
+  for(const sym of Object.keys(prices)){
+    const p = prices[sym];
+    if(!p.last) continue;
+    const se = document.getElementById('live-spot-' + sym);
+    if(se && p.spot){
+      se.textContent = Number(p.spot).toFixed(1);
+      se.style.color = p.spot > p.last ? '#f6465d' : '#2ebd85';
+    }
+    const be = document.getElementById('live-basis-' + sym);
+    if(be && p.spot){
+      const bp = (p.last - p.spot) / p.spot * 10000;
+      be.textContent = (bp>0?'+':'') + bp.toFixed(1) + 'bp';
+      be.style.color = Math.abs(bp) < 20 ? '#00c853' : '#ff5252';
+    }
+  }
+}
 refresh(); setInterval(refresh, 10000);
+startCaryES();
 window.addEventListener('resize',()=>{basisChart&&basisChart.resize();fundChart&&fundChart.resize();});
 </script>
 </body></html>

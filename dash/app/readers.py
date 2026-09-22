@@ -271,7 +271,10 @@ def pnl_overview():
         positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
                           "key": f"{sym_zh}({sym})", "side": "买入现货+卖出合约",
                           "entry": f"{p.get('spot_entry')}/{p.get('perp_entry')}",
-                          "note": f"资金费累计 {p.get('funding_acc', 0):.3f}$"})
+                          "note": f"资金费累计 {p.get('funding_acc', 0):.3f}$",
+                          "live": {"symbol": sym, "spot_entry": p.get("spot_entry"),
+                                   "perp_entry": p.get("perp_entry"),
+                                   "notional": float(p.get("notional", 10.0))}})
     return dict(capital=capital,
                 realized_total=round(realized_total, 2),
                 realized_today=round(pm_day + cy_day, 2),
