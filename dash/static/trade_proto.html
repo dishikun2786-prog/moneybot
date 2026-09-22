@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交易室 · Moneybot 设计原型</title>
+<script src="/static/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#2a313c;
+  --fg:#e6edf3; --dim:#8b98a5; --mono:'Consolas','SF Mono',ui-monospace,monospace;
+  --up:#f6465d; --down:#2ebd85; --accent:#00c853; --amber:#ffb300;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:13px/1.5 -apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;display:flex;flex-direction:column;overflow:hidden}
+button{background:var(--panel2);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+button:hover{border-color:#3d4754}
+button.on{background:rgba(0,200,83,.15);border-color:var(--accent);color:var(--accent)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .down{color:var(--down)}
+
+/* 顶栏 */
+.topbar{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap;flex:0 0 auto}
+.brand{font-weight:700;color:var(--accent);font-size:14px;white-space:nowrap}
+.sym{display:flex;align-items:baseline;gap:8px}
+.sym b{font-size:16px;font-weight:700}
+.sym .chg{font-size:12px}
+.ohlc{display:flex;gap:12px;color:var(--dim);font-size:12px}
+.ohlc b{color:var(--fg);font-weight:600}
+.spacer{flex:1}
+.tf{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:2px}
+.tf button{border:none;background:none;border-radius:4px}
+.tf button.on{background:rgba(0,200,83,.18);color:var(--accent)}
+.clock2{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;line-height:1.5;white-space:nowrap}
+
+/* 主体三栏 */
+.wrap{flex:1;display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr 230px;min-height:0}
+.chartpane{grid-row:1;border-right:1px solid var(--border);border-bottom:1px solid var(--border);min-width:0;display:flex;flex-direction:column}
+#chart{flex:1;min-height:0}
+.legend{display:flex;gap:14px;padding:4px 12px;font-size:11px;color:var(--dim);border-top:1px solid var(--border);flex-wrap:wrap;background:var(--panel)}
+.legend .mk-buy{color:var(--up)} .legend .mk-sell{color:var(--down)} .legend .mk-close{color:var(--amber)}
+.right{grid-row:1;grid-column:2;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.tabs{display:flex;border-bottom:1px solid var(--border);flex:0 0 auto}
+.tabs button{border:none;background:none;border-radius:0;padding:8px 14px;border-bottom:2px solid transparent}
+.tabs button.on{border-bottom-color:var(--accent);color:var(--accent)}
+.tabbody{flex:1;overflow-y:auto;padding:10px 12px}
+.posrow{border:1px solid var(--border);border-radius:8px;background:var(--panel);padding:9px 11px;margin-bottom:8px}
+.posrow .h{display:flex;justify-content:space-between;font-size:12px}
+.posrow .p{display:flex;justify-content:space-between;margin-top:5px;font-size:12px;color:var(--dim)}
+.posrow .p b{color:var(--fg)}
+.tag{font-size:10px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);color:var(--dim)}
+.tag.zh1{color:var(--amber);border-color:rgba(255,179,0,.4)}
+.tag.zh2{color:#4fc3f7;border-color:rgba(79,195,247,.4)}
+.depth{display:grid;grid-template-columns:1fr 1fr;gap:0 10px;font-family:var(--mono);font-size:12px}
+.depth .row{display:flex;justify-content:space-between;padding:2px 4px}
+.depth .row .px{color:var(--dim)}
+.depth .row.bid .px{color:var(--down)} .depth .row.ask .px{color:var(--up)}
+.depth .mid{grid-column:1/-1;text-align:center;padding:4px;color:var(--accent);border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);margin:4px 0}
+.sigrow{display:flex;justify-content:space-between;padding:5px 2px;border-bottom:1px solid var(--border);font-size:12px}
+.sigrow:last-child{border:none}
+.sigrow .e{color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+
+/* 底部成交带 */
+.tapepane{grid-column:1/-1;display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+.tapehead{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--border);flex:0 0 auto}
+.tapehead h3{font-size:12px;color:var(--dim);font-weight:600}
+.fchips{display:flex;gap:4px}
+.fchips button{padding:2px 9px;font-size:11px}
+.tapebody{flex:1;overflow-y:auto;font-family:var(--mono);font-size:12px}
+.tapebody table{width:100%;border-collapse:collapse}
+.tapebody th{position:sticky;top:0;background:var(--panel);color:var(--dim);font-weight:600;font-size:11px;text-align:left;padding:5px 10px;border-bottom:1px solid var(--border);z-index:2}
+.tapebody td{padding:4px 10px;border-bottom:1px solid #1e242c;white-space:nowrap}
+.tapebody tr{transition:background .8s}
+.tapebody tr.flash{background:rgba(255,179,0,.16)}
+.tapebody tr td:first-child{color:var(--dim)}
+@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
+.livedot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 1.6s infinite}
+.paused .livedot{background:var(--amber);animation:none}
+
+.footer-note{padding:6px 14px;font-size:11px;color:var(--dim);border-top:1px solid var(--border);display:flex;gap:14px;flex-wrap:wrap;flex:0 0 auto}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr;grid-template-rows:1fr auto 210px}
+  .right{grid-column:1;grid-row:2;max-height:220px;border-bottom:1px solid var(--border)}
+  .chartpane{grid-row:1;border-right:none}
+  .tapepane{grid-row:3}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">💰 Moneybot 交易室</span>
+  <select id="sym" class="num" style="background:var(--panel2);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:3px 6px">
+    <option value="BTCUSDT">比特币永续 BTCUSDT</option>
+    <option value="ETHUSDT">以太坊永续 ETHUSDT</option>
+  </select>
+  <div class="sym">
+    <b class="num" id="price">—</b>
+    <span class="chg num" id="chg">—</span>
+  </div>
+  <div class="ohlc">
+    <span>开 <b class="num" id="st_o">—</b></span><span>高 <b class="num" id="st_h">—</b></span>
+    <span>低 <b class="num" id="st_l">—</b></span><span>量 <b class="num" id="st_v">—</b></span>
+  </div>
+  <span class="spacer"></span>
+  <div class="tf" id="tfbar">
+    <button data-tf="1m">1m</button><button data-tf="5m">5m</button>
+    <button data-tf="15m" class="on">15m</button><button data-tf="1h">1h</button><button data-tf="4h">4h</button>
+  </div>
+  <button id="conv" title="切换涨跌色惯例">红涨绿跌</button>
+  <button id="play" class="on" title="空格键暂停/恢复">▶ 实时</button>
+  <div class="clock2"><div id="clk">—</div><div class="livedot" style="margin-left:auto"></div></div>
+</div>
+
+<div class="wrap" id="wrap">
+  <div class="chartpane">
+    <div id="chart"></div>
+    <div class="legend">
+      <span class="mk-buy">▲ 买入</span><span class="mk-sell">▼ 卖出</span><span class="mk-close">◆ 平仓/结算</span>
+      <span style="color:var(--dim)">｜</span><span style="color:#4fc3f7">━ MA7</span><span style="color:#b388ff">━ MA25</span>
+      <span style="color:var(--dim);margin-left:auto">滚轮缩放 · 拖拽平移 · ←→ 移动 · +/- 缩放 · 空格 暂停</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="tabs">
+      <button class="on" data-tab="pos">持仓</button>
+      <button data-tab="depth">盘口</button>
+      <button data-tab="sig">信号</button>
+    </div>
+    <div class="tabbody" id="tab-pos"></div>
+    <div class="tabbody" id="tab-depth" style="display:none"></div>
+    <div class="tabbody" id="tab-sig" style="display:none"></div>
+  </div>
+
+  <div class="tapepane">
+    <div class="tapehead">
+      <h3>实时成交带</h3>
+      <div class="fchips" id="fchips">
+        <button class="on" data-f="all">全部</button>
+        <button data-f="zh1">预测市场</button>
+        <button data-f="zh2">现货套利</button>
+      </div>
+      <span class="spacer" style="flex:1"></span>
+      <span style="font-size:11px;color:var(--dim)">新成交高亮 1.5s · 自动滚动</span>
+    </div>
+    <div class="tapebody"><table id="tape"></table></div>
+  </div>
+</div>
+
+<div class="footer-note">
+  <span>📐 设计原型 · K线与盘口为<b>示意数据</b>；交易标记/成交带中的 3 笔为<b>真实纸面交易记录</b>（2026-09-22）</span>
+  <span>设计基准: 红涨绿跌(中国惯例) · 北京时间主显 · 等宽数字</span>
+</div>
+
+<script>
+/* ================= 设计系统 ================= */
+const CONV = {cn:{up:'#f6465d', down:'#2ebd85', label:'红涨绿跌'},
+              intl:{up:'#2ebd85', down:'#f6465d', label:'绿涨红跌'}};
+let convKey = 'cn';
+let tf = '15m', sym = 'BTCUSDT', playing = true, timer = null;
+const BASE = {BTCUSDT: 85800, ETHUSDT: 2740};
+
+/* ================= 示意K线生成 (确定性随机游走) ================= */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function genCandles(sym_, tframe, n){
+  const rnd = mulberry32(sym_==='BTCUSDT'?777:888);
+  const base = BASE[sym_], out = [];
+  let p = base, t = Date.now() - n * tfSec(tframe) * 1000;
+  let volBase = sym_==='BTCUSDT'?140:3200;
+  for(let i=0;i<n;i++){
+    const drift = (rnd()-0.5) * 0.0012;
+    const o = p, c = o*(1+drift), h = Math.max(o,c)*(1+rnd()*0.0016), l = Math.min(o,c)*(1-rnd()*0.0016);
+    out.push({t: t + i*tfSec(tframe)*1000, o:+o.toFixed(1), c:+c.toFixed(1), h:+h.toFixed(1), l:+l.toFixed(1),
+              v: Math.round(volBase*(0.4+rnd()*1.4))});
+    p = c;
+  }
+  return out;
+}
+function tfSec(t){return { '1m':60, '5m':300, '15m':900, '1h':3600, '4h':14400 }[t]}
+function tfCount(t){return { '1m':180, '5m':150, '15m':140, '1h':110, '4h':90 }[t]}
+
+/* ================= 真实交易标记 ================= */
+const REAL_TRADES = [
+  {i:0.62, side:'BUY', strat:'zh1', label:'预测市场买入', detail:'ETH↓1,750 买入 @0.100 · 10$名义 · 毛edge 6.27¢ · 08:20:08Z'},
+  {i:0.74, side:'BUY', strat:'zh1', label:'预测市场买入', detail:'BTC↑94,000 买入 @0.052 · 5$名义 · 毛edge 6.0¢ · 08:25:56Z'},
+  {i:0.86, side:'BOTH', strat:'zh2', label:'套利双腿开仓', detail:'BTCUSDT 多现货@86,202 + 空永续@86,158 · 年化7.98% · 08:50:48Z'},
+];
+
+/* ================= 主图 ================= */
+let chart = null;
+function buildChart(){
+  chart = chart || echarts.init(document.getElementById('chart'), 'dark');
+  const data = genCandles(sym, tf, tfCount(tf));
+  const N = data.length;
+  const ma = (win)=>{ const a=[]; for(let i=0;i<N;i++){ if(i<win-1){a.push('-');continue;}
+    let s=0; for(let j=i-win+1;j<=i;j++) s+=data[j].c; a.push(+(s/win).toFixed(1)); } return a; };
+  const idx = (i)=> Math.min(N-1, Math.floor(i*N));
+  const C = CONV[convKey];
+  const markPoints = REAL_TRADES.map(tr=>{
+    const x = idx(tr.i), d = data[x];
+    return {coord:[x, d.h*(1.004)], value:'', name:tr.label,
+      symbol: tr.side==='BUY'?'arrow':'pin', symbolRotate: tr.side==='BUY'?0:180,
+      symbolSize: tr.side==='BOTH'?30:26,
+      symbolOffset:[0, tr.side==='BUY'?-16:10],
+      itemStyle:{color: tr.side==='SELL'?C.down:(tr.side==='BOTH'?C.up:C.up)},
+      label:{formatter:tr.side==='BUY'?'▲':(tr.side==='BOTH'?'◆':'▼'),color:'#fff',fontSize:11,fontWeight:700},
+      tooltip:{formatter:()=> tr.detail}};
+  });
+  const opt = {
+    animation:false,
+    backgroundColor:'transparent',
+    axisPointer:{link:[{xAxisIndex:'all'}], label:{backgroundColor:'#2a313c'}},
+    tooltip:{trigger:'axis', axisPointer:{type:'cross'},
+      backgroundColor:'#161b22', borderColor:'#2a313c', textStyle:{color:'#e6edf3', fontSize:12},
+      formatter:function(ps){
+        const p = ps.find(x=>x.seriesType==='candlestick');
+        if(!p) return '';
+        const d = p.data; const idx_=p.dataIndex;
+        const chg = ((d[2]-d[1])/d[1]*100).toFixed(2);
+        return `<div class="num">${fmtT(data[idx_].t)}</div>
+          开 ${d[1]} 高 ${d[4]} 低 ${d[3]} 收 <b class="${d[2]>=d[1]?'up':'down'}">${d[2]}</b><br>
+          涨跌 <b class="${d[2]>=d[1]?'up':'down'}">${chg}%</b> · 量 ${fmtV(data[idx_].v)}`;}},
+    grid:[{left:56,right:16,top:18,height:'62%'},{left:56,right:16,top:'74%',height:'18%'}],
+    xAxis:[
+      {type:'category', data:data.map(d=>fmtT(d.t)), gridIndex:0, axisLabel:{color:'#8b98a5',fontSize:10}, axisLine:{lineStyle:{color:'#2a313c'}}},
+      {type:'category', data:data.map(d=>fmtT(d.t)), gridIndex:1, axisLabel:{show:false}, axisLine:{lineStyle:{color:'#2a313c'}}}],
+    yAxis:[
+      {scale:true, gridIndex:0, position:'right', axisLabel:{color:'#8b98a5',fontSize:10}, splitLine:{lineStyle:{color:'#1c2430'}}},
+      {gridIndex:1, axisLabel:{show:false}, splitLine:{show:false}}],
+    dataZoom:[
+      {type:'inside', xAxisIndex:[0,1], start:28, end:100, zoomOnMouseWheel:true, moveOnMouseMove:true},
+      {type:'slider', xAxisIndex:[0,1], start:28, end:100, bottom:2, height:14,
+       borderColor:'#2a313c', backgroundColor:'#161b22', fillerColor:'rgba(0,200,83,.12)',
+       handleStyle:{color:'#00c853'}, textStyle:{color:'#8b98a5',fontSize:9}, showDetail:false}],
+    series:[
+      {name:'K线', type:'candlestick', data:data.map(d=>[d.o,d.c,d.l,d.h]),
+        itemStyle:{color:C.up, color0:C.down, borderColor:C.up, borderColor0:C.down},
+        markPoint:{symbol:'circle',symbolSize:0, data:markPoints},
+        xAxisIndex:0, yAxisIndex:0},
+      {name:'MA7', type:'line', data:ma(7), smooth:false, showSymbol:false,
+        lineStyle:{width:1.2, color:'#4fc3f7'}, xAxisIndex:0, yAxisIndex:0},
+      {name:'MA25', type:'line', data:ma(25), smooth:false, showSymbol:false,
+        lineStyle:{width:1.2, color:'#b388ff'}, xAxisIndex:0, yAxisIndex:0},
+      {name:'成交量', type:'bar', xAxisIndex:1, yAxisIndex:1,
+        data:data.map((d,i)=>[i, d.v, d.c>=d.o?1:0]).map(x=>({value:x[1], itemStyle:{color:x[2]?C.up:C.down}})), barMaxWidth:6}]
+  };
+  chart.setOption(opt, true);
+  updateTopStats(data);
+}
+function updateTopStats(data){
+  const d = data[data.length-1];
+  const chg = ((d.c - d.o)/d.o*100);
+  const el=id('price'), ec=id('chg');
+  el.textContent = d.c.toLocaleString();
+  ec.textContent = (chg>=0?'+':'')+chg.toFixed(2)+'%';
+  el.className = 'num '+(chg>=0?'up':'down'); ec.className='chg num '+(chg>=0?'up':'down');
+  id('st_o').textContent=d.o; id('st_h').textContent=d.h; id('st_l').textContent=d.l; id('st_v').textContent=fmtV(d.v);
+}
+function fmtT(ms){const d=new Date(ms);const p=n=>String(n).padStart(2,'0');
+  return tf==='1m'||tf==='5m' ? `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` :
+         tf==='15m' ? `${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` :
+         `${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:00`}
+function fmtV(v){return v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':String(v)}
+const id=(s)=>document.getElementById(s);
+
+/* ================= 实时跳动 (末根K线) ================= */
+function tick(){
+  if(!playing) return;
+  const opt = chart.getOption();
+  const k = opt.series[0].data, N = k.length;
+  if(!N) return;
+  const last = k[N-1];
+  const drift = (Math.random()-0.5)*0.0008;
+  let c = +(last[1]*(1+drift)).toFixed(1);
+  const h = Math.max(last[3], c), l = Math.min(last[2], c);
+  k[N-1] = [last[0], c, l, h];
+  const vols = opt.series[3].data; vols[vols.length-1] = {value: vols[vols.length-1].value + Math.round(3+Math.random()*20), itemStyle: vols[vols.length-1].itemStyle};
+  chart.setOption({series:[{data:k},{data:vols}]});
+  id('price').textContent = c.toLocaleString();
+}
+function setPlaying(v){
+  playing = v;
+  id('play').textContent = v ? '▶ 实时' : '⏸ 暂停';
+  id('play').className = v ? 'on' : '';
+  document.body.classList.toggle('paused', !v);
+}
+function setConv(k){ convKey=k; id('conv').textContent = CONV[k].label; buildChart(); }
+function setTf(t){ tf=t; document.querySelectorAll('#tfbar button').forEach(b=>b.classList.toggle('on', b.dataset.tf===t)); buildChart(); }
+
+/* ================= 右栏: 持仓/盘口/信号 ================= */
+function renderPos(){
+  const wobble = (Math.random()-0.5)*0.14;
+  id('tab-pos').innerHTML = `
+  <div class="posrow"><div class="h"><span><span class="tag zh1">预测市场</span> 以太坊↓1,750</div><b class="num">买入</b></div>
+    <div class="p"><span>入场 <b class="num">0.100</b></span><span>名义 <b class="num">$10</b></span></div>
+    <div class="p"><span>浮盈(盯市)</span><span class="num up">+$1.12${''}</span></div></div>
+  <div class="posrow"><div class="h"><span><span class="tag zh1">预测市场</span> 比特币↑94,000</div><b class="num">买入</b></div>
+    <div class="p"><span>入场 <b class="num">0.052</b></span><span>名义 <b class="num">$5</b></span></div>
+    <div class="p"><span>浮盈(盯市)</span><span class="num up">+$0.${(4+wobble).toFixed(0)*0+38}</span></div></div>
+  <div class="posrow"><div class="h"><span><span class="tag zh2">现货套利</span> 比特币 BTCUSDT</div><b class="num">多现货+空永续</b></div>
+    <div class="p"><span>入场 <b class="num">86,202/86,158</b></span><span>名义 <b class="num">$10</b></span></div>
+    <div class="p"><span>资金费累计</span><span class="num">$0.0007</span></div></div>
+  <p style="font-size:11px;color:var(--dim);margin-top:4px">3 笔为真实纸面持仓（2026-09-22），浮盈为示意波动</p>`;
+}
+function renderDepth(){
+  const mid = BASE[sym];
+  const mk = (n,i)=>({px:(mid*(1+(i+1)*0.0006)).toFixed(1), amt:(12+i*5)+'K', side:'ask'});
+  const mb = (n,i)=>({px:(mid*(1-(i+1)*0.0006)).toFixed(1), amt:(14+i*6)+'K', side:'bid'});
+  let h = `<div class="depth">`;
+  for(let i=4;i>=0;i--){const b=mb(0,i);h+=`<div class="row bid"><span class="px">${b.px}</span><span>${b.amt}</span></div>`;}
+  h += `<div class="mid num">中间价 ${mid.toLocaleString()}</div>`;
+  for(let i=0;i<5;i++){const a=mk(0,i);h+=`<div class="row ask"><span class="px">${a.px}</span><span>${a.amt}</span></div>`;}
+  h += `</div><p style="font-size:11px;color:var(--dim);margin-top:6px">盘口为示意 · 实盘接入 book_1s 秒级数据</p>`;
+  id('tab-depth').innerHTML = h;
+}
+function renderSig(){
+  id('tab-sig').innerHTML = `
+  <div class="sigrow"><span class="e">以太坊 9月30日 涨向 3,100</span><span class="num up">买价差 3.60¢</span></div>
+  <div class="sigrow"><span class="e">比特币 9月21-27日 跌向 82,000</span><span class="num down">卖价差 2.14¢</span></div>
+  <div class="sigrow"><span class="e">以太坊 2026年内 跌向 2,250</span><span class="num up">买价差 1.92¢</span></div>
+  <div style="border:1px solid var(--border);border-radius:8px;padding:9px;margin-top:10px">
+    <div style="font-size:11px;color:var(--dim)">资金费率年化（入场阈值5%）</div>
+    <div class="num">比特币 +4.51% <span class="tag">等待/持有</span></div>
+    <div class="num">以太坊 +2.95% <span class="tag">等待/持有</span></div>
+    <div style="font-size:11px;color:var(--dim);margin-top:6px">基差: BTC -3.7bp · ETH -4.8bp</div>
+  </div>`;
+}
+
+/* ================= 底部成交带 ================= */
+const TAPE_BASE = [
+  {t:'10:37:03', strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', note:'BTCUSDT +0.0007$'},
+  {t:'08:50:48', strat:'zh2', tag:'现货套利', txt:'双腿开仓', px:'86,202/86,158', note:'BTCUSDT 年化7.98%'},
+  {t:'08:25:56', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.052', note:'BTC↑94,000 · $5 · edge 6.0¢'},
+  {t:'08:20:08', strat:'zh1', tag:'预测市场', txt:'买入', px:'0.100', note:'ETH↓1,750 · $10 · edge 6.27¢'},
+];
+let tapeFilter = 'all', tapeRows = [...TAPE_BASE];
+function renderTape(flashTop){
+  const f = tapeFilter;
+  const rows = tapeRows.filter(r=> f==='all' || r.strat===f);
+  const trs = rows.map((r,i)=>`<tr class="${flashTop&&i===0?'flash':''}">
+    <td>${r.t}</td><td><span class="tag ${r.strat}">${r.tag}</span></td>
+    <td class="${r.txt.includes('买入')?'up':(r.txt.includes('卖出')?'down':'')}">${r.txt}</td>
+    <td>${r.px}</td><td style="color:var(--dim);font-size:11px">${r.note}</td></tr>`).join('');
+  id('tape').innerHTML = `<thead><tr><th>时间(UTC)</th><th>策略</th><th>动作</th><th>价格</th><th>详情</th></tr></thead><tbody>${trs}</tbody>`;
+}
+function simTapeEvent(){
+  if(!playing) return;
+  const actions = [
+    {strat:'zh1', tag:'预测市场', txt:'卖出', px:'0.143', note:'ETH↑3,000 · 平仓锁盈 +$0.86'},
+    {strat:'zh2', tag:'现货套利', txt:'资金费结算', px:'—', note:'BTCUSDT +0.0007$'},
+  ];
+  const ev = actions[Math.floor(Math.random()*actions.length)];
+  tapeRows.unshift({t: new Date().toISOString().slice(11,19), ...ev});
+  if(tapeRows.length>40) tapeRows.length = 40;
+  renderTape(true);
+  setTimeout(()=>renderTape(false), 1500);
+}
+
+/* ================= 交互绑定 ================= */
+id('sym').addEventListener('change', e=>{ sym=e.target.value; buildChart(); renderDepth(); });
+id('tfbar').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setTf(b.dataset.tf); });
+id('conv').addEventListener('click', ()=> setConv(convKey==='cn'?'intl':'cn'));
+id('play').addEventListener('click', ()=> setPlaying(!playing));
+id('fchips').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b){ tapeFilter=b.dataset.f;
+  document.querySelectorAll('#fchips button').forEach(x=>x.classList.toggle('on',x===b)); renderTape(); }});
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click', ()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  id('tab-pos').style.display = b.dataset.tab==='pos'?'':'none';
+  id('tab-depth').style.display = b.dataset.tab==='depth'?'':'none';
+  id('tab-sig').style.display = b.dataset.tab==='sig'?'':'none';
+}));
+document.addEventListener('keydown', e=>{
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.key==='ArrowLeft') chart && chart.dispatchAction({type:'dataZoom', startValue:undefined}) || true;
+});
+setInterval(()=>{ const now=new Date();
+  const utc=now.toISOString().slice(11,19);
+  const bj=new Date(now.getTime()+8*3600*1000).toISOString().slice(11,19);
+  id('clk').innerHTML = `${bj} 北京<br>${utc} UTC`;
+},1000);
+
+/* ================= 启动 ================= */
+buildChart(); renderPos(); renderDepth(); renderSig(); renderTape();
+timer = setInterval(tick, 1600);
+setInterval(simTapeEvent, 5200);
+window.addEventListener('resize', ()=>chart && chart.resize());
+</script>
+</body>
+</html>

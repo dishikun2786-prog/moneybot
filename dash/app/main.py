@@ -108,6 +108,11 @@ def pnl_page():
     return FileResponse(STATIC / "pnl.html")
 
 
+@app.get("/trade-proto")
+def trade_proto_page():
+    return FileResponse(STATIC / "trade_proto.html")
+
+
 @app.get("/share/{token}")
 def share_page(token: str):
     return FileResponse(STATIC / "share.html")
