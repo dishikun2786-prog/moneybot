@@ -4,7 +4,11 @@
     "theta_in_ann_pct": 5.0,
     "max_hold_h": 336.0,
     "max_basis_bp": 20.0,
-    "notional_usd": 10.0
+    "notional_usd": 10.0,
+    "compounding_base_usd": 10.0,
+    "compounding_min_mult": 0.2,
+    "compounding_max_mult": 3.0,
+    "entry_window_min": 60.0
   },
   "paper_pm": {
     "min_gross_edge_c": 5.0,

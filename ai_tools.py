@@ -89,7 +89,9 @@ def t_run_backtest(args):
 # ================= M7: 变更类工具 (预览→审批→执行) =================
 PARAM_SCHEMA = {
     "carry": {"theta_in_ann_pct": ("float", 0, 20), "max_hold_h": ("float", 1, 720),
-              "max_basis_bp": ("float", 0, 100), "notional_usd": ("float", 1, 50)},
+              "max_basis_bp": ("float", 0, 100), "notional_usd": ("float", 1, 50),
+              "compounding_base_usd": ("float", 1, 100), "compounding_min_mult": ("float", 0.05, 1),
+              "compounding_max_mult": ("float", 1, 10), "entry_window_min": ("float", 0, 480)},
     "paper_pm": {"min_gross_edge_c": ("float", 0.5, 20), "theta_out_c": ("float", 0, 5),
                  "min_opposite_size": ("float", 10, 1000), "max_spread_c": ("float", 1, 50),
                  "max_hold_h": ("float", 1, 72), "max_exposure_usd": ("float", 1, 100),
