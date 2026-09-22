@@ -323,6 +323,36 @@ async def stream_prices(request: Request, __=Depends(require_session)):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/api/stream/depth")
+async def stream_depth(request: Request, __=Depends(require_session)):
+    """SSE: 盘口+成交量实时推送 (数据源 = bybit_ws_bridge orderbook.json, 1s 轮读)"""
+    import asyncio
+    DEPTH = os.path.expanduser("~/polymarket/logs/orderbook.json")
+
+    async def gen():
+        last_ts = None
+        last_send = time.time()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                with open(DEPTH, encoding="utf-8") as f:
+                    data = json.loads(f.read())
+                if data.get("ts") != last_ts:
+                    last_ts = data["ts"]
+                    last_send = time.time()
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            except Exception:
+                pass
+            if time.time() - last_send > 15:
+                last_send = time.time()
+                yield ": ping\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

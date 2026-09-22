@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import time
+from collections import deque
 
 import websocket
 
@@ -17,12 +18,18 @@ BASE = os.path.expanduser("~/polymarket")
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 TICKER_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
 KLINE_TOPICS = [f"kline.1.{s}" for s in SYMBOLS]
-ALL_TOPICS = TICKER_TOPICS + KLINE_TOPICS
+BOOK_TOPICS = [f"orderbook.200.{s}" for s in SYMBOLS]
+TRADE_TOPICS = [f"publicTrade.{s}" for s in SYMBOLS]
+ALL_TOPICS = TICKER_TOPICS + KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
 SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
 SPOT_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
+DEPTH_FILE = f"{BASE}/logs/orderbook.json"
+TRADES_LOG = f"{BASE}/logs/trades_1s.jsonl"
+STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01}   # 最细聚合档位
+BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0}       # 大单阈值(币)
 
 LOCK = threading.Lock()
 PRICES = {}
@@ -31,6 +38,12 @@ SNAP = {"ts": 0, "lag_ms": None, "prices": {}}
 N_TICKS = {"n": 0}
 TEST_DONE = threading.Event()
 WS_REF = {"ws": None}
+# ---- 盘口/成交量状态 (M1) ----
+BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "gaps": n}}
+TRADES = {s: deque(maxlen=30) for s in SYMBOLS}   # 最近30笔逐笔
+AGGS = {s: deque(maxlen=60000) for s in SYMBOLS}  # (T_ms, side, v, p) 滚动窗口原始流
+BIG = deque(maxlen=12)                            # 大单事件
+DEPTH_SAID = {"hello": False}
 
 
 def on_open(ws):
@@ -65,7 +78,128 @@ def on_msg(ws, m):
         sym = topic.split(".")[2]
         with LOCK:
             KLINES[sym] = {int(k["start"]): k for k in d.get("data", [])}
+    elif topic.startswith("orderbook."):
+        _on_book(d)
+    elif topic.startswith("publicTrade."):
+        _on_trade(d)
     _write_snap()
+
+
+# ---- 盘口深度: 快照+增量按u序列重组 (乱序丢弃, 缺口重订阅) ----
+def _on_book(d):
+    sym = d["topic"].split(".")[2]  # orderbook.200.BTCUSDT → [0]=orderbook [1]=depth [2]=sym
+    data = d.get("data", {})
+    ty = d.get("type")
+    with LOCK:
+        b = BOOKS.setdefault(sym, {"bids": {}, "asks": {}, "u": 0, "snap": False, "gaps": 0})
+        if ty == "snapshot":
+            b["bids"] = {str(p): float(s) for p, s in data.get("b", []) if float(s) > 0}
+            b["asks"] = {str(p): float(s) for p, s in data.get("a", []) if float(s) > 0}
+            b["u"] = int(data.get("u", 0))
+            b["snap"] = True
+        elif ty == "delta" and b["snap"]:
+            u = int(data.get("u", 0))
+            if u != b["u"] + 1:
+                b["gaps"] += 1
+                b["snap"] = False  # 缺口: 等重订阅拿新快照
+                return
+            b["u"] = u
+            for p, s in data.get("b", []):
+                if float(s) == 0:
+                    b["bids"].pop(str(p), None)
+                else:
+                    b["bids"][str(p)] = float(s)
+            for p, s in data.get("a", []):
+                if float(s) == 0:
+                    b["asks"].pop(str(p), None)
+                else:
+                    b["asks"][str(p)] = float(s)
+    # 缺口自动修复: 重订阅触发新快照
+    with LOCK:
+        b = BOOKS.get(sym)
+        if b and not b["snap"] and b["gaps"] <= 3:
+            ws = WS_REF["ws"]
+            if ws:
+                threading.Thread(target=lambda: ws.send(json.dumps(
+                    {"op": "subscribe", "args": [f"orderbook.200.{sym}"]})), daemon=True).start()
+                b["gaps"] += 1
+
+
+# ---- 逐笔成交: 方向/量/价入环, 大单检测, 最细档位聚合原料 ----
+def _on_trade(d):
+    sym = d["topic"].split(".")[1]
+    with LOCK:
+        for t in d.get("data", []):
+            v = float(t.get("v", 0))
+            if v <= 0:
+                continue
+            side = t.get("S", "")
+            p = float(t.get("p", 0))
+            ts = int(t.get("T", 0))
+            TRADES[sym].append({"T": ts, "S": side, "v": v, "p": p})
+            AGGS[sym].append((ts, side, v, p))
+            if v >= BIG_TH.get(sym, 1e9):
+                BIG.append({"sym": sym, "S": side, "v": v, "p": p, "T": ts})
+
+
+def _agg_window(q, step, now, wins=(15, 60, 300)):
+    """窗口主动量聚合: {bucket_idx: [买15,卖15,买60,卖60,买300,卖300]}"""
+    grid = {}
+    for ts, side, v, p in q:
+        if now - ts > wins[-1] * 1000:
+            continue
+        k = int(round(p / step))
+        g = grid.setdefault(k, [0.0] * 6)
+        for i, w in enumerate(wins):
+            if now - ts <= w * 1000:
+                g[i + (0 if side == "Buy" else 1)] += v
+    return grid
+
+
+def depth_loop():
+    """每秒: 盘口快照+逐笔带+聚合 → orderbook.json 原子写; trades_1s.jsonl 秒级留痕"""
+    while True:
+        time.sleep(1)
+        with LOCK:
+            books_out, trades_out, aggs_out, big_out = {}, {}, {}, list(BIG)
+            for sym in SYMBOLS:
+                b = BOOKS.get(sym)
+                if b and b["snap"]:
+                    books_out[sym] = {
+                        "bids": [[p, s] for p, s in sorted(b["bids"].items(), key=lambda x: -float(x[0]))[:200]],
+                        "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
+                trades_out[sym] = list(TRADES[sym])  # 逐笔带独立于盘口就绪
+            now = int(time.time() * 1000)
+            for sym in SYMBOLS:
+                q = AGGS[sym]
+                while q and now - q[0][0] > 300000:
+                    q.popleft()
+                grid = _agg_window(q, STEP_FINE[sym], now)
+                if grid:
+                    aggs_out[sym] = {"step": STEP_FINE[sym],
+                                     "grid": {str(k): v for k, v in grid.items()}}
+        snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out, "big": big_out}
+        tmp = DEPTH_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(snap, f, ensure_ascii=False)
+        os.replace(tmp, DEPTH_FILE)
+        if not DEPTH_SAID["hello"] and books_out:
+            DEPTH_SAID["hello"] = True
+            print("[bridge] 盘口+逐笔通道已上线", flush=True)
+        # 秒级成交留痕 (DuckDB 管道扩展)
+        for sym in SYMBOLS:
+            q = AGGS[sym]
+            if not q:
+                continue
+            recent = [x for x in q if now - x[0] <= 1000]
+            if recent:
+                rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "sym": sym,
+                       "n_buy": sum(1 for x in recent if x[1] == "Buy"),
+                       "n_sell": sum(1 for x in recent if x[1] == "Sell"),
+                       "bv": round(sum(x[2] for x in recent if x[1] == "Buy"), 6),
+                       "sv": round(sum(x[2] for x in recent if x[1] == "Sell"), 6)}
+                with open(TRADES_LOG, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 def _write_snap():
@@ -179,6 +313,7 @@ def main():
     threading.Thread(target=persist_loop, daemon=True).start()
     threading.Thread(target=state_loop, daemon=True).start()
     threading.Thread(target=spot_loop, daemon=True).start()
+    threading.Thread(target=depth_loop, daemon=True).start()
     if args.test:
         threading.Thread(target=test_cb_hook, daemon=True).start()
     backoff = 1

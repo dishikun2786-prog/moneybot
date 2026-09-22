@@ -104,6 +104,31 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .param-in{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6px;padding:5px 8px;font-size:12px;width:96px;max-width:100%;min-width:64px}
 .param-in:focus{border-color:#00c853;outline:none}
 .param-in.dirty{border-color:#ffb300}
+/* 盘口量价视图 */
+#depth-pane{flex:1;min-height:0;flex-direction:column}
+.dtool{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid #2a313c;flex-wrap:wrap;background:#161b22}
+.dtool select{max-width:100%}
+#d-balance{margin-left:auto}
+.dladder{flex:1;min-height:0;display:flex;overflow:hidden}
+.dcol{flex:1;min-width:0;overflow-y:auto;font-family:var(--mono);font-size:11px}
+.drow{display:flex;align-items:center;gap:4px;padding:2px 8px;white-space:nowrap}
+.drow .dp{width:62px;text-align:right;color:#8b98a5}
+.drow.ask .dp{color:#ff8a80}
+.drow.bid .dp{color:#4fc3f7}
+.drow .dr{width:54px;text-align:right;color:#e6edf3}
+.drow .dt{width:84px;text-align:right;color:#8b98a5}
+.drow .dt.act{color:#ffd54f}
+.drow .dc{width:50px;text-align:right;color:#8b98a5}
+.dbarwrap{flex:1;min-width:18px;height:8px;background:#0d1117;border-radius:2px;overflow:hidden}
+.dbar{display:block;height:100%;background:rgba(255,138,128,.35);border-radius:2px}
+.drow.bid .dbar{background:rgba(79,195,247,.35);margin-left:auto}
+.drow.bigrow{background:rgba(255,179,0,.10)}
+.dmid{width:120px;flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-left:1px solid #2a313c;border-right:1px solid #2a313c;background:#0d1117;min-height:0}
+.dlast{font-size:18px;font-weight:700;font-family:var(--mono)}
+.dtape{display:flex;gap:5px;align-items:center;padding:6px 10px;border-top:1px solid #2a313c;overflow-x:auto;white-space:nowrap;background:#161b22;font-family:var(--mono);font-size:11px;flex:0 0 auto}
+.tchip{padding:2px 7px;border-radius:4px;flex:0 0 auto}
+.tchip.buy{background:rgba(79,195,247,.14);color:#4fc3f7}
+.tchip.sell{background:rgba(255,138,128,.14);color:#ff8a80}
 @media (max-width:768px){
   .topbar{flex-wrap:wrap;row-gap:6px}
   .topnav{order:5;width:100%;overflow-x:auto}
@@ -115,6 +140,10 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
   .tapebody{overflow-x:auto}
   .ticket .trow{flex-wrap:wrap}
   .param-in{width:100%;max-width:140px}
+  .dladder{flex-direction:column;overflow-y:auto}
+  .dcol{flex:none;max-height:36vh}
+  .dmid{width:auto;border:none;padding:6px 0}
+  .drow{padding:6px 8px}
 }
 @keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
 .livedot{width:8px;height:8px;border-radius:50%;background:#00c853;display:inline-block;animation:pulse 1.6s infinite}
@@ -180,6 +209,7 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
   </div>
   <button id="conv" title="切换涨跌色惯例">红涨绿跌</button>
   <button id="play" class="on" title="空格键暂停/恢复">▶ 实时</button>
+  <button id="d-tgl" title="切换盘口量价视图(挂单+主动成交量)">📊 盘口</button>
   <span class="clock2 num" id="clk" style="font-size:11px;color:#8b98a5;text-align:right;line-height:1.5"></span>
 </div>
 
@@ -191,6 +221,32 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
       <span style="color:#4fc3f7">━ MA7</span><span style="color:#b388ff">━ MA25</span>
       <span style="margin-left:auto" id="tzlabel"></span>
       <span style="margin-left:6px">真实数据 · 每60秒更新末根 · 滚轮缩放/拖拽平移 · 空格暂停</span>
+    </div>
+    <div id="depth-pane" style="display:none">
+      <div class="dtool">
+        <select id="d-sort" class="num">
+          <option value="price">按价格排序</option><option value="rest">按挂单量排序</option>
+          <option value="taker">按主动成交量排序</option><option value="net">按净主动量排序</option>
+        </select>
+        <select id="d-step" class="num">
+          <option value="auto">档位: 自动(最细)</option><option value="0.1">档位: 0.1</option>
+          <option value="1">档位: 1</option><option value="10">档位: 10</option><option value="100">档位: 100</option>
+        </select>
+        <select id="d-win" class="num">
+          <option value="15">主动量: 15秒</option><option value="60" selected>主动量: 1分钟</option>
+          <option value="300">主动量: 5分钟</option>
+        </select>
+        <button class="abtn" id="d-exp" onclick="dExpanded=!dExpanded;renderDepth(lastDepth);document.getElementById('d-exp').textContent=dExpanded?'收起':'展开全部'">展开全部</button>
+        <span id="d-balance" class="dim" style="font-size:11px"></span>
+      </div>
+      <div class="dladder">
+        <div id="d-asks" class="dcol"></div>
+        <div class="dmid"><div class="dlast" id="d-last">—</div><div class="dim" id="d-midinfo" style="font-size:10px"></div></div>
+        <div id="d-bids" class="dcol"></div>
+      </div>
+      <div id="d-tape" class="dtape"></div>
+      <div id="d-prof" style="height:110px;flex:0 0 auto"></div>
+      <div class="zhdesc" style="padding:0 10px 6px;margin:0">白话：<b>挂单量</b>=还没成交的委托（可撤）；<b>主动成交量</b>=真金白银已成交。挂单量大的价位=「墙」，主动量大的价位=真实交战位。红色=卖方主动砸盘，蓝色=买方主动吃单。</div>
     </div>
   </div>
 
@@ -785,6 +841,149 @@ document.addEventListener('input', e => {
   if(t.classList && t.classList.contains('param-in')){
     t.classList.toggle('dirty', t.value.trim() !== t.dataset.orig);
   }
+});
+/* ===== 盘口量价视图 (M3) ===== */
+let depthOn = false, depthES = null, lastDepth = null, dExpanded = false, dProf = null;
+const dBigSeen = new Set();
+const D_SYM_STEP = {BTCUSDT: 0.1, ETHUSDT: 0.01};
+const D_SORT_ZH = {price:'价格序', rest:'挂单量序', taker:'主动量序', net:'净主动量序'};
+const dFmtPx = p => (p >= 10000 ? p.toFixed(0) : p.toFixed(2));
+const dFmtVol = v => (v >= 1000 ? (v / 1000).toFixed(1) + 'K' : (v >= 100 ? v.toFixed(0) : v.toFixed(2)));
+function toggleDepth(){
+  depthOn = !depthOn;
+  document.getElementById('chart').style.display = depthOn ? 'none' : '';
+  document.querySelector('.chartpane .legend').style.display = depthOn ? 'none' : '';
+  const dp = document.getElementById('depth-pane');
+  dp.style.display = depthOn ? 'flex' : 'none';
+  document.getElementById('d-tgl').classList.toggle('on', depthOn);
+  if(depthOn){
+    if(!depthES) startDepthES();
+    if(lastDepth) renderDepth(lastDepth);
+    if(dProf) dProf.resize();
+  }
+}
+function startDepthES(){
+  depthES = new EventSource('/api/stream/depth');
+  depthES.onmessage = e => { try{ lastDepth = JSON.parse(e.data); renderDepth(lastDepth); }catch(_){} };
+  depthES.onerror = () => {};
+}
+function dAggAt(d, step, winIdx){
+  const a = (d.aggs || {})[sym];
+  if(!a) return {};
+  const fine = a.step || D_SYM_STEP[sym];
+  const out = {};
+  for(const [k, v] of Object.entries(a.grid || {})){
+    const p = Number(k) * fine;
+    const nk = Math.round(p / step);
+    const o = out[nk] || (out[nk] = [0, 0]);
+    o[0] += v[winIdx * 2];
+    o[1] += v[winIdx * 2 + 1];
+  }
+  return out;
+}
+function renderDepth(d){
+  if(!d) return;
+  const stepSel = document.getElementById('d-step').value;
+  const step = stepSel === 'auto' ? (D_SYM_STEP[sym] || 0.1) : Number(stepSel);
+  const winIdx = {15: 0, 60: 1, 300: 2}[document.getElementById('d-win').value] ?? 1;
+  const sortMode = document.getElementById('d-sort').value;
+  const agg = dAggAt(d, step, winIdx);
+  const book = (d.books || {})[sym] || {bids: [], asks: []};
+  const L = lastLivePrices[sym] && lastLivePrices[sym].last;
+  const pdec = step < 1 ? 1 : 0;
+  const makeRows = levels => levels.map(x => {
+    const p = Number(x[0]);
+    const g = agg[Math.round(p / step)] || [0, 0];
+    return {p, rest: x[1], tb: g[0], ts: g[1], net: g[0] - g[1]};
+  });
+  let asks = makeRows(book.asks), bids = makeRows(book.bids);
+  let cum = 0;
+  for(const r of asks){ cum += r.rest; r.cum = cum; }
+  cum = 0;
+  for(let i = bids.length - 1; i >= 0; i--){ cum += bids[i].rest; bids[i].cum = cum; }
+  const maxCum = Math.max(...asks.map(r => r.cum), ...bids.map(r => r.cum), 0.0001);
+  const sorters = {
+    price: (a, b) => a.p - b.p,
+    rest: (a, b) => b.rest - a.rest,
+    taker: (a, b) => (b.tb + b.ts) - (a.tb + a.ts),
+    net: (a, b) => b.net - a.net
+  };
+  asks.sort(sorters[sortMode]);
+  bids.sort(sorters[sortMode] === sorters.price ? (a, b) => b.p - a.p : sorters[sortMode]);
+  const N = dExpanded ? 200 : 20;
+  const bigs = (d.big || []).filter(x => x.sym === sym);
+  const row = (r, side) => {
+    const big = bigs.some(x => Math.abs(x.p - r.p) <= step);
+    return `<div class="drow ${side} ${big ? 'bigrow' : ''}">
+      <span class="dp">${r.p.toFixed(pdec)}</span>
+      <span class="dr">${dFmtVol(r.rest)}</span>
+      <span class="dt ${(r.tb + r.ts) > 0 ? 'act' : ''}">${dFmtVol(r.tb)}/${dFmtVol(r.ts)}</span>
+      <span class="dc">${dFmtVol(r.cum)}</span>
+      <span class="dbarwrap"><span class="dbar" style="width:${(r.cum / maxCum * 100).toFixed(1)}%"></span></span>
+    </div>`;
+  };
+  document.getElementById('d-asks').innerHTML = asks.slice(0, N).map(r => row(r, 'ask')).join('') || '<div class="dim" style="padding:8px">等待数据</div>';
+  document.getElementById('d-bids').innerHTML = bids.slice(0, N).map(r => row(r, 'bid')).join('') || '<div class="dim" style="padding:8px">等待数据</div>';
+  const bb = book.bids[0], ba = book.asks[0];
+  document.getElementById('d-last').innerHTML = L
+    ? `${dFmtPx(L)} <span class="dim" style="font-size:10px">最新</span>` : '—';
+  document.getElementById('d-midinfo').innerHTML = (bb && ba)
+    ? `买一 ${Number(bb[0]).toFixed(pdec)} / 卖一 ${Number(ba[0]).toFixed(pdec)}<br>${D_SORT_ZH[sortMode]} · 档位${step}`
+    : '等待盘口数据';
+  let bv = 0, sv = 0;
+  for(const g of Object.values(dAggAt(d, step, 1))){ bv += g[0]; sv += g[1]; }
+  const tot = bv + sv;
+  const pct = tot ? bv / tot * 100 : 50;
+  const dom = pct > 65 ? '买方主导' : (pct < 35 ? '卖方主导' : '多空均衡');
+  const bar = '█'.repeat(Math.max(0, Math.min(20, Math.round(pct / 5)))) + '░'.repeat(Math.max(0, 20 - Math.round(pct / 5)));
+  document.getElementById('d-balance').innerHTML =
+    `主动买 <b class="num" style="color:#4fc3f7">${dFmtVol(bv)}</b> ${pct.toFixed(0)}% ▕${bar}▏ <b class="num" style="color:#ff8a80">${dFmtVol(sv)}</b> 主动卖 · <b style="color:#ffd54f">${dom}</b>`;
+  const trs = (d.trades || {})[sym] || [];
+  document.getElementById('d-tape').innerHTML = trs.slice().reverse().map(t =>
+    `<span class="tchip ${t.S === 'Buy' ? 'buy' : 'sell'}">${t.p} <b>${dFmtVol(t.v)}</b></span>`).join('')
+    + '<span class="dim" style="font-size:10px;margin-left:6px">最近30笔 · 蓝=主动买 红=主动卖</span>';
+  for(const x of bigs){
+    const k = x.T + '|' + x.S + '|' + x.v + '|' + x.p;
+    if(dBigSeen.has(k)) continue;
+    dBigSeen.add(k);
+    toast(`⚠️ ${sym} 大单: 主动${x.S === 'Buy' ? '买' : '卖'} ${dFmtVol(x.v)} @ ${x.p}`);
+  }
+  renderProf(d, winIdx);
+}
+function renderProf(d, winIdx){
+  const el = document.getElementById('d-prof');
+  dProf = dProf || echarts.init(el, 'dark');
+  const a = (d.aggs || {})[sym];
+  const book = (d.books || {})[sym];
+  const bb = book && book.bids[0], ba = book && book.asks[0];
+  if(!a || !bb || !ba){ return; }
+  const mid = (Number(bb[0]) + Number(ba[0])) / 2;
+  const fine = a.step;
+  const lo = mid * 0.99, hi = mid * 1.01;
+  const rows = [];
+  for(const [k, v] of Object.entries(a.grid || {})){
+    const p = Number(k) * fine;
+    if(p >= lo && p <= hi) rows.push({p, b: v[winIdx * 2], s: v[winIdx * 2 + 1]});
+  }
+  rows.sort((x, y) => x.p - y.p);
+  const winZh = {0: '15秒', 1: '1分钟', 2: '5分钟'}[winIdx];
+  dProf.setOption({
+    backgroundColor: 'transparent', grid: {left: 42, right: 10, top: 22, bottom: 20},
+    legend: {textStyle: {color: '#8b98a5', fontSize: 10}, top: 0},
+    title: {text: `量价分布 ±1% (${winZh}主动量)`, textStyle: {color: '#8b98a5', fontSize: 10}, left: 46, top: 4},
+    tooltip: {trigger: 'axis'},
+    xAxis: {type: 'category', data: rows.map(r => r.p.toFixed(fine < 0.1 ? 2 : 1)),
+            axisLabel: {color: '#8b98a5', fontSize: 9, interval: 'auto'}},
+    yAxis: {type: 'value', axisLabel: {color: '#8b98a5', fontSize: 9}},
+    series: [
+      {name: '主动买', type: 'bar', stack: 'v', data: rows.map(r => +r.b.toFixed(4)), itemStyle: {color: '#4fc3f7'}, barMaxWidth: 8},
+      {name: '主动卖', type: 'bar', stack: 'v', data: rows.map(r => +r.s.toFixed(4)), itemStyle: {color: '#ff8a80'}, barMaxWidth: 8}
+    ]
+  }, true);
+}
+document.getElementById('d-tgl').addEventListener('click', toggleDepth);
+['d-sort', 'd-step', 'd-win'].forEach(idn => {
+  document.getElementById(idn).addEventListener('change', () => { if(lastDepth) renderDepth(lastDepth); });
 });
 setInterval(()=>{ if(playing) loadKlines(); }, 30000);
 setInterval(()=>{ if(playing) loadTape(); }, 5000);
