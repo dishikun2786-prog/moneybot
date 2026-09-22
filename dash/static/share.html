@@ -26,10 +26,11 @@ details .body b { color: var(--fg); font-weight: 600; }
 .badge-note { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px;
   background: rgba(255,179,0,.12); color: var(--amber); border: 1px solid rgba(255,179,0,.35); margin-left: 8px; }
 </style>
+<script src="/static/app.js"></script>
 </head><body>
 <main style="max-width:960px; padding-top:22px">
 <h1 style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">💰 Moneybot 模拟盘成绩单
-  <small style="margin:0">量化策略演习的实时成绩 · 30秒自动刷新</small></h1>
+  <small style="margin:0">量化策略演习的实时成绩 · 10秒自动刷新</small></h1>
 
 <div class="what-box">
 <b>这是什么？</b> 一个用 <b>虚拟资金（$100）</b> 真枪实弹测试量化交易策略的「演习账户」。
@@ -105,7 +106,7 @@ async function refresh(){
   document.getElementById('pos_tbl').innerHTML = (d.positions||[]).map(p=>
     `<tr><td>${p.strat}</td><td>${p.key}</td><td>${p.side}</td><td>${p.entry}</td><td class="dim">${p.note}</td></tr>`
   ).join('') || '<tr><td class="dim" colspan="5">(空仓)</td></tr>';
-  document.getElementById('ts').textContent = '更新 ' + d.ts;
+  document.getElementById('ts').textContent = '更新 ' + d.ts + ' (北京时间 ' + zhClock().split('|')[0].trim() + ')';
   const eq = d.equity || [];
   let cum = 100;
   const dates = [], vals = [];
@@ -122,6 +123,6 @@ async function refresh(){
         lineStyle:{color:'#8b98a5',type:'dashed'},label:{formatter:'初始$100',color:'#8b98a5'},data:[{yAxis:100}]}}]});
   window.addEventListener('resize',()=>ch.resize());
 }
-refresh(); setInterval(refresh, 30000);
+refresh(); setInterval(refresh, 10000);
 </script>
 </body></html>

@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>分析报告 · Moneybot</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js"></script>
 </head><body>
 <nav><a class="brand" href="/">💰 Moneybot</a>
 <a href="/">总览</a><a href="/markets">标的监控</a><a href="/carry">套利监控</a><a href="/edge">错价分析</a>
@@ -21,8 +22,7 @@
 <div class="footer">moneybot.openedskill.com</div>
 </main>
 <script>
-function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
-setInterval(clock,1000); clock();
+startClock('clock');
 async function refresh(){
   const r = await fetch('/api/analysis');
   if(r.status===401){ location.href='/login'; return; }

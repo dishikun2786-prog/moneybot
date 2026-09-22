@@ -3,13 +3,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>总览 · Moneybot</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js"></script>
 </head><body>
 <nav><a class="brand" href="/">💰 Moneybot</a>
 <a href="/">总览</a><a href="/markets">标的监控</a><a href="/carry">套利监控</a><a href="/edge">错价分析</a>
 <a href="/pnl">盈亏看板</a><a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>对冲监控总览 <small>PM×Bybit 碰价期权对冲 · 都柏林节点 · 数据每60s更新</small></h1>
+<h1>对冲监控总览 <small>预测市场×合约对冲 · 都柏林节点 · 10秒刷新</small></h1>
 <div class="cards">
   <div class="card"><div class="k">BTC 现货 (Bybit)</div><div class="v" id="btc">—</div></div>
   <div class="card"><div class="k">ETH 现货 (Bybit)</div><div class="v" id="eth">—</div></div>
@@ -29,6 +30,7 @@
 <div class="footer">moneybot.openedskill.com · 仅供内部使用</div>
 </main>
 <script>
+startClock('clock');
 async function guard(){
   try{
     const r = await fetch('/api/summary');
@@ -37,8 +39,6 @@ async function guard(){
   }catch(e){ return null; }
 }
 function fmt(x){ return (x==null)?'—':Number(x).toFixed(2); }
-function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
-setInterval(clock,1000); clock();
 async function refresh(){
   const d = await guard();
   if(!d) return;
@@ -73,7 +73,7 @@ async function refreshPaper(){
       return `<tr><td>${k.slice(0,45)}</td><td>${p.side}</td><td>${p.entry}</td><td>${h}h</td></tr>`;
     }).join('') || '<tr><td class="dim" colspan="4">(空仓)</td></tr>';
 }
-refreshPaper(); setInterval(refreshPaper, 30000);
-refresh(); setInterval(refresh, 30000);
+refreshPaper(); setInterval(refreshPaper, 10000);
+refresh(); setInterval(refresh, 10000);
 </script>
 </body></html>

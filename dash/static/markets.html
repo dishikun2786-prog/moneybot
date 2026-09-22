@@ -9,34 +9,34 @@
 <a href="/pnl">盈亏看板</a><a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>对冲标的监控 <small>119个碰价期权桶 · 模型价 vs 市场价 · 点击行看详情</small></h1>
+<h1>对冲标的监控 <small>119个碰价期权桶 · 模型价 vs 市场价 · 点击行看详情 · 10秒刷新</small></h1>
 <div class="toolbar">
   <select id="sort" onchange="refresh()">
-    <option value="edge">按 |edge| 排序</option>
-    <option value="bias">按 |模型偏差| 排序</option>
+    <option value="edge">按 价差 排序</option>
+    <option value="bias">按 模型偏差 排序</option>
     <option value="strike">按 行权价 排序</option>
   </select>
-  <input id="q" placeholder="过滤 (BTC/ETH/2,000...)" oninput="refresh()">
+  <input id="q" placeholder="过滤 (比特币/以太坊/2,000...)" oninput="refresh()">
   <span class="dim" id="info"></span>
 </div>
 <div class="panel" style="overflow-x:auto">
 <table id="mtbl"><thead><tr>
-<th>事件</th><th>市场</th><th>方向</th><th>行权价</th><th>现货</th><th>model_p</th>
-<th>买价</th><th>卖价</th><th>买edge¢</th><th>卖edge¢</th><th>IV比</th><th>到期</th>
+<th>标的</th><th>方向</th><th>行权价</th><th>现货</th><th>模型价</th>
+<th>买价</th><th>卖价</th><th>买价差¢</th><th>卖价差¢</th><th>波动率比</th><th>到期参考</th>
 </tr></thead><tbody></tbody></table>
 </div>
 <div class="footer">moneybot.openedskill.com · 点击行进入错价分析</div>
 </main>
+<script src="/static/app.js"></script>
 <script>
-function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
-setInterval(clock,1000); clock();
+startClock('clock');
 async function refresh(){
   const sort = document.getElementById('sort').value;
   const q = document.getElementById('q').value;
   const r = await fetch('/api/markets?sort='+sort+'&q='+encodeURIComponent(q));
   if(r.status===401){ location.href='/login'; return; }
   const d = await r.json();
-  document.getElementById('info').textContent = d.n + ' 个标的 · ' + new Date().toISOString().slice(11,19) + ' UTC';
+  document.getElementById('info').innerHTML = d.n + ' 个标的 · ' + freshnessHtml(d.rows && d.rows.length ? d.rows[0].ts : null);
   const tb = document.querySelector('#mtbl tbody');
   tb.innerHTML = '';
   for(const m of d.rows){
@@ -44,8 +44,8 @@ async function refresh(){
     const key = encodeURIComponent(m.event + '|' + m.market);
     const tr = document.createElement('tr');
     tr.onclick = ()=>location.href='/edge?k='+key;
-    tr.innerHTML = `<td>${m.event.slice(0,28)}</td><td>${m.market}</td>
-      <td>${m.dir==='down'?'🔻跌':'🔺涨'}</td><td>${Number(m.strike).toLocaleString()}</td>
+    tr.innerHTML = `<td>${m.market_zh.slice(0,40)}</td><td>${m.dir_zh}</td>
+      <td>${Number(m.strike).toLocaleString()}</td>
       <td>${Number(m.spot).toFixed(0)}</td><td>${Number(m.model_p).toFixed(3)}</td>
       <td class="dim">${Number(m.best_bid).toFixed(3)}</td><td class="dim">${Number(m.best_ask).toFixed(3)}</td>
       <td class="${m.edge_buy_c>0?'pos':'dim'}">${m.edge_buy_c==null?'—':Number(m.edge_buy_c).toFixed(2)}</td>
@@ -54,6 +54,6 @@ async function refresh(){
     tb.appendChild(tr);
   }
 }
-refresh(); setInterval(refresh, 30000);
+refresh(); setInterval(refresh, 10000);
 </script>
 </body></html>

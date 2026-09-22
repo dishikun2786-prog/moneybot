@@ -4,6 +4,7 @@
 <title>套利监控 · Moneybot</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/echarts.min.js"></script>
+<script src="/static/app.js"></script>
 </head><body>
 <nav><a class="brand" href="/">💰 Moneybot</a>
 <a href="/">总览</a><a href="/markets">标的监控</a><a href="/edge">错价分析</a>
@@ -11,7 +12,7 @@
 <a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>现货×永续基差套利 <small>策略=纯funding持有(回测v2: 年化+118~141%) · 数据60s更新</small></h1>
+<h1>现货×永续基差套利 <small>策略=资金费率持有(回测年化+118~141%) · 10秒刷新</small></h1>
 
 <div class="cards" id="opp_cards"></div>
 
@@ -27,10 +28,8 @@
 
 <div class="footer">moneybot.openedskill.com · 纸面引擎 60s 循环</div>
 </main>
-<script>
-function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
-setInterval(clock,1000); clock();
 let basisChart=null, fundChart=null;
+startClock('clock');
 async function refresh(){
   const r = await fetch('/api/carry');
   if(r.status===401){ location.href='/login'; return; }
@@ -42,10 +41,10 @@ async function refresh(){
     const ann = Number(m.ann_pct);
     const ok = ann > 5 && Math.abs(m.basis_bp) < 20;
     cards.innerHTML += `<div class="card">
-      <div class="k">${m.symbol}</div>
+      <div class="k">${m.symbol_zh} (${m.symbol})</div>
       <div class="v">现货 ${Number(m.spot).toFixed(1)}</div>
       <div class="sub">基差 ${m.basis_bp>0?'+':''}${Number(m.basis_bp).toFixed(1)}bp</div>
-      <div class="sub">funding年化 <b class="${ann>0?'pos':'neg'}">${ann>0?'+':''}${ann.toFixed(1)}%</b></div>
+      <div class="sub">资金费率年化 <b class="${ann>0?'pos':'neg'}">${ann>0?'+':''}${ann.toFixed(1)}%</b></div>
       <div class="sub">建议: <span class="badge ${ok?'ok':'bad'}">${ok?'可入场':'等待/离场'}</span></div></div>`;
   }
   // 基差图
@@ -87,11 +86,11 @@ async function refresh(){
   // 交易
   const tt = document.getElementById('trades_tbl').querySelector('tbody');
   tt.innerHTML = (d.trades||[]).slice().reverse().map(t=>`<tr><td class="dim">${t.ts}</td>
-    <td>${t.symbol}</td><td>${t.action}</td><td class="dim">${JSON.stringify(Object.fromEntries(
-      Object.entries(t).filter(([k])=>!['ts','symbol','action'].includes(k))))}</td></tr>`).join('')
+    <td>${t.symbol}</td><td>${t.action_zh||t.action}</td><td class="dim">${JSON.stringify(Object.fromEntries(
+      Object.entries(t).filter(([k])=>!['ts','symbol','action','action_zh'].includes(k))))}</td></tr>`).join('')
     || '<tr><td class="dim" colspan="4">(无)</td></tr>';
 }
-refresh(); setInterval(refresh, 30000);
+refresh(); setInterval(refresh, 10000);
 window.addEventListener('resize',()=>{basisChart&&basisChart.resize();fundChart&&fundChart.resize();});
 </script>
 </body></html>

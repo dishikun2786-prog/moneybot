@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 import secrets
 import subprocess
 import time
@@ -61,6 +62,9 @@ def markets(sort="edge", q=""):
       SELECT {','.join(_COLS)} FROM latest WHERE rn=1
     """)
     out = [dict(zip(_COLS, r)) for r in rows]
+    for d in out:
+        d["market_zh"] = zh_market(d["event"], d["market"])
+        d["dir_zh"] = "涨向" if d["dir"] == "up" else "跌向"
     if q:
         out = [d for d in out if q.lower() in (d["event"] or "").lower()
                or q.lower() in (d["market"] or "").lower()]
@@ -113,6 +117,29 @@ def paper():
     return dict(state=st, recent=trades)
 
 
+_MONTHS_ZH = {"January": "1月", "February": "2月", "March": "3月", "April": "4月",
+              "May": "5月", "June": "6月", "July": "7月", "August": "8月",
+              "September": "9月", "October": "10月", "November": "11月", "December": "12月"}
+_ACT_ZH = {"OPEN_BOTH_LEGS": "双腿开仓", "CLOSE_PERP_LEG(单边平仓)": "单边平仓(合约腿)",
+           "FUNDING_SETTLE": "资金费结算", "REUSE_SPOT_LEG": "现货腿复用",
+           "CLOSE_SPOT_LEG": "平现货腿", "OPEN": "开仓", "CLOSE": "平仓"}
+_SIDE_ZH = {"BUY": "买入", "SELL": "卖出"}
+_STRAT_ZH = {"PM桶对冲": "预测市场对冲", "现货×永续": "现货×永续套利"}
+
+
+def zh_market(event, market):
+    """Polymarket 英文事件标题 → 中文展示名"""
+    s = event or ""
+    for en, zh in _MONTHS_ZH.items():
+        s = s.replace(en, zh)
+    s = s.replace("What price will ", "").replace(" hit ", "：触及 ")
+    s = re.sub(r"：触及 in (\d{4})\?", r"：\1年内触及价位？", s)
+    s = re.sub(r"：触及 (\d{1,2})月 (\d{1,2})-(\d{1,2})\?", r"：当月\2-\3日周内触及价位？", s)
+    s = s.replace("Bitcoin", "比特币").replace("Ethereum", "以太坊")
+    m2 = re.sub(r"\s+", " ", (market or "").replace("↓", "跌向").replace("↑", "涨向")).strip()
+    return f"{s} {m2}".strip()
+
+
 def carry():
     FV2 = f"{config.DATA}/carry_1m/year=*/month=*/*.parquet"
     rows = []
@@ -154,9 +181,11 @@ def carry():
         except Exception:
             pass
     return dict(rows=[dict(zip(
-        ["symbol", "ts", "spot", "perp_mark", "funding_rate", "basis_bp", "ann_pct"], r)) for r in rows],
+        ["symbol", "ts", "spot", "perp_mark", "funding_rate", "basis_bp", "ann_pct"], r),
+        symbol_zh="比特币" if r[0] == "BTCUSDT" else "以太坊") for r in rows],
         series=series, fund_hist=[dict(t=r[0], symbol=r[1], ann=r[2]) for r in fund_hist],
-        state=st, trades=trades)
+        state=st, trades=[dict(t, action_zh=_ACT_ZH.get(t.get("action", ""), t.get("action", "")))
+                          for t in trades])
 
 
 INITIAL_CAPITAL = 100.0  # 模拟盘初始资金
@@ -233,12 +262,16 @@ def pnl_overview():
     capital = round(INITIAL_CAPITAL + realized_total + unreal, 2)
     positions = []
     for key, p in (pm_st.get("positions") or {}).items():
-        positions.append({"strat": "PM桶对冲", "key": key[:44], "side": p["side"],
+        positions.append({"strat": _STRAT_ZH.get("PM桶对冲", "预测市场对冲"),
+                          "key": zh_market(*key.split("|", 1))[:40],
+                          "side": _SIDE_ZH.get(p["side"], p["side"]),
                           "entry": p.get("entry"), "note": f"{p.get('size_usd', 0):.0f}$名义"})
     for sym, p in (cy_st.get("positions") or {}).items():
-        positions.append({"strat": "现货×永续", "key": sym, "side": "多现货+空永续",
+        sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
+                          "key": f"{sym_zh}({sym})", "side": "买入现货+卖出合约",
                           "entry": f"{p.get('spot_entry')}/{p.get('perp_entry')}",
-                          "note": f"funding累计 {p.get('funding_acc', 0):.3f}$"})
+                          "note": f"资金费累计 {p.get('funding_acc', 0):.3f}$"})
     return dict(capital=capital,
                 realized_total=round(realized_total, 2),
                 realized_today=round(pm_day + cy_day, 2),

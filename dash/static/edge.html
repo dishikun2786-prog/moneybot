@@ -10,7 +10,7 @@
 <a href="/pnl">盈亏看板</a><a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>错价分析 <small>模型价 vs 市场价 + edge 演变</small></h1>
+<h1>错价分析 <small>模型价 vs 市场价 + 价差演变 · 10秒刷新</small></h1>
 <div class="toolbar">
   <select id="mk" onchange="loadSeries()"></select>
   <select id="hours" onchange="loadSeries()">
@@ -19,12 +19,12 @@
   <span class="dim" id="info"></span>
 </div>
 <div class="panel"><div id="chart"></div></div>
-<div class="footer">绿=买edge(模型低估) 红=卖edge(模型高估) · 单位: 美分/股</div>
+<div class="footer">绿=买价差(模型认为市场便宜) 红=卖价差(模型认为市场贵) · 单位: 美分/股</div>
 </main>
+<script src="/static/app.js"></script>
 <script>
 let chart = null;
-function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
-setInterval(clock,1000); clock();
+startClock('clock');
 async function loadList(){
   const r = await fetch('/api/markets?sort=strike');
   if(r.status===401){ location.href='/login'; return; }
@@ -36,7 +36,7 @@ async function loadList(){
   for(const m of d.rows){
     const key = m.event+'|'+m.market;
     const o = document.createElement('option');
-    o.value = key; o.textContent = m.event.slice(0,24)+' '+m.market;
+    o.value = key; o.textContent = m.market_zh.slice(0,44);
     if(want===key){ o.selected = true; found = true; }
     sel.appendChild(o);
   }
@@ -57,22 +57,23 @@ async function loadSeries(){
   chart.setOption({
     backgroundColor: 'transparent',
     tooltip: {trigger:'axis'},
-    legend: {data:['模型价','市场mid','买edge','卖edge'], textStyle:{color:'#8b98a5'}},
+    legend: {data:['模型价','市场中间价','买价差','卖价差'], textStyle:{color:'#8b98a5'}},
     grid: {left:50, right:60, top:40, bottom:40},
     xAxis: {type:'category', data: ts, axisLabel:{color:'#8b98a5'}},
     yAxis: [
       {type:'value', name:'价格', axisLabel:{color:'#8b98a5'}, splitLine:{lineStyle:{color:'#1c2430'}}},
-      {type:'value', name:'edge(¢)', axisLabel:{color:'#8b98a5'}, splitLine:{show:false}}
+      {type:'value', name:'价差(¢)', axisLabel:{color:'#8b98a5'}, splitLine:{show:false}}
     ],
     series: [
       {name:'模型价', type:'line', data: model, showSymbol:false, lineStyle:{color:'#4fc3f7', width:2}},
-      {name:'市场mid', type:'line', data: mid, showSymbol:false, lineStyle:{color:'#ffb300', width:2}},
-      {name:'买edge', type:'bar', yAxisIndex:1, data: eb, itemStyle:{color:'#00c853'}, barMaxWidth:6},
-      {name:'卖edge', type:'bar', yAxisIndex:1, data: es, itemStyle:{color:'#ff5252'}, barMaxWidth:6}
+      {name:'市场中间价', type:'line', data: mid, showSymbol:false, lineStyle:{color:'#ffb300', width:2}},
+      {name:'买价差', type:'bar', yAxisIndex:1, data: eb, itemStyle:{color:'#00c853'}, barMaxWidth:6},
+      {name:'卖价差', type:'bar', yAxisIndex:1, data: es, itemStyle:{color:'#ff5252'}, barMaxWidth:6}
     ]
   });
 }
 loadList();
+setInterval(loadSeries, 10000);
 window.addEventListener('resize', ()=>chart && chart.resize());
 </script>
 </body></html>
