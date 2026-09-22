@@ -321,6 +321,93 @@ def share_view():
                 orphans=d["orphans"], ts=d["ts"])
 
 
+KLINE_IVS = ("1m", "5m", "15m", "1h", "4h", "D", "W", "M")
+_LOGS = os.path.expanduser("~/polymarket/logs")
+_PARAMS_FILE = os.path.expanduser("~/polymarket/strategy_params.json")
+
+# 策略说明（策略面板展示）
+STRATEGY_INFO = {
+    "paper_pm": {"name": "预测市场对冲", "zh": "在 Polymarket 预测市场找「价格标错」的碰价期权桶：用数学模型算出桶的合理价格，市场价显著低于模型价时买入（反之卖出），赚价格回归的差价。模拟盘每桶名义 $10。"},
+    "carry": {"name": "现货×永续套利", "zh": "同时买入现货+做空永续合约，价格涨跌互相抵消；真正赚的是合约「资金费率」（多头每8小时付给空头的利息）。资金费率年化超过阈值时入场持有，费率翻负时单边平仓锁定利润。"},
+}
+
+
+def strategy():
+    """当前策略参数 + 说明 (单一参数源 strategy_params.json)"""
+    params = {}
+    try:
+        params = json.load(open(_PARAMS_FILE))
+    except Exception:
+        pass
+    zh = {k: v["zh"] for k, v in STRATEGY_INFO.items()}
+    names = {k: v["name"] for k, v in STRATEGY_INFO.items()}
+    return {"params": params, "zh": zh, "names": names,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+
+def klines(symbol="BTCUSDT", interval="15m", limit=300):
+    """真实K线 (parquet) → [{t,o,h,l,c,v}]"""
+    if symbol not in ("BTCUSDT", "ETHUSDT"):
+        symbol = "BTCUSDT"
+    if interval not in KLINE_IVS:
+        interval = "15m"
+    rows = _q(f"""SELECT ts, open, high, low, close, volume
+        FROM read_parquet('{config.DATA}/kline_{interval}/year=*/month=*/*.parquet')
+        WHERE symbol = '{symbol}' ORDER BY ts DESC LIMIT {int(limit)}""")
+    rows.reverse()
+    bars = [{"t": int(r[0].timestamp() * 1000), "o": r[1], "h": r[2],
+             "l": r[3], "c": r[4], "v": r[5]} for r in rows]
+    return {"symbol": symbol, "interval": interval, "bars": bars}
+
+
+def _norm_paper(t, strat):
+    act = t.get("action", "")
+    side = t.get("side", "")
+    if act == "OPEN":
+        act_zh = "买入开仓" if side == "BUY" else "卖出开仓"
+    elif act == "CLOSE":
+        act_zh = "平仓"
+    else:
+        act_zh = act
+    note = f"毛价差 {t.get('gross_edge_c')}¢" if t.get("gross_edge_c") is not None else ""
+    return {"ts": t.get("ts", ""), "strat": strat, "tag": "预测市场",
+            "symbol": (t.get("key") or "")[:44], "action": act_zh,
+            "side": side, "price": t.get("entry"),
+            "pnl": t.get("pnl_usd", t.get("pnl")), "note": note}
+
+
+def _norm_carry(t, strat):
+    act = t.get("action", "")
+    act_zh = _ACT_ZH.get(act, act)
+    px = None
+    if t.get("spot_entry") is not None and t.get("perp_entry") is not None:
+        px = f"{t['spot_entry']}/{t['perp_entry']}"
+    pnl = t.get("pnl_usd", t.get("pnl", t.get("amount")))
+    note = f"年化 {t.get('ann_pct')}%" if t.get("ann_pct") is not None else ""
+    return {"ts": t.get("ts", ""), "strat": strat, "tag": "现货套利",
+            "symbol": t.get("symbol", ""), "action": act_zh,
+            "side": None, "price": px, "pnl": pnl, "note": note}
+
+
+def tape(limit=100):
+    """两引擎交易事件流归一化 (尾部读取, 时间倒序)"""
+    events = []
+    for fname, fn in (("paper_trades.jsonl", _norm_paper), ("carry_trades.jsonl", _norm_carry)):
+        p = f"{_LOGS}/{fname}"
+        if not os.path.exists(p):
+            continue
+        with open(p, encoding="utf-8") as f:
+            lines = f.readlines()[-limit:]
+        for line in lines:
+            try:
+                t = json.loads(line)
+                events.append(fn(t, "预测市场" if fname.startswith("paper") else "现货套利"))
+            except Exception:
+                continue
+    events.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    return events[:limit]
+
+
 def system():
     svc = ["pm-monitor", "pm-wss", "pm-dash"]
     tmr = ["pm-hedge", "pm-datawriter", "pm-watchdog"]

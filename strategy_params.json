@@ -1,0 +1,20 @@
+{
+  "_comment": "纸面策略单一参数源 (AI助手与引擎共用; 引擎每轮热加载)",
+  "carry": {
+    "theta_in_ann_pct": 5.0,
+    "max_hold_h": 336.0,
+    "max_basis_bp": 20.0,
+    "notional_usd": 10.0
+  },
+  "paper_pm": {
+    "min_gross_edge_c": 5.0,
+    "min_opposite_size": 100.0,
+    "max_spread_c": 6.0,
+    "max_hold_h": 6.0,
+    "max_exposure_usd": 20.0
+  },
+  "monitor": {
+    "cal_sigma_up": 1.046,
+    "cal_sigma_down": 0.896
+  }
+}

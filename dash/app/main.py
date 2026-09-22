@@ -108,6 +108,27 @@ def pnl_page():
     return FileResponse(STATIC / "pnl.html")
 
 
+@app.get("/trade")
+def trade_page():
+    return FileResponse(STATIC / "trade.html")
+
+
+@app.get("/api/klines")
+def api_klines(symbol: str = "BTCUSDT", interval: str = "15m",
+               limit: int = 300, __=Depends(require_session)):
+    return readers.klines(symbol, interval, min(limit, 1000))
+
+
+@app.get("/api/tape")
+def api_tape(limit: int = 100, __=Depends(require_session)):
+    return readers.tape(min(limit, 200))
+
+
+@app.get("/api/strategy")
+def api_strategy(__=Depends(require_session)):
+    return readers.strategy()
+
+
 @app.get("/trade-proto")
 def trade_proto_page():
     return FileResponse(STATIC / "trade_proto.html")
