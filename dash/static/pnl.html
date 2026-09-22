@@ -14,6 +14,8 @@
 .mcard .v.pos { color: var(--green); } .mcard .v.neg { color: var(--red); }
 .mcard .why { color: var(--dim); font-size: 12px; line-height: 1.6;
   border-top: 1px dashed var(--border); padding-top: 8px; }
+.mcard .v.fl { animation: vflash .7s; }
+@keyframes vflash { 0% { color: #ffb300; text-shadow: 0 0 10px rgba(255,179,0,.8); } 100% { } }
 details { border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
   margin-bottom: 10px; padding: 0; overflow: hidden; }
 summary { cursor: pointer; padding: 12px 16px; font-size: 13px; color: var(--fg); list-style: none; }
@@ -29,7 +31,7 @@ details .body b { color: var(--fg); font-weight: 600; }
 <a href="/analysis">分析报告</a><a href="/system">系统</a>
 <span class="clock" id="clock"></span></nav>
 <main>
-<h1>模拟盘整体盈亏 <small>两套策略合并 · 初始资金 $100 · 10秒刷新</small></h1>
+<h1>模拟盘整体盈亏 <small>两套策略合并 · 初始资金 $100 · 5秒实时刷新</small><span id="updated" class="dim" style="font-size:11px;margin-left:12px"></span></h1>
 
 <div class="what-box">
 <b>口径说明：</b>整体资金 = $100 初始资金 + 累计已实现 + 今日已实现 + 未实现盯市。
@@ -84,16 +86,25 @@ PM桶按市场中间价盯市，现货永续按最新成交价盯市。
 startClock('clock');
 let eqChart=null;
 function col(v){ return (v>0)?'pos':(v<0?'neg':''); }
+function setv(id, v, cls){
+  const el = document.getElementById(id);
+  const txt = (v>0?'+':'') + Number(v).toFixed(2) + '$';
+  if(el.textContent !== txt){ el.textContent = txt; el.className = 'v ' + cls; flash(el); }
+}
+function flash(el){
+  el.classList.add('fl');
+  setTimeout(()=>el.classList.remove('fl'), 700);
+}
 async function refresh(){
   const r = await fetch('/api/pnl');
   if(r.status===401){ location.href='/login'; return; }
   const d = await r.json();
-  for(const [id, v, cls] of [['capital', d.capital, ''], ['today', d.realized_today, col(d.realized_today)],
-      ['realized', d.realized_total, col(d.realized_total)], ['unreal', d.unrealized, col(d.unrealized)] ]){
-    const el = document.getElementById(id);
-    el.textContent = (v>0?'+':'') + Number(v).toFixed(2) + '$';
-    el.className = 'v ' + cls;
-  }
+  setv('capital', d.capital, '');
+  setv('today', d.realized_today, col(d.realized_today));
+  setv('realized', d.realized_total, col(d.realized_total));
+  setv('unreal', d.unrealized, col(d.unrealized));
+  const ut = document.getElementById('updated');
+  ut.textContent = '最近更新 ' + new Date().toLocaleTimeString();
   document.getElementById('pmt').textContent = d.pm_trades;
   document.getElementById('cysub').textContent = 'carry轮数 ' + d.cy_rounds + ' · 孤儿腿 ' + d.orphans;
   document.getElementById('pos_tbl').innerHTML = (d.positions||[]).map(p=>
@@ -130,7 +141,7 @@ async function revokeShare(){
   const d = await r.json();
   document.getElementById('share_box').textContent = d.ok ? '已撤销 ✓' : '撤销失败(无效token)';
 }
-refresh(); setInterval(refresh, 10000);
+refresh(); setInterval(refresh, 5000);
 window.addEventListener('resize',()=>eqChart&&eqChart.resize());
 </script>
 </body></html>

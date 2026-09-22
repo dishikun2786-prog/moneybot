@@ -13,6 +13,8 @@ import os
 import sys
 import time
 
+import paper_ops
+
 BASE = os.path.expanduser("~/polymarket")
 CSV = f"{BASE}/logs/bybit_pm_fv.csv"
 STATE = f"{BASE}/logs/paper_state.json"
@@ -105,10 +107,25 @@ def _f(v):
         return 0.0
 
 
+_EL = {"f": None}  # 引擎持有锁 (与手动操作/API串行化, 防状态回滚)
+
+
+def engine_acquire():
+    if _EL["f"] is None:
+        _EL["f"] = paper_ops._lock()
+
+
+def engine_release():
+    if _EL["f"] is not None:
+        paper_ops._unlock(_EL["f"])
+        _EL["f"] = None
+
+
 def cycle():
     hot_load()
     now = time.time()
     snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
+    engine_acquire()  # 与手动操作/API串行化 (防引擎旧副本回滚手动交易)
     st = load_state()
     today = time.strftime("%Y-%m-%d", time.gmtime())
     if st["day"] != today:
@@ -117,6 +134,7 @@ def cycle():
     import engine_mode
     if engine_mode.load()["paper_pm"] == "manual":
         save_state(st)
+        engine_release()
         n = len(st.get("positions", {}))
         print(f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] paper纸面: "
               f"[手动模式] 自动交易已暂停 | 持仓{n}个 | 当日PnL {st['day_pnl']:+.2f}$")
@@ -188,6 +206,7 @@ def cycle():
         events.append(f"开仓 {key[:30]} {side} @{px:.3f} (毛edge {g:.1f}¢)")
 
     save_state(st)
+    engine_release()
     pos_txt = ", ".join(f"{k[:18]}:{p['side']}" for k, p in st["positions"].items()) or "(空仓)"
     print(f"[{time.strftime('%H:%M:%SZ', time.gmtime())}] 纸面: {len(snaps)}桶 | "
           f"持仓{len(st['positions'])} [{pos_txt}] | 今日 {st['n_trades']}笔 "
@@ -203,6 +222,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.once:
         cycle()
+        engine_release()
     else:
         while True:
             try:
@@ -211,4 +231,6 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 print("  [err]", type(e).__name__, e)
+            finally:
+                engine_release()
             time.sleep(60)
