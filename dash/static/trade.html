@@ -84,12 +84,25 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .mbox input{width:100%;background:#0d1117;border:1px solid #2a313c;color:#e6edf3;border-radius:6px;padding:9px 10px;font-size:14px;box-sizing:border-box}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#161b22;border:1px solid #00c853;color:#e6edf3;padding:10px 18px;border-radius:8px;font-size:13px;z-index:80;display:none;max-width:86vw}
 .toast.show{display:block;animation:pulse 2.4s}
+/* 模式切换器 */
+.modebar{border:1px solid #2a313c;border-radius:8px;padding:10px;margin-bottom:10px;background:#0d1117}
+.moderow{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.mlabel{font-size:12px;color:#8b98a5;width:96px}
+.modebtn{font-size:12px;padding:6px 12px;border-radius:20px;cursor:pointer;border:1px solid #2a313c;background:#1c2129;color:#8b98a5}
+.modebtn.on{font-weight:600}
+.modebtn.on[onclick*="auto"]{background:rgba(0,200,83,.16);border-color:#00c853;color:#00c853}
+.modebtn.on[onclick*="manual"]{background:rgba(255,179,0,.16);border-color:#ffb300;color:#ffb300}
+.mstatus{font-size:11px;margin-left:2px}
+.mstatus.auto{color:#00c853}
+.mstatus.manual{color:#ffb300}
+#manual-banner{background:rgba(255,179,0,.12);border:1px solid #ffb300;color:#ffb300;font-size:12px;padding:7px 10px;border-radius:6px;margin-top:6px}
 @media (max-width:768px){
   .topbar{flex-wrap:wrap;row-gap:6px}
   .topnav{order:5;width:100%;overflow-x:auto}
   .livebox{order:4}
   .mbox{position:fixed;bottom:10px;left:10px;right:10px;top:auto;width:auto;border-radius:14px 14px 8px 8px}
   .abtn{min-height:40px;font-size:12px}
+  .modebtn{min-height:40px}
   .chatdrawer{width:100%;right:0;bottom:0;top:auto;height:70vh}
   .tapebody{overflow-x:auto}
   .ticket .trow{flex-wrap:wrap}
@@ -313,13 +326,37 @@ async function loadPositions(){
   renderPositions(d, lastLivePrices);
 }
 function initTicket(){
-  id('tab-pos').innerHTML = `<div class="ticket">
+  id('tab-pos').innerHTML = `<div class="modebar">
+    <div class="moderow"><span class="mlabel">现货×永续套利</span>
+      <button class="modebtn" id="mode-carry-auto" onclick="confirmMode('carry','auto')">🤖 托管</button>
+      <button class="modebtn" id="mode-carry-manual" onclick="confirmMode('carry','manual')">🖐 手动</button>
+      <span class="mstatus" id="mstatus-carry"></span></div>
+    <div class="moderow"><span class="mlabel">预测市场对冲</span>
+      <button class="modebtn" id="mode-paper_pm-auto" onclick="confirmMode('paper_pm','auto')">🤖 托管</button>
+      <button class="modebtn" id="mode-paper_pm-manual" onclick="confirmMode('paper_pm','manual')">🖐 手动</button>
+      <span class="mstatus" id="mstatus-paper_pm"></span></div>
+    <div id="manual-banner" style="display:none"></div>
+  </div>
+  <div class="ticket">
     <div class="trow"><b>快速交易 · 一键对冲</b><span class="dim" style="font-size:10px">纸面 · 实时价双腿开仓（现货多+合约空）</span></div>
     <div class="trow">
       <select id="tk-sym" class="num"><option value="BTCUSDT">比特币 BTC</option><option value="ETHUSDT">以太坊 ETH</option></select>
       <input type="number" id="tk-notional" class="num" value="10" min="1" max="50" step="1" style="width:80px" title="名义金额($)">
       <button class="abtn ok" onclick="confirmTrade('open_hedge', document.getElementById('tk-sym').value, {notional: document.getElementById('tk-notional').value})">一键对冲开仓</button>
-    </div></div><div id="pos-list"></div>`;
+    </div></div>
+  <div class="ticket">
+    <div class="trow"><b>PM 手动开仓</b><span class="dim" style="font-size:10px">模型价 vs 盘口价 · 自主判断</span></div>
+    <div class="trow">
+      <select id="pm-key" class="num" style="flex:1;min-width:0"></select>
+      <select id="pm-side" class="num"><option value="BUY">买入</option><option value="SELL">卖出</option></select>
+      <input type="number" id="pm-size" class="num" value="5" min="1" max="20" step="1" style="width:60px" title="名义($)">
+      <button class="abtn warn" onclick="confirmPmOpen()">开仓</button>
+    </div>
+    <div class="dim" id="pm-hint" style="font-size:10px;margin-top:2px"></div>
+  </div>
+  <div id="pos-list"></div>`;
+  loadMode();
+  loadPmMarkets();
 }
 function renderPositions(d, live){
   const lp = live || {};
@@ -458,7 +495,7 @@ document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault
   playing=!playing; id('play').textContent = playing?'▶ 实时':'⏸ 暂停'; document.body.classList.toggle('paused',!playing); } });
 
 /* ===== 手动交易 (纸面) — 定义须在init之前 ===== */
-let pendingTrade = null, tpslCtx = null;
+let pendingTrade = null, tpslCtx = null, pendingMode = null, pmMarkets = [];
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -473,7 +510,7 @@ function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 function confirmTrade(action, symbol, extra){
   const zh = {open_hedge:'一键对冲开仓（现货多+合约空）', close_perp_leg:'平合约腿（现货腿转孤儿，可复用）',
     close_orphan:'平孤儿现货腿（按实时现货价）', close_both:'全平双腿（完全退出）',
-    close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位'};
+    close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位', open_pm:'PM手动开仓（盘口价成交）'};
   const detail = zh[action] || action;
   const ex = extra && extra.notional ? `名义: ${extra.notional}$` : '';
   pendingTrade = {action, symbol, extra: extra || {}};
@@ -483,9 +520,90 @@ function confirmTrade(action, symbol, extra){
 }
 async function submitConfirm(){
   closeModal('confirmModal');
+  if(pendingMode){
+    const pm = pendingMode; pendingMode = null;
+    try{
+      const r = await fetch('/api/mode', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({strategy: pm.strategy, mode: pm.mode})});
+      const d = await r.json();
+      toast(d.ok ? '✅ ' + d.msg : '❌ ' + (d.error || '失败'));
+      if(d.ok) loadMode();
+    }catch(e){ toast('❌ ' + e); }
+    return;
+  }
   if(!pendingTrade) return;
   const d = await manualTrade(pendingTrade);
   if(d && d.ok) pendingTrade = null;
+}
+
+/* ===== 模式切换 (托管/手动, 两策略独立) ===== */
+async function loadMode(){
+  const d = await guard('/api/mode');
+  if(!d) return;
+  applyModeUI(d);
+}
+function applyModeUI(d){
+  const zh = {carry:'现货套利', paper_pm:'预测市场'};
+  const manualList = [];
+  for(const s of ['carry','paper_pm']){
+    const m = d[s] || 'auto';
+    const autoBtn = document.getElementById('mode-' + s + '-auto');
+    const manBtn = document.getElementById('mode-' + s + '-manual');
+    if(!autoBtn || !manBtn) continue;
+    autoBtn.classList.toggle('on', m === 'auto');
+    manBtn.classList.toggle('on', m === 'manual');
+    const st = document.getElementById('mstatus-' + s);
+    st.textContent = m === 'auto' ? '托管中' : '手动模式';
+    st.className = 'mstatus ' + m;
+    if(m === 'manual') manualList.push(zh[s]);
+  }
+  const b = document.getElementById('manual-banner');
+  if(manualList.length){
+    b.style.display = 'block';
+    b.innerHTML = '⚠️ <b>' + manualList.join('、') + '</b> 处于手动模式: 自动交易已暂停, 由你决策操作（裸腿止盈止损仍执行）';
+  } else {
+    b.style.display = 'none';
+  }
+}
+function confirmMode(strategy, mode){
+  const zh = {carry:'现货×永续套利', paper_pm:'预测市场对冲'};
+  const mzh = mode === 'auto' ? '🤖 托管' : '🖐 手动';
+  pendingMode = {strategy, mode};
+  document.getElementById('cfTitle').textContent = '切换 ' + zh[strategy] + ' 到 ' + mzh + ' 模式';
+  document.getElementById('cfBody').textContent = mode === 'auto'
+    ? '模型恢复自动交易（按策略参数入场/平仓/孤儿处置），现有持仓由模型接管\n下个引擎周期(≤60s)生效'
+    : '模型自动交易暂停（不再自动入场/平仓/孤儿处置）\n持仓由你手动决策；裸腿止盈止损仍执行；funding记账不受影响\n下个引擎周期(≤60s)生效';
+  openModal('confirmModal');
+}
+
+/* ===== PM 手动开仓 ===== */
+async function loadPmMarkets(){
+  const mk = await guard('/api/markets?sort=edge');
+  const sel = document.getElementById('pm-key');
+  if(!sel || !mk || !mk.rows || !mk.rows.length) return;
+  pmMarkets = mk.rows.slice(0, 12);
+  sel.innerHTML = pmMarkets.map(m =>
+    `<option value="${esc(m.event + '|' + m.market)}">${esc(m.market_zh || m.market)}</option>`).join('');
+  sel.onchange = updPmHint;
+  updPmHint();
+}
+function updPmHint(){
+  const sel = document.getElementById('pm-key');
+  const hint = document.getElementById('pm-hint');
+  if(!sel || !hint) return;
+  const m = (pmMarkets || []).find(x => (x.event + '|' + x.market) === sel.value);
+  if(!m){ hint.textContent = ''; return; }
+  const eb = Number(m.edge_buy_c || 0), es = Number(m.edge_sell_c || 0);
+  hint.innerHTML = `模型价 <b class="num">${Number(m.model_p || 0).toFixed(3)}</b> · 买一 ${Number(m.best_bid || 0).toFixed(3)} / 卖一 ${Number(m.best_ask || 0).toFixed(3)}`
+    + ` · 价差 买${eb.toFixed(1)}¢ / 卖${es.toFixed(1)}¢`;
+}
+function confirmPmOpen(){
+  const sel = document.getElementById('pm-key');
+  const key = sel ? sel.value : '';
+  const side = document.getElementById('pm-side').value;
+  const size = document.getElementById('pm-size').value;
+  if(!key){ toast('❌ 无市场可选'); return; }
+  confirmTrade('open_pm', key, {side, size_usd: size});
 }
 function openTpslModal(symbol, entry){
   tpslCtx = {symbol, entry: Number(entry)};

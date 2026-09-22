@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.expanduser("~/polymarket"))
 import ai_client  # noqa: E402
 import ai_tools  # noqa: E402
 import paper_ops  # noqa: E402
+import engine_mode  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -259,9 +260,24 @@ async def manual_trade(request: Request, __=Depends(require_session)):
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     action = str(body.get("action", ""))
     if action not in ("open_hedge", "close_perp_leg", "close_orphan", "close_both",
-                      "close_spot_to_naked", "close_naked", "edit_naked_tpsl", "close_pm"):
+                      "close_spot_to_naked", "close_naked", "edit_naked_tpsl", "close_pm",
+                      "open_pm"):
         return JSONResponse({"ok": False, "error": f"未知动作: {action}"}, status_code=400)
     return paper_ops.execute(action, body)
+
+
+@app.get("/api/mode")
+def api_mode(__=Depends(require_session)):
+    return engine_mode.load()
+
+
+@app.post("/api/mode")
+async def api_mode_set(request: Request, __=Depends(require_session)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return engine_mode.set_mode(str(body.get("strategy", "")), str(body.get("mode", "")))
 
 
 @app.get("/api/stream/prices")

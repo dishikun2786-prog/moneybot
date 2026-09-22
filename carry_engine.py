@@ -11,6 +11,7 @@ import json
 import os
 import time
 
+import engine_mode
 import paper_ops
 
 BASE = os.path.expanduser("~/polymarket")
@@ -187,6 +188,33 @@ def cycle():
             events.append(f"裸腿{hit}平仓 {sym} @{live} ({perp_pnl:+.3f}$)")
             del st["naked"][sym]
 
+    # ---- 0.5) 持仓 funding 结算 (两种模式都执行 — 纯记账, 非交易决策) ----
+    for sym, pos in list(st["positions"].items()):
+        r = data.get(sym)
+        if not r:
+            continue
+        if int(r["next_funding_ts"]) > int(pos["next_funding_ts"]):
+            n_pos = pos.get("notional", N)
+            st["day_pnl"] = round(st["day_pnl"] + pos["last_fr"] * n_pos, 4)
+            pos["funding_acc"] = round(pos["funding_acc"] + pos["last_fr"] * n_pos, 4)
+            log_trade(dict(ts=now_ts(), symbol=sym, action="FUNDING_SETTLE",
+                           rate=pos["last_fr"], amount=round(pos["last_fr"] * n_pos, 4),
+                           notional=n_pos))
+            pos["last_fr"] = r["funding_rate"]
+            pos["next_funding_ts"] = int(r["next_funding_ts"])
+
+    # ---- 手动模式: 自动交易暂停 (裸腿TP/SL与funding记账仍执行) ----
+    if engine_mode.load()["carry"] == "manual":
+        save_state(st)
+        engine_release()
+        pos_txt = ", ".join(f"{s}:持有" for s in st["positions"]) or "(空仓)"
+        nkd_txt = ", ".join(f"{s}(TP{nk['tp']}/SL{nk['sl']})" for s, nk in st["naked"].items()) or "无"
+        print(f"[{now_ts()}] carry纸面: [手动模式] 自动交易已暂停 | 持仓[{pos_txt}] 裸腿[{nkd_txt}] | "
+              f"当日PnL {st['day_pnl']:+.2f}$ 累计 {st.get('cum_pnl', 0):+.2f}$")
+        for e in events:
+            print("  ", e)
+        return st
+
     # ---- 1) 孤儿现货腿处置 (单边平仓后的遗留敞口) ----
     for sym, orph in list(st["orphans"].items()):
         r = data.get(sym)
@@ -222,16 +250,6 @@ def cycle():
         r = data.get(sym)
         if not r:
             continue
-        # funding 结算检测
-        if int(r["next_funding_ts"]) > int(pos["next_funding_ts"]):
-            n_pos = pos.get("notional", N)
-            st["day_pnl"] = round(st["day_pnl"] + pos["last_fr"] * n_pos, 4)
-            pos["funding_acc"] = round(pos["funding_acc"] + pos["last_fr"] * n_pos, 4)
-            log_trade(dict(ts=now_ts(), symbol=sym, action="FUNDING_SETTLE",
-                           rate=pos["last_fr"], amount=round(pos["last_fr"] * n_pos, 4),
-                           notional=n_pos))
-            pos["last_fr"] = r["funding_rate"]
-            pos["next_funding_ts"] = int(r["next_funding_ts"])
         hours = (time.time() - pos["t0"]) / 3600
         fr = r["funding_rate"]
         exit_now = fr < 0 or hours >= MAX_HOLD_H

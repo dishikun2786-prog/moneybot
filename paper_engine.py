@@ -113,6 +113,14 @@ def cycle():
     today = time.strftime("%Y-%m-%d", time.gmtime())
     if st["day"] != today:
         st = {"positions": {}, "day": today, "day_pnl": 0.0, "n_trades": 0}
+    # 手动模式: 自动交易暂停 (用户手动开平)
+    import engine_mode
+    if engine_mode.load()["paper_pm"] == "manual":
+        save_state(st)
+        n = len(st.get("positions", {}))
+        print(f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] paper纸面: "
+              f"[手动模式] 自动交易已暂停 | 持仓{n}个 | 当日PnL {st['day_pnl']:+.2f}$")
+        return st
     events = []
 
     # ---- 持仓管理 (edge 用同轮快照的对手价) ----

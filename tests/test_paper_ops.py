@@ -95,6 +95,24 @@ check("审计有记录", len(audit) >= 7, f"{len(audit)}条")
 trades = [json.loads(l) for l in open(os.path.join(TMP, "logs", "carry_trades.jsonl"))]
 check("成交带留痕", len(trades) >= 6, f"{len(trades)}条")
 
+# 12. PM 手动开仓 (monkeypatch 盘口快照)
+import paper_engine
+paper_engine.latest_snapshot = lambda: [{"event": "E", "market": "M", "pm_bid": 0.45, "pm_ask": 0.47}]
+r = paper_ops.open_pm("E|M", "BUY", 5)
+check("open_pm 成功(买@ask)", r["ok"], r.get("error", ""))
+st = json.load(open(os.path.join(TMP, "logs", "paper_state.json")))
+check("PM仓入状态+卖一价定价", "E|M" in st["positions"] and abs(st["positions"]["E|M"]["entry"] - 0.47) < 1e-9)
+r = paper_ops.open_pm("E|M", "SELL", 5)
+check("已有PM仓拒绝", not r["ok"])
+r = paper_ops.open_pm("E|M2", "HACK", 5)
+check("非法方向拒绝", not r["ok"])
+r = paper_ops.open_pm("E|M2", "BUY", 999)
+check("金额越界拒绝", not r["ok"])
+r = paper_ops.close_pm("E|M")
+check("close_pm 成功(卖@bid)", r["ok"], r.get("error", ""))
+st = json.load(open(os.path.join(TMP, "logs", "paper_state.json")))
+check("PM仓已平", "E|M" not in st["positions"])
+
 n_fail = sum(1 for x in ok if not x)
 print(f"\n结果: {len(ok) - n_fail}/{len(ok)} 通过")
 sys.exit(1 if n_fail else 0)

@@ -326,6 +326,45 @@ def edit_naked_tpsl(sym, tp, sl):
         _unlock(f)
 
 
+def open_pm(key, side, size_usd):
+    """PM 手动开仓 (点击时刻盘口快照定价)"""
+    try:
+        size = float(size_usd)
+    except Exception:
+        return {"ok": False, "error": "金额非法"}
+    if not (1 <= size <= 20):
+        return {"ok": False, "error": "金额须1-20$"}
+    if side not in ("BUY", "SELL"):
+        return {"ok": False, "error": "方向须BUY/SELL"}
+    from paper_engine import latest_snapshot, FEE_RATE
+    snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
+    snap = snaps.get(key)
+    if not snap:
+        return {"ok": False, "error": "该市场无盘口快照, 稍后再试"}
+    bid, ask = float(snap.get("pm_bid", 0) or 0), float(snap.get("pm_ask", 0) or 0)
+    px = ask if side == "BUY" else bid
+    if px <= 0:
+        return {"ok": False, "error": "盘口价格无效"}
+    f = _lock()
+    try:
+        st = _read(PAPER_STATE, {})
+        if key in (st.get("positions") or {}):
+            return {"ok": False, "error": "该市场已有持仓, 先平仓"}
+        st.setdefault("positions", {})[key] = {"side": side, "entry": px, "t0": time.time(),
+                                               "size_usd": size, "entry_fee_c": FEE_RATE,
+                                               "exit_fee_c": FEE_RATE}
+        fees = size * FEE_RATE / 100
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
+        _write(PAPER_STATE, st)
+        _log_trade(PAPER_TRADES, dict(key=key, side=side, action="MANUAL_OPEN_PM",
+                                      entry=px, size_usd=size, entry_fee_c=FEE_RATE))
+        _audit("open_pm", key, {"side": side, "entry": px, "size": size})
+        return {"ok": True, "msg": f"已开PM仓位 {key[:28]}… "
+                                   f"{('买入' if side == 'BUY' else '卖出')}@{px:.4f} (名义{size}$)"}
+    finally:
+        _unlock(f)
+
+
 def close_pm(key):
     """平 PM 纸面桶 (用引擎同源盘口快照定价)"""
     from paper_engine import latest_snapshot, pnl_usd, TICK, FEE_RATE
@@ -361,6 +400,7 @@ DISPATCH = {
     "open_hedge": lambda a: open_hedge(a.get("symbol", ""), a.get("notional", 10.0)),
     "close_perp_leg": lambda a: close_perp_leg(a.get("symbol", "")),
     "close_orphan": lambda a: close_orphan(a.get("symbol", "")),
+    "open_pm": lambda a: open_pm(a.get("key", ""), a.get("side", ""), a.get("size_usd", 5)),
     "close_both": lambda a: close_both(a.get("symbol", "")),
     "close_spot_to_naked": lambda a: close_spot_to_naked(a.get("symbol", ""), a.get("tp"), a.get("sl")),
     "close_naked": lambda a: close_naked(a.get("symbol", "")),

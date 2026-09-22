@@ -132,7 +132,8 @@ _ACT_ZH = {"OPEN_BOTH_LEGS": "双腿开仓", "CLOSE_PERP_LEG(单边平仓)": "�
            "MANUAL_CLOSE_NAKED": "手动·平裸腿",
            "MANUAL_NAKED_TP": "裸腿·止盈平仓",
            "MANUAL_NAKED_SL": "裸腿·止损平仓",
-           "MANUAL_CLOSE_PM": "手动·平PM仓位"}
+           "MANUAL_CLOSE_PM": "手动·平PM仓位",
+           "MANUAL_OPEN_PM": "手动·开PM仓位"}
 _SIDE_ZH = {"BUY": "买入", "SELL": "卖出"}
 _STRAT_ZH = {"PM桶对冲": "预测市场对冲", "现货×永续": "现货×永续套利"}
 
