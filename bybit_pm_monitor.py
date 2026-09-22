@@ -246,6 +246,10 @@ def fetch_books(tokens):
         bm[aid] = (bids, asks)
     return bm
 
+# σ 校准因子 (校准报告v1, 2026-09-22): PM隐含σ/我们Deribitσ 的方向中位数
+# down(put侧)桶市场隐含波动率比我们低~10% → 原模型系统性高估 down 桶价格
+CAL_SIGMA = {'up': 1.046, 'down': 0.896}
+
 # ---------------------------------------------------------------- cycle
 EVENTS_PATH = os.path.join(LOG_DIR, 'events.jsonl')
 
@@ -288,6 +292,7 @@ def cycle(csv_writer):
         T = (m['exp'] - now).total_seconds() / (365.0 * 86400)
         if T <= 0: continue
         sig, ename = iv_lookup(m['currency'], m['exp'], m['K'])
+        sig *= CAL_SIGMA.get(m['direction'], 1.0)   # σ 方向校准
         model_p = touch_prob(S, m['K'], sig, T, m['direction'])
         book = books.get(m['yes_tok'])
         if not book: continue
