@@ -74,11 +74,15 @@ def _write_snap():
 
 
 # ---- 现货行情通道 (carry页实时基差需要现货价) ----
+SPOT_LAST_MSG = {"t": time.time()}
+
+
 def spot_on_open(ws):
     ws.send(json.dumps({"op": "subscribe", "args": SPOT_TOPICS}))
 
 
 def spot_on_msg(ws, m):
+    SPOT_LAST_MSG["t"] = time.time()
     d = json.loads(m)
     if not d.get("topic", "").startswith("tickers."):
         return
@@ -95,7 +99,21 @@ def spot_on_msg(ws, m):
 
 def spot_loop():
     while True:
+        SPOT_LAST_MSG["t"] = time.time()
         ws = websocket.WebSocketApp(SPOT_WS, on_message=spot_on_msg, on_open=spot_on_open)
+
+        def _watchdog():
+            while True:
+                time.sleep(15)
+                if time.time() - SPOT_LAST_MSG["t"] > 90:
+                    print("[bridge] spot 90s无消息(半开连接), 强制重连", flush=True)
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    return
+
+        threading.Thread(target=_watchdog, daemon=True).start()
         try:
             ws.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
