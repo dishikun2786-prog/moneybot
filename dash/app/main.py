@@ -93,6 +93,16 @@ def api_paper(__=Depends(require_session)):
     return readers.paper()
 
 
+@app.get("/carry")
+def carry_page():
+    return FileResponse(STATIC / "carry.html")
+
+
+@app.get("/api/carry")
+def api_carry(__=Depends(require_session)):
+    return readers.cached("carry", 15, readers.carry)
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

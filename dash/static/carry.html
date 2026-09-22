@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>套利监控 · Moneybot</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/echarts.min.js"></script>
+</head><body>
+<nav><a class="brand" href="/">💰 Moneybot</a>
+<a href="/">总览</a><a href="/markets">标的监控</a><a href="/edge">错价分析</a>
+<a href="/carry" class="active">套利监控</a>
+<a href="/analysis">分析报告</a><a href="/system">系统</a>
+<span class="clock" id="clock"></span></nav>
+<main>
+<h1>现货×永续基差套利 <small>策略=纯funding持有(回测v2: 年化+118~141%) · 数据60s更新</small></h1>
+
+<div class="cards" id="opp_cards"></div>
+
+<div class="panel"><h2>基差曲线 (近24小时)</h2><div id="basis_chart" style="height:300px"></div></div>
+<div class="panel"><h2>funding 年化历史 (近30天, 按结算点)</h2><div id="fund_chart" style="height:260px"></div></div>
+
+<div class="panel"><h2>纸面持仓与孤儿腿</h2><table id="pos_tbl"><thead>
+<tr><th>标的</th><th>类型</th><th>现货腿</th><th>合约腿</th><th>状态</th></tr></thead><tbody></tbody></table></div>
+
+<div class="panel"><h2>最近纸面交易</h2>
+<div style="overflow-x:auto"><table id="trades_tbl"><thead>
+<tr><th>时间</th><th>标的</th><th>动作</th><th>详情</th></tr></thead><tbody></tbody></table></div></div>
+
+<div class="footer">moneybot.openedskill.com · 纸面引擎 60s 循环</div>
+</main>
+<script>
+function clock(){ document.getElementById('clock').textContent = new Date().toISOString().slice(11,19)+' UTC'; }
+setInterval(clock,1000); clock();
+let basisChart=null, fundChart=null;
+async function refresh(){
+  const r = await fetch('/api/carry');
+  if(r.status===401){ location.href='/login'; return; }
+  const d = await r.json();
+  // 机会卡片
+  const cards = document.getElementById('opp_cards');
+  cards.innerHTML = '';
+  for(const m of d.rows || []){
+    const ann = Number(m.ann_pct);
+    const ok = ann > 5 && Math.abs(m.basis_bp) < 20;
+    cards.innerHTML += `<div class="card">
+      <div class="k">${m.symbol}</div>
+      <div class="v">现货 ${Number(m.spot).toFixed(1)}</div>
+      <div class="sub">基差 ${m.basis_bp>0?'+':''}${Number(m.basis_bp).toFixed(1)}bp</div>
+      <div class="sub">funding年化 <b class="${ann>0?'pos':'neg'}">${ann>0?'+':''}${ann.toFixed(1)}%</b></div>
+      <div class="sub">建议: <span class="badge ${ok?'ok':'bad'}">${ok?'可入场':'等待/离场'}</span></div></div>`;
+  }
+  // 基差图
+  const series = d.series || {};
+  const tsA = (series.BTCUSDT||[]).map(p=>p.t);
+  const syms = Object.keys(series);
+  basisChart = basisChart || echarts.init(document.getElementById('basis_chart'),'dark');
+  basisChart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    legend:{data:syms,textStyle:{color:'#8b98a5'}},
+    grid:{left:50,right:30,top:40,bottom:30},
+    xAxis:{type:'category',data:tsA,axisLabel:{color:'#8b98a5'}},
+    yAxis:{type:'value',name:'基差bp',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
+    series:syms.map((s,i)=>({name:s,type:'line',showSymbol:false,
+      data:(series[s]||[]).map(p=>p.basis),lineStyle:{width:2},
+      color:i?'#4fc3f7':'#ffb300'}))});
+  // funding 图
+  const fh = d.fund_hist || [];
+  const bySym = {};
+  for(const f of fh){ (bySym[f.symbol]=bySym[f.symbol]||[]).push([f.t, f.ann]); }
+  fundChart = fundChart || echarts.init(document.getElementById('fund_chart'),'dark');
+  fundChart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    legend:{data:Object.keys(bySym),textStyle:{color:'#8b98a5'}},
+    grid:{left:50,right:30,top:40,bottom:30},
+    xAxis:{type:'category',data:(fh.map(x=>x.t)).slice(0,120),axisLabel:{color:'#8b98a5'}},
+    yAxis:{type:'value',name:'年化%',axisLabel:{color:'#8b98a5'},splitLine:{lineStyle:{color:'#1c2430'}}},
+    series:Object.keys(bySym).map((s,i)=>({name:s,type:'line',showSymbol:false,
+      data:(bySym[s]||[]).slice(0,120),lineStyle:{width:1.5},color:i?'#4fc3f7':'#ffb300'}))});
+  // 持仓
+  const st = d.state || {};
+  const pos = st.positions || {}, orph = st.orphans || {};
+  const tb = document.getElementById('pos_tbl').querySelector('tbody');
+  let html = Object.entries(pos).map(([s,p])=>`<tr><td>${s}</td><td>双腿持仓${p.reused?'(复用)':''}</td>
+    <td>${p.spot_entry}</td><td>${p.perp_entry}</td><td><span class="badge ok">持有</span></td></tr>`).join('');
+  html += Object.entries(orph).map(([s,p])=>`<tr><td>${s}</td><td>孤儿现货腿</td>
+    <td>${p.spot_entry}</td><td>—</td><td><span class="badge bad">待处置</span></td></tr>`).join('');
+  tb.innerHTML = html || '<tr><td class="dim" colspan="5">(空仓)</td></tr>';
+  document.querySelector('#pos_tbl').previousElementSibling.querySelector('h2').textContent =
+    `纸面持仓与孤儿腿 · 今日PnL ${(st.day_pnl||0)>0?'+':''}${Number(st.day_pnl||0).toFixed(2)}$`;
+  // 交易
+  const tt = document.getElementById('trades_tbl').querySelector('tbody');
+  tt.innerHTML = (d.trades||[]).slice().reverse().map(t=>`<tr><td class="dim">${t.ts}</td>
+    <td>${t.symbol}</td><td>${t.action}</td><td class="dim">${JSON.stringify(Object.fromEntries(
+      Object.entries(t).filter(([k])=>!['ts','symbol','action'].includes(k))))}</td></tr>`).join('')
+    || '<tr><td class="dim" colspan="4">(无)</td></tr>';
+}
+refresh(); setInterval(refresh, 30000);
+window.addEventListener('resize',()=>{basisChart&&basisChart.resize();fundChart&&fundChart.resize();});
+</script>
+</body></html>

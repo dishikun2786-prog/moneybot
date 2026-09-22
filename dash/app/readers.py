@@ -112,6 +112,52 @@ def paper():
     return dict(state=st, recent=trades)
 
 
+def carry():
+    FV2 = f"{config.DATA}/carry_1m/year=*/month=*/*.parquet"
+    rows = []
+    try:
+        rows = _q(f"""
+          WITH latest AS (SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY ts DESC) rn
+            FROM read_parquet('{FV2}'))
+          SELECT symbol, ts, spot, perp_mark, funding_rate, basis_mark_bp, ann_funding_pct
+          FROM latest WHERE rn=1 ORDER BY ann_funding_pct DESC
+        """)
+    except Exception:
+        pass
+    series = {}
+    try:
+        for sym in ("BTCUSDT", "ETHUSDT"):
+            pts = _q(f"""SELECT strftime(ts,'%H:%M') t, basis_mark_bp, ann_funding_pct
+                FROM read_parquet('{FV2}') WHERE symbol='{sym}' AND ts > now() - INTERVAL 24 HOUR ORDER BY ts""")
+            series[sym] = [dict(t=p[0], basis=p[1], ann=p[2]) for p in pts]
+    except Exception:
+        pass
+    fund_hist = []
+    try:
+        fund_hist = _q(f"""SELECT strftime(ts,'%m-%d %H:%M') t, symbol, round(funding_rate*3*365*100,2) ann
+            FROM read_parquet('{config.DATA}/carry_funding.parquet')
+            WHERE ts > now() - INTERVAL 30 DAY ORDER BY ts DESC LIMIT 120""")
+    except Exception:
+        pass
+    st, trades = {}, []
+    for name, path in (("state", "~/polymarket/logs/carry_state.json"),
+                       ("trades", "~/polymarket/logs/carry_trades.jsonl")):
+        p = os.path.expanduser(path)
+        try:
+            if name == "state":
+                st = json.load(open(p))
+            else:
+                with open(p) as f:
+                    lines = f.readlines()[-20:]
+                trades = [json.loads(l) for l in lines if l.strip()]
+        except Exception:
+            pass
+    return dict(rows=[dict(zip(
+        ["symbol", "ts", "spot", "perp_mark", "funding_rate", "basis_bp", "ann_pct"], r)) for r in rows],
+        series=series, fund_hist=[dict(t=r[0], symbol=r[1], ann=r[2]) for r in fund_hist],
+        state=st, trades=trades)
+
+
 def system():
     svc = ["pm-monitor", "pm-wss", "pm-dash"]
     tmr = ["pm-hedge", "pm-datawriter", "pm-watchdog"]
