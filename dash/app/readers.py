@@ -126,6 +126,7 @@ _ACT_ZH = {"OPEN_BOTH_LEGS": "双腿开仓", "CLOSE_PERP_LEG(单边平仓)": "�
            "CLOSE_SPOT_LEG": "平现货腿", "OPEN": "开仓", "CLOSE": "平仓",
            "MANUAL_OPEN_HEDGE": "手动·一键对冲开仓",
            "MANUAL_CLOSE_PERP_LEG": "手动·平合约腿",
+           "MANUAL_CLOSE_ORPHAN": "手动·平孤儿现货腿",
            "MANUAL_CLOSE_BOTH": "手动·全平双腿",
            "MANUAL_SPOT_TO_NAKED": "手动·平现货腿转裸仓",
            "MANUAL_CLOSE_NAKED": "手动·平裸腿",
@@ -293,6 +294,14 @@ def pnl_overview():
                           "note": f"止盈{p.get('tp')} / 止损{p.get('sl')} · 资金费累计{p.get('funding_acc', 0):.3f}$",
                           "live": {"symbol": sym, "perp_entry": p.get("perp_entry"),
                                    "notional": float(p.get("notional", 10.0)), "naked": True}})
+    for sym, p in (cy_st.get("orphans") or {}).items():
+        sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
+        positions.append({"strat": _STRAT_ZH.get("现货×永续", "现货×永续套利"),
+                          "key": f"{sym_zh}({sym}) 孤儿现货腿", "side": "仅现货(待处置)",
+                          "entry": f"{p.get('spot_entry')}",
+                          "note": "合约腿已平 · 可手动平仓或等信号复用",
+                          "live": {"symbol": sym, "spot_entry": p.get("spot_entry"),
+                                   "notional": float(p.get("notional", 10.0)), "orphan": True}})
     return dict(capital=capital,
                 realized_total=round(realized_total, 2),
                 realized_today=round(pm_day + cy_day, 2),

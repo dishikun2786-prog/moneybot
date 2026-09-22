@@ -326,11 +326,18 @@ function renderPositions(d, live){
   if(!document.getElementById('pos-list')) initTicket();
   const rows = (d.positions||[]).map(p=>{
     let u = null;
-    if(p.live && lp[p.live.symbol] && lp[p.live.symbol].last){
-      const L = Number(lp[p.live.symbol].last), n = p.live.notional;
-      u = p.live.naked
-        ? (p.live.perp_entry - L)/p.live.perp_entry * n
-        : ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
+    if(p.live && lp[p.live.symbol]){
+      const n = p.live.notional;
+      if(p.live.naked){
+        const L = Number(lp[p.live.symbol].last);
+        if(L) u = (p.live.perp_entry - L)/p.live.perp_entry * n;
+      } else if(p.live.orphan){
+        const S = Number(lp[p.live.symbol].spot);
+        if(S) u = (S - p.live.spot_entry)/p.live.spot_entry * n;
+      } else {
+        const L = Number(lp[p.live.symbol].last);
+        if(L) u = ((L - p.live.spot_entry)/p.live.spot_entry + (p.live.perp_entry - L)/p.live.perp_entry) * n;
+      }
     }
     const uhtml = u==null ? '' : ` <b class="num ${u>0?'up':(u<0?'down':'')}" title="实时浮盈">${u>0?'+':''}${u.toFixed(3)}$</b>`;
     let btns = '';
@@ -338,6 +345,9 @@ function renderPositions(d, live){
       btns = `<div class="pbtns">
         <button class="abtn" onclick="openTpslModal('${p.live.symbol}','${p.live.perp_entry}')">编辑止盈止损</button>
         <button class="abtn bad" onclick="confirmTrade('close_naked','${p.live.symbol}')">平仓</button></div>`;
+    } else if(p.live && p.live.orphan){
+      btns = `<div class="pbtns">
+        <button class="abtn bad" onclick="confirmTrade('close_orphan','${p.live.symbol}')">平仓</button></div>`;
     } else if(p.live){
       btns = `<div class="pbtns">
         <button class="abtn" onclick="confirmTrade('close_perp_leg','${p.live.symbol}')">平合约腿</button>
@@ -462,7 +472,8 @@ function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 function confirmTrade(action, symbol, extra){
   const zh = {open_hedge:'一键对冲开仓（现货多+合约空）', close_perp_leg:'平合约腿（现货腿转孤儿，可复用）',
-    close_both:'全平双腿（完全退出）', close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位'};
+    close_orphan:'平孤儿现货腿（按实时现货价）', close_both:'全平双腿（完全退出）',
+    close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位'};
   const detail = zh[action] || action;
   const ex = extra && extra.notional ? `名义: ${extra.notional}$` : '';
   pendingTrade = {action, symbol, extra: extra || {}};

@@ -147,6 +147,33 @@ def open_hedge(sym, notional):
         _unlock(f)
 
 
+def close_orphan(sym):
+    """平孤儿现货腿 (单边平仓后的遗留现货敞口)"""
+    px = _prices().get(sym)
+    if not px or not px["spot"]:
+        return {"ok": False, "error": f"{sym} 无实时价(现货价缺失)"}
+    f = _lock()
+    try:
+        st = _read(CARRY_STATE, {})
+        orph = (st.get("orphans") or {}).get(sym)
+        if not orph:
+            return {"ok": False, "error": f"{sym} 无孤儿现货腿"}
+        n = orph.get("notional", 10.0)
+        pnl = (px["spot"] - orph["spot_entry"]) / orph["spot_entry"] * n - FEE_SPOT * n
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
+        st.setdefault("n_rounds", 0)
+        st["n_rounds"] += 1
+        del st["orphans"][sym]
+        _write(CARRY_STATE, st)
+        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_ORPHAN",
+                                      spot_entry=orph["spot_entry"], spot_exit=px["spot"],
+                                      pnl_usd=round(pnl, 3), notional=n))
+        _audit("close_orphan", sym, {"spot_exit": px["spot"], "pnl": round(pnl, 3)})
+        return {"ok": True, "msg": f"已平孤儿现货腿 {sym} @{px['spot']:.1f} (PnL {pnl:+.3f}$)"}
+    finally:
+        _unlock(f)
+
+
 def close_perp_leg(sym):
     """平合约腿: 现货腿转孤儿"""
     px = _prices().get(sym)
@@ -333,6 +360,7 @@ def close_pm(key):
 DISPATCH = {
     "open_hedge": lambda a: open_hedge(a.get("symbol", ""), a.get("notional", 10.0)),
     "close_perp_leg": lambda a: close_perp_leg(a.get("symbol", "")),
+    "close_orphan": lambda a: close_orphan(a.get("symbol", "")),
     "close_both": lambda a: close_both(a.get("symbol", "")),
     "close_spot_to_naked": lambda a: close_spot_to_naked(a.get("symbol", ""), a.get("tp"), a.get("sl")),
     "close_naked": lambda a: close_naked(a.get("symbol", "")),
