@@ -353,6 +353,11 @@ async def stream_depth(request: Request, __=Depends(require_session)):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/api/micro")
+def api_micro(__=Depends(require_session)):
+    return readers.micro()
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

@@ -31,6 +31,8 @@ COMP_MIN = 0.2        # 名义最小倍率
 COMP_MAX = 3.0        # 名义最大倍率
 ENTRY_WINDOW_MIN = 60  # 结算前N分钟入场窗口 (0=关闭)
 BORROW_ANN = 5.0      # 反向套利: 空现货的借贷年化成本%
+SWING_FILTER = False  # 波段过滤开关: 入场前要求微结构评分达标
+SWING_MIN_SCORE = 50.0  # 波段评分阈值(0-100)
 PARAMS_FILE = f"{BASE}/strategy_params.json"
 
 
@@ -38,6 +40,7 @@ def hot_load():
     """热加载策略参数 (每轮读取 strategy_params.json, 缺省/异常回退模块常量)"""
     global TH_IN_ANN, MAX_HOLD_H, MAX_BASIS_BP, NOTIONAL
     global COMP_BASE, COMP_MIN, COMP_MAX, ENTRY_WINDOW_MIN, BORROW_ANN
+    global SWING_FILTER, SWING_MIN_SCORE
     try:
         d = json.load(open(PARAMS_FILE)).get("carry", {})
         if d.get("theta_in_ann_pct") is not None:
@@ -58,8 +61,91 @@ def hot_load():
             ENTRY_WINDOW_MIN = float(d["entry_window_min"])
         if d.get("spot_borrow_ann_pct") is not None:
             BORROW_ANN = float(d["spot_borrow_ann_pct"])
+        if d.get("swing_filter_enabled") is not None:
+            SWING_FILTER = bool(int(float(d["swing_filter_enabled"])))
+        if d.get("swing_min_score") is not None:
+            SWING_MIN_SCORE = float(d["swing_min_score"])
     except Exception:
         pass
+
+
+def clamp01(x):
+    return max(0.0, min(1.0, x))
+
+
+def swing_score(micro_rows, wall_events, dir_):
+    """波段微结构评分 0-100 (入场合规性):
+    0.4×主动量失衡 + 0.3×CVD斜率 + 0.2×墙净方向 + 0.1×OI变化
+    micro_rows: 最近N条micro_1m记录; wall_events: 最近墙事件; dir_: fwd/rev
+    fwd=做多现货(看涨微结构利好), rev=做空现货(看跌利好)"""
+    if len(micro_rows) < 10:
+        return 0.0
+    rows = micro_rows[-10:]
+    bv = sum(r.get("bv", 0) or 0 for r in rows)
+    sv = sum(r.get("sv", 0) or 0 for r in rows)
+    tot = bv + sv
+    ratio = (bv / tot) if tot > 0 else 0.5
+    imb = ratio if dir_ == "fwd" else (1 - ratio)          # 方向对齐的主动量占比
+    s_imb = clamp01(imb) * 40
+    # CVD 斜率 (每分量级变化 / 每分平均成交量 → 归一)
+    cvd = [r.get("cum_cvd") for r in rows if r.get("cum_cvd") is not None]
+    if len(cvd) >= 6:
+        n = len(cvd)
+        xs = list(range(n))
+        slope = (n * sum(x * y for x, y in zip(xs, cvd)) - sum(xs) * sum(cvd)) / \
+                max(n * sum(x * x for x in xs) - sum(xs) ** 2, 1)
+        avg_vol = tot / n
+        norm = clamp01(slope / max(avg_vol, 1e-9))
+        cvd_u = norm if dir_ == "fwd" else (1 - norm)
+        s_cvd = clamp01((cvd_u - 0.5) * 2 + 0.5) * 30       # 0.5=中性 → 15分
+    else:
+        s_cvd = 15.0
+    # 墙净方向: bid出现/ask消失=买墙 → 利好做多
+    net_wall = 0
+    for w in wall_events[-10:]:
+        if w.get("side") == "bids" and w.get("type") == "appear":
+            net_wall += 1
+        elif w.get("side") == "asks" and w.get("type") == "appear":
+            net_wall -= 1
+        elif w.get("type") == "vanish":
+            pass  # 消失方向未知(简化: 只算出现)
+    wall_u = clamp01(0.5 + net_wall * 0.1)
+    s_wall = (wall_u if dir_ == "fwd" else (1 - wall_u)) * 20
+    # OI 5m 变化方向
+    oi_now = rows[-1].get("oi")
+    oi_prev = rows[0].get("oi")
+    oi_chg = 0.5
+    if oi_now and oi_prev:
+        chg = (oi_now - oi_prev) / oi_prev
+        oi_chg = clamp01(0.5 + chg * 10)  # +5% → 1.0
+    s_oi = (oi_chg if dir_ == "fwd" else (1 - oi_chg)) * 10
+    return round(s_imb + s_cvd + s_wall + s_oi, 1)
+
+
+def load_micro_ctx(sym, n=10):
+    """读 micro_1m + wall_events 尾部 (引擎波段评分数据源)"""
+    rows, walls = [], []
+    try:
+        for line in open(f"{BASE}/logs/micro_1m.jsonl").read().splitlines()[-40:]:
+            try:
+                r = json.loads(line)
+                if r.get("sym") == sym:
+                    rows.append(r)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for line in open(f"{BASE}/logs/wall_events.jsonl").read().splitlines()[-40:]:
+            try:
+                w = json.loads(line)
+                if w.get("sym") == sym:
+                    walls.append(w)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return rows[-n:], walls
 
 
 def pick_dir(ann, basis_bp, th=TH_IN_ANN, borrow=BORROW_ANN, max_basis=MAX_BASIS_BP):
@@ -318,6 +404,13 @@ def cycle():
         near_settle = (int(r["next_funding_ts"]) / 1000) % 28800 >= 27900
         in_window = in_entry_window(r)
         dir_ = pick_dir(ann, basis)
+        if dir_ and not near_settle and in_window and SWING_FILTER:
+            mr, we = load_micro_ctx(sym)
+            score = swing_score(mr, we, dir_)
+            if score < SWING_MIN_SCORE:
+                events.append(f"[波段过滤] {sym} {'正向' if dir_=='fwd' else '反向'}信号成立但微结构评分"
+                              f"{score:.0f}<{SWING_MIN_SCORE:.0f}, 等待盘口确认")
+                dir_ = None
         if dir_ and not near_settle and in_window:
             st["positions"][sym] = dict(spot_entry=r["spot"], perp_entry=r["perp_last"],
                                         t0=time.time(), funding_acc=0.0,

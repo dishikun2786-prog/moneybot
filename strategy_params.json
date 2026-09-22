@@ -9,7 +9,9 @@
     "compounding_min_mult": 0.2,
     "compounding_max_mult": 3.0,
     "entry_window_min": 60.0,
-    "spot_borrow_ann_pct": 5.0
+    "spot_borrow_ann_pct": 5.0,
+    "swing_filter_enabled": 0.0,
+    "swing_min_score": 50.0
   },
   "paper_pm": {
     "min_gross_edge_c": 5.0,

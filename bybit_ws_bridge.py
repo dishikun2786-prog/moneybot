@@ -28,8 +28,13 @@ PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
 DEPTH_FILE = f"{BASE}/logs/orderbook.json"
 TRADES_LOG = f"{BASE}/logs/trades_1s.jsonl"
+MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
+WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
+BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
 STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01}   # 最细聚合档位
 BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0}       # 大单阈值(币)
+WALL_MULT = 8.0        # 墙: 单档size ≥ 同侧前20档均值×MULT
+WALL_SHARE = 0.25      # 或 ≥ 该侧总量×SHARE
 
 LOCK = threading.Lock()
 PRICES = {}
@@ -43,7 +48,12 @@ BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "g
 TRADES = {s: deque(maxlen=30) for s in SYMBOLS}   # 最近30笔逐笔
 AGGS = {s: deque(maxlen=60000) for s in SYMBOLS}  # (T_ms, side, v, p) 滚动窗口原始流
 BIG = deque(maxlen=12)                            # 大单事件
+BIG_PEND = []                                     # 大单待落盘 (depth_loop冲刷)
 DEPTH_SAID = {"hello": False}
+CVDS = {s: {"day": "", "cum": 0.0} for s in SYMBOLS}   # 当日CVD滚动累计
+WALLS_PREV = {s: set() for s in SYMBOLS}               # 上一帧墙价位集合
+MICRO_HIST = {s: deque(maxlen=120) for s in SYMBOLS}   # 分钟级指标环 (t, price, cum_cvd, oi)
+MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in SYMBOLS}  # 本分钟累计
 
 
 def on_open(ws):
@@ -67,11 +77,17 @@ def on_msg(ws, m):
         with LOCK:
             # 用 update 保留 spot 键 (spot通道写在同一dict; 整体替换会每100ms抹掉现货价)
             PRICES.setdefault(sym, {})
-            PRICES[sym].update({"last": float(t["lastPrice"]),
-                                "change_pct": float(t.get("price24hPcnt", 0) or 0) * 100,
-                                "high": float(t.get("highPrice24h", 0) or 0),
-                                "low": float(t.get("lowPrice24h", 0) or 0),
-                                "vol": float(t.get("turnover24h", 0) or 0), "ts": int(d["ts"])})
+            upd = {"last": float(t["lastPrice"]),
+                   "change_pct": float(t.get("price24hPcnt", 0) or 0) * 100,
+                   "high": float(t.get("highPrice24h", 0) or 0),
+                   "low": float(t.get("lowPrice24h", 0) or 0),
+                   "vol": float(t.get("turnover24h", 0) or 0), "ts": int(d["ts"])}
+            # OI 字段多数tick为null (Bybit仅周期性推送): 只在有值时更新, 保留最后已知值
+            if t.get("openInterest"):
+                upd["oi"] = float(t["openInterest"])
+            if t.get("openInterestValue"):
+                upd["oi_val"] = float(t["openInterestValue"])
+            PRICES[sym].update(upd)
             SNAP.update(ts=int(time.time() * 1000), lag_ms=lag, prices=dict(PRICES))
             N_TICKS["n"] += 1
     elif topic.startswith("kline."):
@@ -140,6 +156,20 @@ def _on_trade(d):
             AGGS[sym].append((ts, side, v, p))
             if v >= BIG_TH.get(sym, 1e9):
                 BIG.append({"sym": sym, "S": side, "v": v, "p": p, "T": ts})
+                BIG_PEND.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                 "sym": sym, "S": side, "v": v, "p": p, "T": ts})
+
+
+def detect_walls(levels):
+    """挂单墙检测: 单档size ≥ max(前20档均值×WALL_MULT, 该侧总量×WALL_SHARE)
+    返回 {price_str: size}"""
+    if len(levels) < 5:
+        return {}
+    top20 = sorted(levels, key=lambda x: -x[1])[:20]
+    avg = sum(s for _, s in top20) / len(top20)
+    total = sum(s for _, s in levels)
+    thr = max(avg * WALL_MULT, total * WALL_SHARE)
+    return {str(p): s for p, s in levels if s >= thr}
 
 
 def _agg_window(q, step, now, wins=(15, 60, 300)):
@@ -157,9 +187,12 @@ def _agg_window(q, step, now, wins=(15, 60, 300)):
 
 
 def depth_loop():
-    """每秒: 盘口快照+逐笔带+聚合 → orderbook.json 原子写; trades_1s.jsonl 秒级留痕"""
+    """每秒: 盘口快照+逐笔带+聚合+CVD+墙检测+分钟指标 → orderbook.json 原子写; 多路留痕"""
+    last_min = ""
     while True:
         time.sleep(1)
+        now = int(time.time() * 1000)
+        ts_s = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         with LOCK:
             books_out, trades_out, aggs_out, big_out = {}, {}, {}, list(BIG)
             for sym in SYMBOLS:
@@ -168,17 +201,84 @@ def depth_loop():
                     books_out[sym] = {
                         "bids": [[p, s] for p, s in sorted(b["bids"].items(), key=lambda x: -float(x[0]))[:200]],
                         "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
-                trades_out[sym] = list(TRADES[sym])  # 逐笔带独立于盘口就绪
-            now = int(time.time() * 1000)
+                trades_out[sym] = list(TRADES[sym])
+            walls_out = {}
+            for sym in SYMBOLS:
+                b = BOOKS.get(sym)
+                if not b or not b["snap"]:
+                    continue
+                wb = detect_walls([(float(p), s) for p, s in b["bids"].items()])
+                wa = detect_walls([(float(p), s) for p, s in b["asks"].items()])
+                walls_out[sym] = {"bids": [[p, s] for p, s in wb.items()],
+                                  "asks": [[p, s] for p, s in wa.items()]}
+                cur = set(wb) | set(wa)
+                prev = WALLS_PREV[sym]
+                for p in cur - prev:
+                    side = "bids" if p in wb else "asks"
+                    sz = wb.get(p) or wa.get(p)
+                    _append_log(WALL_LOG, {"ts": ts_s, "sym": sym, "side": side,
+                                           "price": float(p), "size": sz, "type": "appear"})
+                for p in prev - cur:
+                    _append_log(WALL_LOG, {"ts": ts_s, "sym": sym, "type": "vanish",
+                                           "price": float(p)})
+                WALLS_PREV[sym] = cur
+            # 本秒 CVD 与分钟缓冲
             for sym in SYMBOLS:
                 q = AGGS[sym]
                 while q and now - q[0][0] > 300000:
                     q.popleft()
+                recent = [x for x in q if now - x[0] <= 1000]
+                bv = sum(x[2] for x in recent if x[1] == "Buy")
+                sv = sum(x[2] for x in recent if x[1] == "Sell")
+                nb = sum(1 for x in recent if x[1] == "Buy")
+                ns = sum(1 for x in recent if x[1] == "Sell")
+                today = time.strftime("%Y-%m-%d", time.gmtime())
+                c = CVDS[sym]
+                if c["day"] != today:
+                    c["day"] = today
+                    c["cum"] = 0.0
+                c["cum"] = round(c["cum"] + bv - sv, 6)
+                mb = MICRO_BUF[sym]
+                mb["bv"] += bv
+                mb["sv"] += sv
+                mb["nb"] += nb
+                mb["ns"] += ns
                 grid = _agg_window(q, STEP_FINE[sym], now)
                 if grid:
                     aggs_out[sym] = {"step": STEP_FINE[sym],
                                      "grid": {str(k): v for k, v in grid.items()}}
-        snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out, "big": big_out}
+                if recent:
+                    _append_log(TRADES_LOG, {"ts": ts_s, "sym": sym, "n_buy": nb, "n_sell": ns,
+                                             "bv": round(bv, 6), "sv": round(sv, 6),
+                                             "cvd": round(bv - sv, 6), "cum_cvd": c["cum"]})
+            # 分钟边界: micro_1m 落盘 + 指标环
+            micro_out = {}
+            cur_min = ts_s[:16]
+            if last_min and cur_min != last_min:
+                for sym in SYMBOLS:
+                    mb = MICRO_BUF[sym]
+                    px = PRICES.get(sym, {})
+                    rec = {"ts": last_min + ":00", "sym": sym,
+                           "bv": round(mb["bv"], 6), "sv": round(mb["sv"], 6),
+                           "nb": mb["nb"], "ns": mb["ns"],
+                           "cvd_1m": round(mb["bv"] - mb["sv"], 6),
+                           "cum_cvd": CVDS[sym]["cum"],
+                           "last": px.get("last"), "oi": px.get("oi"), "oi_val": px.get("oi_val")}
+                    _append_log(MICRO_LOG, rec)
+                    MICRO_HIST[sym].append((last_min, rec["last"], rec["cum_cvd"], rec["oi"]))
+                    MICRO_BUF[sym] = {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0}
+            last_min = cur_min
+            for sym in SYMBOLS:
+                micro_out[sym] = {"hist": [list(x) for x in MICRO_HIST[sym]],
+                                  "oi": PRICES.get(sym, {}).get("oi"),
+                                  "oi_val": PRICES.get(sym, {}).get("oi_val")}
+            big_pend = list(BIG_PEND)
+            BIG_PEND.clear()
+        # 大单历史落盘 (锁外)
+        for rec in big_pend:
+            _append_log(BIG_LOG, rec)
+        snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out,
+                "big": big_out, "walls": walls_out, "micro": micro_out}
         tmp = DEPTH_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(snap, f, ensure_ascii=False)
@@ -186,20 +286,14 @@ def depth_loop():
         if not DEPTH_SAID["hello"] and books_out:
             DEPTH_SAID["hello"] = True
             print("[bridge] 盘口+逐笔通道已上线", flush=True)
-        # 秒级成交留痕 (DuckDB 管道扩展)
-        for sym in SYMBOLS:
-            q = AGGS[sym]
-            if not q:
-                continue
-            recent = [x for x in q if now - x[0] <= 1000]
-            if recent:
-                rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "sym": sym,
-                       "n_buy": sum(1 for x in recent if x[1] == "Buy"),
-                       "n_sell": sum(1 for x in recent if x[1] == "Sell"),
-                       "bv": round(sum(x[2] for x in recent if x[1] == "Buy"), 6),
-                       "sv": round(sum(x[2] for x in recent if x[1] == "Sell"), 6)}
-                with open(TRADES_LOG, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def _append_log(path, rec):
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[bridge] 日志写入失败 {path}: {e}", flush=True)
 
 
 def _write_snap():

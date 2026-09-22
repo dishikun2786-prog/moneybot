@@ -210,6 +210,55 @@ def _json(path, default=None):
         return default
 
 
+def _tail_jsonl(path, n=400, max_bytes=512 * 1024):
+    """轻量 tail 读 jsonl (从文件尾读, 避免大文件全量解析)"""
+    p = os.path.expanduser(path)
+    try:
+        with open(p, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes))
+            data = f.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+    out = []
+    for line in data.splitlines()[-n:]:
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
+
+
+def micro():
+    """微结构指标 (基于 micro_1m 分钟级数据, tail 轻量读取)"""
+    micro = _tail_jsonl("~/polymarket/logs/micro_1m.jsonl", 400)
+    walls = _tail_jsonl("~/polymarket/logs/wall_events.jsonl", 800)
+    out = {}
+    for sym in ("BTCUSDT", "ETHUSDT"):
+        mr = [l for l in micro if l.get("sym") == sym]
+        wl = [l for l in walls if l.get("sym") == sym]
+        cvd_series = [[m.get("ts", "")[11:16], m.get("last"), m.get("cum_cvd")]
+                      for m in mr[-60:]]
+        oi_now = mr[-1].get("oi") if mr else None
+        oi_prev = mr[-6].get("oi") if len(mr) >= 6 else None
+        oi_5m = None
+        if oi_now and oi_prev:
+            oi_5m = round((oi_now - oi_prev) / oi_prev * 100, 3)
+        bv = sum(t.get("bv", 0) or 0 for t in mr[-120:])
+        sv = sum(t.get("sv", 0) or 0 for t in mr[-120:])
+        nb = sum(t.get("nb", 0) or 0 for t in mr[-120:])
+        ns = sum(t.get("ns", 0) or 0 for t in mr[-120:])
+        ratio = round(bv / (bv + sv) * 100, 1) if (bv + sv) else None
+        out[sym] = {"cvd_series": cvd_series, "oi": oi_now,
+                    "oi_val": mr[-1].get("oi_val") if mr else None,
+                    "oi_5m_chg_pct": oi_5m, "taker_buy_pct_2h": ratio,
+                    "n_buy_2h": nb, "n_sell_2h": ns,
+                    "wall_appear_2h": sum(1 for w in wl if w.get("type") == "appear"),
+                    "wall_vanish_2h": sum(1 for w in wl if w.get("type") == "vanish")}
+    return out
+
+
 def _mtm_pm(st):
     """PM桶纸面持仓按市场mid独立盯市"""
     pos = st.get("positions") or {}

@@ -92,7 +92,8 @@ PARAM_SCHEMA = {
               "max_basis_bp": ("float", 0, 100), "notional_usd": ("float", 1, 50),
               "compounding_base_usd": ("float", 1, 100), "compounding_min_mult": ("float", 0.05, 1),
               "compounding_max_mult": ("float", 1, 10), "entry_window_min": ("float", 0, 480),
-              "spot_borrow_ann_pct": ("float", 0, 50)},
+              "spot_borrow_ann_pct": ("float", 0, 50),
+              "swing_filter_enabled": ("float", 0, 1), "swing_min_score": ("float", 0, 100)},
     "paper_pm": {"min_gross_edge_c": ("float", 0.5, 20), "theta_out_c": ("float", 0, 5),
                  "min_opposite_size": ("float", 10, 1000), "max_spread_c": ("float", 1, 50),
                  "max_hold_h": ("float", 1, 72), "max_exposure_usd": ("float", 1, 100),
@@ -269,6 +270,9 @@ TOOLS = [
     {"type": "function", "function": {"name": "get_pnl",
         "description": "查询模拟盘整体盈亏: 整体资金/已实现/未实现盯市 (只读)",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "get_micro",
+        "description": "查询微结构指标: CVD累积成交量差/未平仓量OI/主动买卖比/挂单墙统计 (只读, 供波段分析)",
+        "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "git_log",
         "description": "查看策略代码与参数版本历史 (最近10条, 只读)",
         "parameters": {"type": "object", "properties": {}}}},
@@ -292,8 +296,34 @@ TOOLS = [
             "type": "string", "description": "systemd单元名"}}, "required": ["unit"]}}},
 ]
 
+def t_get_micro():
+    """微结构指标 (只读): CVD/OI/主动买卖比/墙统计"""
+    import sys
+    sys.path.insert(0, os.path.join(BASE, "dash"))
+    try:
+        from app import readers
+        d = readers.micro()
+    except Exception:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from dash.app import readers
+        d = readers.micro()
+    out = {"note": "微结构指标 (CVD=主动买-主动卖累计, OI=未平仓量)", "symbols": {}}
+    for sym, m in d.items():
+        out["symbols"][sym] = {
+            "CVD最近60分钟": [(x[0], x[2]) for x in m.get("cvd_series", [])[-10:]],
+            "未平仓量OI": m.get("oi"),
+            "OI五分钟变化率%": m.get("oi_5m_chg_pct"),
+            "主动买占比%(近2小时)": m.get("taker_buy_pct_2h"),
+            "主动买笔数(2h)": m.get("n_buy_2h"),
+            "主动卖笔数(2h)": m.get("n_sell_2h"),
+            "挂单墙出现(2h)": m.get("wall_appear_2h"),
+            "挂单墙消失(2h)": m.get("wall_vanish_2h")}
+    return out
+
+
 _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": lambda a: t_list_params(),
              "get_pnl": lambda a: t_get_pnl(), "git_log": lambda a: t_git_log(),
+             "get_micro": lambda a: t_get_micro(),
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
 
