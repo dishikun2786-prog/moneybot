@@ -30,6 +30,10 @@
 ## 常规操作
 
 ```bash
+# 改密码（首选）：网页 /system 页 →「修改登录密码」（验证当前密码, 自动吊销所有旧会话）
+# 应急（服务器命令行）：
+./venv/bin/python -c "import bcrypt,os; open(os.path.expanduser('~/polymarket/.dash_passwd_hash'),'wb').write(bcrypt.hashpw(b'<新密码>'.encode(), bcrypt.gensalt()))"
+
 # 部署（本地执行）
 bash deploy.sh                # 部署当前代码+重启监控+自动备份旧版
 bash deploy.sh --rollback     # 回滚上一版本

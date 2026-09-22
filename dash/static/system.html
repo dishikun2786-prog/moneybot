@@ -13,6 +13,14 @@
 <div class="panel"><h2>服务单元</h2>
 <table id="systbl"><thead><tr><th>单元</th><th>类型</th><th>状态</th></tr></thead><tbody></tbody></table>
 </div>
+<div class="panel"><h2>修改登录密码</h2>
+  <div class="toolbar">
+    <input type="password" id="old_pw" placeholder="当前密码" autocomplete="current-password">
+    <input type="password" id="new_pw" placeholder="新密码(至少8位)" autocomplete="new-password">
+    <button onclick="changePw()">修改</button>
+  </div>
+  <div id="pw_msg" class="dim"></div>
+</div>
 <div class="panel"><h2>看门狗状态</h2><pre id="wd">—</pre></div>
 <div class="panel"><h2>WSS 日志尾部</h2><pre id="wsslog">—</pre></div>
 <div class="panel"><h2>监控日志尾部</h2><pre id="monlog">—</pre></div>
@@ -38,6 +46,21 @@ async function refresh(){
   document.getElementById('wd').textContent = JSON.stringify(d.watchdog, null, 2);
   document.getElementById('wsslog').textContent = d.logs.wss || '(空)';
   document.getElementById('monlog').textContent = d.logs.monitor || '(空)';
+}
+async function changePw(){
+  const old_pw = document.getElementById('old_pw').value;
+  const new_pw = document.getElementById('new_pw').value;
+  const r = await fetch('/api/password/change', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({old_pw: old_pw, new_pw: new_pw})});
+  const d = await r.json().catch(()=>({}));
+  const el = document.getElementById('pw_msg');
+  if(d.ok){
+    el.textContent = '✅ 已修改, 所有旧会话已吊销, 3秒后跳转登录页';
+    document.getElementById('old_pw').value = document.getElementById('new_pw').value = '';
+    setTimeout(()=>location.href='/login', 3000);
+  } else {
+    el.textContent = '❌ ' + (d.err || '修改失败');
+  }
 }
 refresh(); setInterval(refresh, 10000);
 </script>

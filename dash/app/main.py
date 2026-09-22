@@ -139,6 +139,21 @@ async def api_revoke(request: Request, __=Depends(require_session)):
     return {"ok": readers.revoke_share(body.get("token", ""))}
 
 
+@app.post("/api/password/change")
+async def api_change_pw(request: Request, __=Depends(require_session)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "err": "bad request"}, status_code=400)
+    if not auth.login_allowed():
+        return JSONResponse({"ok": False, "err": "尝试过多, 1分钟后再试"}, status_code=429)
+    ok, msg = auth.change_password(body.get("old_pw", ""), body.get("new_pw", ""))
+    if not ok:
+        auth.record_fail()
+        return JSONResponse({"ok": False, "err": msg}, status_code=400)
+    return {"ok": True, "msg": "密码已修改, 请用新密码重新登录"}
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()
