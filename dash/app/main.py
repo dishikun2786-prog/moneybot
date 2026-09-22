@@ -249,6 +249,36 @@ async def ai_approve(request: Request, __=Depends(require_session)):
     return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
 
 
+@app.get("/api/stream/prices")
+async def stream_prices(request: Request, __=Depends(require_session)):
+    """SSE: Bybit 实时价格推送 (数据源 = bybit_ws_bridge 原子快照, 300ms 轮读)"""
+    import asyncio
+    SNAP = os.path.expanduser("~/polymarket/logs/bybit_prices.json")
+
+    async def gen():
+        last_ts = None
+        last_send = time.time()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                with open(SNAP, encoding="utf-8") as f:
+                    data = json.loads(f.read())
+                if data.get("ts") != last_ts:
+                    last_ts = data["ts"]
+                    last_send = time.time()
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            except Exception:
+                pass
+            if time.time() - last_send > 15:
+                last_send = time.time()
+                yield ": ping\n\n"  # 心跳注释行, 防超时
+            await asyncio.sleep(0.3)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

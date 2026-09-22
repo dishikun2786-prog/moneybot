@@ -64,6 +64,7 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .topnav{display:flex;gap:12px;font-size:12px}
 .topnav a{color:#8b98a5;text-decoration:none}
 .topnav a:hover{color:#00c853}
+.livebox{display:inline-flex;align-items:center;gap:8px;margin-left:4px;padding:3px 10px;background:#0d1117;border:1px solid #2a313c;border-radius:7px}
 @keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
 .livedot{width:8px;height:8px;border-radius:50%;background:#00c853;display:inline-block;animation:pulse 1.6s infinite}
 .paused .livedot{background:#ffb300;animation:none}
@@ -109,6 +110,11 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
     <option value="BTCUSDT">比特币永续 BTCUSDT</option>
     <option value="ETHUSDT">以太坊永续 ETHUSDT</option>
   </select>
+  <span class="livebox" id="livebox">
+    <span id="livepx" class="num" style="font-size:17px;font-weight:600">—</span>
+    <span id="livechg" class="num" style="font-size:12px"></span>
+    <span id="livelag" style="font-size:10px;color:#8b98a5"></span>
+  </span>
   <div class="sym"><b class="num" id="price">—</b><span class="chg num" id="chg">—</span></div>
   <div class="ohlc">
     <span>开 <b class="num" id="st_o">—</b></span><span>高 <b class="num" id="st_h">—</b></span>
@@ -347,6 +353,7 @@ document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault
 
 loadKlines(); loadPositions(); loadStrategy(); loadSignals(); loadTape();
 document.getElementById('tzlabel').textContent = '本机时区 ' + tzLabel() + ' · 数据已按本机时间显示';
+startES();
 setInterval(()=>{ if(playing) loadKlines(); }, 30000);
 setInterval(()=>{ if(playing) loadTape(); }, 5000);
 setInterval(()=>{ loadPositions(); loadSignals(); }, 15000);
@@ -446,5 +453,39 @@ async function approveAction(aid, ok, el){
     loadStrategy();
   }catch(e){ el.textContent = '请求失败: ' + e; }
 }
+
+/* ===== 实时行情 (Bybit WSS → SSE, 300ms节流) ===== */
+let es = null, pxThrottle = 0;
+function startES(){
+  if(es) return;
+  es = new EventSource('/api/stream/prices');
+  es.onmessage = e => {
+    let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
+    const now = Date.now();
+    if(now - pxThrottle < 300) return;
+    pxThrottle = now;
+    applyLive(d);
+  };
+  es.onerror = () => {
+    es.close(); es = null;
+    document.getElementById('livelag').textContent = '连接中断, 重连中…';
+    setTimeout(startES, 5000);
+  };
+}
+function applyLive(d){
+  const p = d.prices && d.prices[sym];
+  if(!p || !p.last) return;
+  const el = document.getElementById('livepx');
+  el.textContent = Number(p.last).toLocaleString('en-US', {maximumFractionDigits:2});
+  const prev = Number(el.dataset.prev || p.last);
+  el.style.color = p.last > prev ? '#ff5252' : (p.last < prev ? '#00c853' : '#e6edf3');
+  el.dataset.prev = p.last;
+  const chg = document.getElementById('livechg');
+  const c = Number(p.change_pct || 0);
+  chg.textContent = (c>0?'+':'') + c.toFixed(2) + '%';
+  chg.style.color = c >= 0 ? '#ff5252' : '#00c853';
+  document.getElementById('livelag').textContent = '延迟 ' + ((d.lag_ms||0)/1000).toFixed(1) + 's';
+}
+
 </script>
 </body></html>
