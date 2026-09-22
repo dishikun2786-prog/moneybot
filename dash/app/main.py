@@ -228,6 +228,15 @@ async def ai_chat(request: Request, __=Depends(require_session)):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.post("/api/ai/approve")
+async def ai_approve(request: Request, __=Depends(require_session)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
+
+
 @app.get("/api/system")
 def api_system(__=Depends(require_session)):
     return readers.system()

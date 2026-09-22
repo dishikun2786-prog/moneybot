@@ -85,6 +85,9 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
 .chatinput{display:flex;gap:6px;padding:8px 10px;border-top:1px solid #2a313c}
 .chatinput input{flex:1;background:#0d1117;border:1px solid #2a313c;color:#e6edf3;border-radius:7px;padding:7px 10px;font-size:12.5px}
 .cursor{display:inline-block;width:6px;height:13px;background:#00c853;animation:pulse 1s infinite;vertical-align:middle}
+.apbtn{font-size:11px;padding:3px 10px;margin:6px 6px 0 0;border-radius:6px;cursor:pointer}
+.apbtn.ok{background:rgba(0,200,83,.15);border:1px solid #00c853;color:#00c853}
+.apbtn.no{background:rgba(255,82,82,.12);border:1px solid #ff5252;color:#ff5252}
 @media (max-width:900px){
   .wrap{grid-template-columns:1fr;grid-template-rows:1fr auto 200px}
   .right{grid-column:1;grid-row:2;max-height:220px;border-bottom:1px solid #2a313c}
@@ -386,10 +389,26 @@ async function sendChat(text){
           chip.innerHTML = '🔧 调用 ' + esc(ev.name);
           id('chatbody').appendChild(chip);
         } else if(ev.type==='tool_result'){
-          const chips = id('chatbody').querySelectorAll('.toolchip');
-          const c = chips[chips.length-1];
-          if(c) c.innerHTML += `<div class="r">${esc(JSON.stringify(ev.result).slice(0,280))}</div>`;
-          id('chatbody').scrollTop = 1e6;
+          const r = ev.result || {};
+          if(r.status === 'preview'){
+            const card = document.createElement('div');
+            card.className = 'msg ai';
+            const diffTxt = (r.diff||[]).map(d=>`${d.group}.${d.key}: ${d.old} → ${d.new}`).join('<br>')
+              || esc(r.target || r.unit || '');
+            card.innerHTML = `📋 <b>修改预览（待批准）</b><br>
+              <span style="color:#8b98a5;font-size:11px">${diffTxt}</span><br>
+              <button class="apbtn ok" data-id="${esc(r.action_id)}" data-ok="1">✅ 批准生效</button>
+              <button class="apbtn no" data-id="${esc(r.action_id)}" data-ok="0">❌ 拒绝</button>`;
+            id('chatbody').appendChild(card);
+            card.querySelectorAll('.apbtn').forEach(b=>
+              b.addEventListener('click', ()=>approveAction(b.dataset.id, b.dataset.ok==='1', card)));
+            id('chatbody').scrollTop = 1e6;
+          } else {
+            const chips = id('chatbody').querySelectorAll('.toolchip');
+            const c = chips[chips.length-1];
+            if(c) c.innerHTML += `<div class="r">${esc(JSON.stringify(r).slice(0,280))}</div>`;
+            id('chatbody').scrollTop = 1e6;
+          }
         } else if(ev.type==='error'){
           aiEl.innerHTML = '⚠️ ' + esc(ev.text);
         }
@@ -404,5 +423,16 @@ async function sendChat(text){
 }
 id('quickbar').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) sendChat(b.dataset.q); });
 id('chatinput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+async function approveAction(aid, ok, el){
+  try{
+    const r = await fetch('/api/ai/approve', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action_id: aid, approve: ok})});
+    const d = await r.json();
+    el.innerHTML = ok
+      ? (d.ok ? `✅ <b>已生效</b>: ${esc(d.msg || '')}` : `⚠️ 执行失败: ${esc(d.error || '')}`)
+      : '已拒绝（未执行）';
+    loadStrategy();
+  }catch(e){ el.textContent = '请求失败: ' + e; }
+}
 </script>
 </body></html>

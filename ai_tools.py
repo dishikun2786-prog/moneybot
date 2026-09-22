@@ -60,8 +60,9 @@ def t_list_params():
     }
     out = {}
     for group, params in d.items():
-        out[group] = {zh.get(group, {}).get(k, k): v for k, v in params.items()}
-    return {"参数": out, "说明": "改参数需走审批流程(M7上线), 当前为只读模式"}
+        out[group] = {k: {"值": v, "中文名": zh.get(group, {}).get(k, k)} for k, v in params.items()}
+    out["_重要"] = "update_params 的键名必须用英文键(如 theta_in_ann_pct), 不能用中文名"
+    return {"参数": out, "说明": "改参数需用户批准后生效; 变更工具走预览→审批流"}
 
 
 def t_get_pnl():
@@ -85,6 +86,156 @@ def t_run_backtest(args):
     return {"theta": theta, "输出": out.strip()}
 
 
+# ================= M7: 变更类工具 (预览→审批→执行) =================
+PARAM_SCHEMA = {
+    "carry": {"theta_in_ann_pct": ("float", 0, 20), "max_hold_h": ("float", 1, 720),
+              "max_basis_bp": ("float", 0, 100), "notional_usd": ("float", 1, 50)},
+    "paper_pm": {"min_gross_edge_c": ("float", 0.5, 20), "theta_out_c": ("float", 0, 5),
+                 "min_opposite_size": ("float", 10, 1000), "max_spread_c": ("float", 1, 50),
+                 "max_hold_h": ("float", 1, 72), "max_exposure_usd": ("float", 1, 100),
+                 "max_positions": ("int", 1, 10), "max_daily_loss": ("float", 0.5, 50)},
+    "monitor": {"cal_sigma_up": ("float", 0.7, 1.5), "cal_sigma_down": ("float", 0.7, 1.5)},
+}
+PENDING_FILE = f"{BASE}/engine/ai_pending.json"
+AUDIT_FILE = f"{BASE}/logs/ai_actions.jsonl"
+ALLOWED_UNITS = ("pm-monitor", "pm-wss", "pm-dash", "pm-carry")
+
+
+def _pending():
+    try:
+        return json.load(open(PENDING_FILE))
+    except Exception:
+        return {}
+
+
+def _save_pending(p):
+    os.makedirs(os.path.dirname(PENDING_FILE), exist_ok=True)
+    json.dump(p, open(PENDING_FILE, "w"), ensure_ascii=False, indent=1)
+
+
+def _audit(action, detail):
+    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "action": action, **detail}
+    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def _validate_changes(changes):
+    """白名单+类型+范围校验 → (diff列表, 错误)"""
+    if not changes:
+        return [], "未提供修改内容"
+    if len(changes) > 3:
+        return [], "单次最多修改3个参数"
+    params = _read_json(PARAMS, {})
+    diff = []
+    for group, kv in changes.items():
+        schema = PARAM_SCHEMA.get(group)
+        if schema is None:
+            return [], f"未知参数组: {group} (合法组: {list(PARAM_SCHEMA)})"
+        cur = params.get(group, {})
+        for k, v in (kv or {}).items():
+            spec = schema.get(k)
+            if spec is None:
+                return [], f"参数不在白名单: {group}.{k}"
+            typ, lo, hi = spec
+            try:
+                nv = float(v) if typ == "float" else int(float(v))
+            except Exception:
+                return [], f"{group}.{k} 值非法: {v}"
+            if not (lo <= nv <= hi):
+                return [], f"{group}.{k}={nv} 超出范围[{lo},{hi}]"
+            diff.append({"group": group, "key": k, "old": cur.get(k), "new": nv})
+    return diff, None
+
+
+def t_update_params(args):
+    changes = args.get("changes") or {}
+    diff, err = _validate_changes(changes)
+    if err:
+        return {"status": "rejected", "error": err}
+    p = _pending()
+    aid = f"a{int(time.time()*1000)}"
+    p[aid] = {"type": "update_params", "changes": changes, "diff": diff,
+              "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _save_pending(p)
+    _audit("update_params_preview", {"changes": changes})
+    return {"status": "preview", "action_id": aid, "diff": diff,
+            "message": "修改预览已生成, 尚未生效, 等待用户在界面点击【批准】"}
+
+
+def t_git_rollback(args):
+    rev = str(args.get("rev", "")).strip()
+    if not rev:
+        return {"status": "rejected", "error": "必须提供 rev (git提交哈希或HEAD~N)"}
+    check = _sh(f"cd {BASE} && git rev-parse --verify {rev} 2>&1", 10).strip()
+    if not check.startswith("0" * 7) and "fatal" in check.lower():
+        return {"status": "rejected", "error": f"无效版本: {rev}"}
+    log = _sh(f"cd {BASE} && git log --oneline -1 {rev} 2>&1", 10).strip()
+    p = _pending()
+    aid = f"a{int(time.time()*1000)}"
+    p[aid] = {"type": "git_rollback", "rev": rev, "diff": [{"group": "git", "key": "回退到", "old": "当前", "new": log}],
+              "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _save_pending(p)
+    _audit("rollback_preview", {"rev": rev})
+    return {"status": "preview", "action_id": aid, "rev": rev, "target": log,
+            "message": "回退预览已生成, 尚未执行, 等待用户批准"}
+
+
+def t_restart_engine(args):
+    unit = str(args.get("unit", "")).strip()
+    if unit not in ALLOWED_UNITS:
+        return {"status": "rejected", "error": f"不允许重启的单元: {unit} (允许: {list(ALLOWED_UNITS)})"}
+    p = _pending()
+    aid = f"a{int(time.time()*1000)}"
+    p[aid] = {"type": "restart_engine", "unit": unit,
+              "diff": [{"group": "systemd", "key": "重启", "old": "-", "new": unit}],
+              "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _save_pending(p)
+    _audit("restart_preview", {"unit": unit})
+    return {"status": "preview", "action_id": aid, "unit": unit,
+            "message": "重启预览已生成, 等待用户批准"}
+
+
+def apply_pending(action_id, approve):
+    """用户批准/拒绝 → 执行或废弃, 记审计"""
+    p = _pending()
+    act = p.get(action_id)
+    if act is None:
+        return {"ok": False, "error": f"待审批动作不存在: {action_id}"}
+    if not approve:
+        del p[action_id]
+        _save_pending(p)
+        _audit("rejected", {"action_id": action_id, "type": act["type"]})
+        return {"ok": True, "applied": False, "msg": "已拒绝"}
+    ok, detail = _apply(act)
+    if ok:
+        del p[action_id]
+        _save_pending(p)
+        _audit("applied", {"action_id": action_id, **detail})
+        return {"ok": True, "applied": True, "msg": detail.get("msg", "已生效"), "detail": detail}
+    _audit("apply_failed", {"action_id": action_id, "error": detail.get("error")})
+    return {"ok": False, "error": detail.get("error", "执行失败")}
+
+
+def _apply(act):
+    if act["type"] == "update_params":
+        params = _read_json(PARAMS, {})
+        for c in act["diff"]:
+            params.setdefault(c["group"], {})[c["key"]] = c["new"]
+        json.dump(params, open(PARAMS, "w"), ensure_ascii=False, indent=2)
+        summary = ", ".join(f"{c['group']}.{c['key']}={c['old']}→{c['new']}" for c in act["diff"])
+        out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m 'AI改参: {summary}'", 15)
+        return True, {"msg": f"已生效并提交: {summary}", "commit": out.strip()[:40] or "committed"}
+    if act["type"] == "git_rollback":
+        rev = act["rev"]
+        out = _sh(f"cd {BASE} && git checkout {rev} -- strategy_params.json && git commit -q -m 'AI回退参数到 {rev}'", 20)
+        return True, {"msg": f"参数已回退到 {rev}", "commit": out.strip()[:40] or "committed"}
+    if act["type"] == "restart_engine":
+        unit = act["unit"]
+        out = _sh(f"sudo systemctl restart {unit} 2>&1 && sleep 2 && systemctl is-active {unit}", 30)
+        return True, {"msg": f"{unit} 已重启, 状态: {out.strip()}"}
+    return False, {"error": f"未知动作类型: {act['type']}"}
+
+
 TOOLS = [
     {"type": "function", "function": {"name": "strategy_status",
         "description": "查询量化系统运行状态: 引擎服务/持仓/今日盈亏/数据新鲜度 (只读)",
@@ -102,11 +253,26 @@ TOOLS = [
         "description": "用候选入场阈值θ跑现货永续套利回测(近2个月), 供参数对比决策 (只读, 不落地)",
         "parameters": {"type": "object", "properties": {"theta": {
             "type": "number", "description": "入场阈值: 资金费率年化% (0-20, 默认5)"}}, "required": ["theta"]}}},
+    {"type": "function", "function": {"name": "update_params",
+        "description": "修改策略参数(白名单+范围校验, 生成修改预览, 需用户在界面批准后才生效; 单次最多3个键). "
+                       "键名必须是英文(如 carry.theta_in_ann_pct / paper_pm.min_gross_edge_c / monitor.cal_sigma_up), 先调list_params查询",
+        "parameters": {"type": "object", "properties": {"changes": {
+            "type": "object", "description": "参数修改 {组名: {英文参数名: 新值}}, 组名∈carry/paper_pm/monitor"}},
+            "required": ["changes"]}}},
+    {"type": "function", "function": {"name": "git_rollback",
+        "description": "回退策略参数到指定git版本(预览, 需用户批准后执行 git checkout)",
+        "parameters": {"type": "object", "properties": {"rev": {
+            "type": "string", "description": "git提交哈希或HEAD~N, 先用git_log查"}}, "required": ["rev"]}}},
+    {"type": "function", "function": {"name": "restart_engine",
+        "description": "重启指定服务单元(预览, 需用户批准; 允许: pm-monitor/pm-wss/pm-dash/pm-carry)",
+        "parameters": {"type": "object", "properties": {"unit": {
+            "type": "string", "description": "systemd单元名"}}, "required": ["unit"]}}},
 ]
 
 _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": lambda a: t_list_params(),
              "get_pnl": lambda a: t_get_pnl(), "git_log": lambda a: t_git_log(),
-             "run_backtest": t_run_backtest}
+             "run_backtest": t_run_backtest, "update_params": t_update_params,
+             "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
 
 
 def execute_tool(name, args):
