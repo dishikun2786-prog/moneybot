@@ -213,6 +213,20 @@ select.input{appearance:none}
 .livebar.live{border-color:rgba(246,70,93,.5);background:var(--down-soft)}
 .livebar.live .dot{background:var(--down)}
 .livebar button{margin-left:auto;border:1px solid var(--border-2);background:none;color:var(--text-2);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;font-family:var(--sans)}
+/* R12b 管理后台子导航 */
+.sub-tabs{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto}
+.sub-tabs button{flex:1;min-width:72px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);border-radius:var(--r-s);padding:7px 4px;font-size:12px;cursor:pointer;white-space:nowrap}
+.sub-tabs button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.adm-item{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border)}
+.adm-item:last-child{border-bottom:none}
+.adm-item .t{flex:1;min-width:0}
+.adm-item .n{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adm-item .m{font-size:11px;color:var(--text-2)}
+.adm-item.off{opacity:.55}
+.adm-item .ops{display:flex;gap:4px}
+.adm-item .ops .bad{padding:4px 8px;border-radius:6px;border:none;cursor:pointer;font-size:11px;color:#fff}
+.adm-item .ops .bad.ok{background:#16a34a}
+.adm-item .ops .bad{background:#dc2626}
 /* R12 PM 原生交易样式 */
 .yesno-row{display:flex;gap:8px;margin-bottom:10px}
 .yesno-row button{flex:1;border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-m);padding:10px 8px;cursor:pointer;color:var(--text-2);font-family:var(--sans);transition:all var(--t-fast) var(--ease)}
@@ -609,14 +623,51 @@ select.input{appearance:none}
     <section class="screen" id="screen-admin">
       <div class="row" style="margin-bottom:10px"><b style="font-size:15px">总管理后台</b><span class="badge yellow">管理员</span></div>
       <div class="stat-grid" id="admin-stats"></div>
-      <div class="card">
-        <div class="ct">发布公告 <span class="xs muted">全用户交易室横幅</span></div>
-        <div class="field"><label>公告内容</label><input class="input" id="an-text" placeholder="例如：系统维护 03:00-04:00 UTC"></div>
-        <div class="trow gaprow"><span class="k">级别</span><select id="an-level" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px;font-size:13px"><option value="info">通知</option><option value="warn">警告</option></select><button class="btn accent" style="width:auto;padding:0 18px;min-height:38px" onclick="announceAdd()">发布</button></div>
+      <div class="sub-tabs" id="adm-tabs">
+        <button class="on" data-a="users" onclick="admTab('users')">用户</button>
+        <button data-a="ann" onclick="admTab('ann')">公告</button>
+        <button data-a="funds" onclick="admTab('funds')">资金审核</button>
+        <button data-a="pm" onclick="admTab('pm')">标的管理</button>
       </div>
-      <div class="card" style="padding:8px">
-        <div class="ct" style="padding:4px 4px 8px">用户管理 <span class="xs muted">套餐/禁用/限额/改密</span></div>
-        <div id="admin-users"></div>
+      <div id="adm-pane-users">
+        <div class="card" style="padding:8px">
+          <div class="ct" style="padding:4px 4px 8px">用户管理 <span class="xs muted">套餐/禁用/限额/改密</span></div>
+          <div id="admin-users"></div>
+        </div>
+      </div>
+      <div id="adm-pane-ann" style="display:none">
+        <div class="card">
+          <div class="ct">发布公告 <span class="xs muted">全用户交易室横幅</span></div>
+          <div class="field"><label>公告内容</label><input class="input" id="an-text" placeholder="例如：系统维护 03:00-04:00 UTC"></div>
+          <div class="trow gaprow"><span class="k">级别</span><select id="an-level" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px;font-size:13px"><option value="info">通知</option><option value="warn">警告</option></select><button class="btn accent" style="width:auto;padding:0 18px;min-height:38px" onclick="announceAdd()">发布</button></div>
+        </div>
+      </div>
+      <div id="adm-pane-funds" style="display:none">
+        <div class="card">
+          <div class="ct">提现审核 <span class="xs muted">审批后自动 Bybit 打款</span><span id="admf-n" class="xs"></span></div>
+          <div id="adm-funds"></div>
+        </div>
+      </div>
+      <div id="adm-pane-pm" style="display:none">
+        <div class="card">
+          <div class="ct">PM 标的管理 <span class="xs muted">下线后全站屏蔽</span><span id="admp-n" class="xs"></span></div>
+          <div class="field"><label>搜索标的</label>
+            <div class="trow gaprow">
+              <input class="input" id="admp-q" placeholder="中/英文或事件key" style="flex:1;min-width:0" oninput="admPmDebounce()">
+              <button class="btn dim" style="width:auto;padding:0 10px;min-height:38px" onclick="admpClearQ()">×</button>
+            </div>
+          </div>
+          <div class="trow gaprow" style="margin-bottom:8px">
+            <button class="btn dim" style="width:auto;padding:0 10px;min-height:32px;font-size:12px" onclick="admpAll(true)">全选</button>
+            <button class="btn dim" style="width:auto;padding:0 10px;min-height:32px;font-size:12px" onclick="admpAll(false)">反选</button>
+            <span class="xs muted" id="admp-sel" style="flex:1;text-align:right">已选 0</span>
+          </div>
+          <div id="adm-pm-list" style="max-height:42vh;overflow-y:auto"></div>
+          <div class="trow gaprow" style="margin-top:8px">
+            <button class="btn ok" style="flex:1" onclick="admpSet('on')">✅ 批量上线</button>
+            <button class="btn bad" style="flex:1" onclick="admpSet('off')">⛔ 批量下线</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -2040,6 +2091,86 @@ function pmBind(i){
   for(var k=0;k<bt.length;k++)bt[k].className=k===i?'on':'';
 }
 /* ============ 管理后台 ============ */
+var ADM_TAB='users';
+function admTab(a){
+  ADM_TAB=a;
+  document.querySelectorAll('#adm-tabs button').forEach(function(b){b.className=b.dataset.a===a?'on':''});
+  ['users','ann','funds','pm'].forEach(function(k){
+    var p=id('adm-pane-'+k);if(p)p.style.display=k===a?'':'none';
+  });
+  if(a==='funds')loadAdmFunds();
+  if(a==='pm')loadAdmPm(0);
+}
+var ADMP={q:'',offset:0,rows:[],checked:{},more:true};
+var admPmTimer=null;
+function admPmDebounce(){clearTimeout(admPmTimer);admPmTimer=setTimeout(function(){ADMP.q=id('admp-q').value.trim();loadAdmPm(0)},350)}
+function admpClearQ(){id('admp-q').value='';ADMP.q='';loadAdmPm(0)}
+async function loadAdmPm(offset){
+  if(offset===0){ADMP.offset=0;ADMP.rows=[];ADMP.checked={};}
+  var qs='?offset='+ADMP.offset+'&limit=50&q='+encodeURIComponent(ADMP.q);
+  var r=await api('/api/admin/pm-markets'+qs);
+  if(!r.data||!r.data.ok){id('adm-pm-list').innerHTML='<div class="dim small">加载失败（非管理员？）</div>';return}
+  ADMP.rows=ADMP.rows.concat(r.data.rows||[]);
+  ADMP.more=!!r.data.has_more;
+  id('admp-n').textContent='共 '+(r.data.total||0)+' · 下线 '+(r.data.off_n||0);
+  admpRender();
+}
+function admpRender(){
+  var rows=ADMP.rows;
+  if(!rows.length){id('adm-pm-list').innerHTML='<div class="dim small" style="padding:8px">无匹配标的</div>';admpSel();return}
+  var html='';
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    var off=r.state==='off';
+    html+='<label class="adm-item'+(off?' off':'')+'">'
+      +'<input type="checkbox" '+(ADMP.checked[r.key]?'checked':'')+' onchange="admpCheck(\''+r.key.replace(/'/g,'')+'\',this.checked)">'
+      +'<div class="t"><div class="n">'+esc(r.title_zh||r.title)+'</div>'
+      +'<div class="m">'+esc(r.cat||'other')+' · $'+num(r.ev_vol||0,0)+(off?' · <b class="red">已下线</b>':'')+'</div></div></label>';
+  }
+  if(ADMP.more)html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadAdmPm(ADMP.rows.length)">加载更多</button>';
+  id('adm-pm-list').innerHTML=html;
+  admpSel();
+}
+function admpCheck(k,v){if(v)ADMP.checked[k]=1;else delete ADMP.checked[k];admpSel()}
+function admpSel(){id('admp-sel').textContent='已选 '+Object.keys(ADMP.checked).length}
+function admpAll(inv){
+  ADMP.rows.forEach(function(r){
+    var cur=!!ADMP.checked[r.key];
+    var nv=inv?true:!cur;
+    if(nv)ADMP.checked[r.key]=1;else delete ADMP.checked[r.key];
+  });
+  admpRender();
+}
+async function admpSet(state){
+  var keys=Object.keys(ADMP.checked);
+  if(!keys.length){toast('请先勾选标的');return}
+  openSheet('<h3>确认'+(state==='on'?'上线':'下线')+'</h3><p>将对 <b>'+keys.length+'</b> 个标的执行'+(state==='on'?'上线':'下线')+'。'+(state==='off'?'下线后移动端全站不再展示、不可下单。':'')+'</p>'
+    +'<button class="btn '+(state==='on'?'ok':'bad')+'" id="cf-yes" onclick="admpSetGo(\''+state+'\')">确认执行</button>');
+}
+async function admpSetGo(state){
+  closeSheet();
+  var keys=Object.keys(ADMP.checked);
+  var r=await api('/api/admin/pm-markets/set',{method:'POST',body:JSON.stringify({keys:keys,state:state})});
+  if(r.data&&r.data.ok){toast('✅ '+(r.data.msg||'操作成功'));loadAdmPm(0)}else{toast('❌ '+apiErr(r))}
+}
+async function loadAdmFunds(){
+  var r=await api('/api/admin/funds/summary');
+  if(!r.data||!r.data.ok){id('adm-funds').innerHTML='<div class="dim small">加载失败</div>';return}
+  var ws=r.data.pending_withdraws||[];
+  id('admf-n').textContent='('+ws.length+' 待审)';
+  var html='';
+  for(var i=0;i<ws.length;i++){
+    var w=ws[i];
+    html+='<div class="adm-item"><div class="t"><div class="n">#'+w.id+' · UID '+w.uid+' · <b>$'+num(w.amount,2)+'</b></div>'
+      +'<div class="m">手续费 $'+num(w.fee,2)+' · '+esc(w.address||'').slice(0,24)+'… · '+esc(w.created_ts||'')+'</div></div>'
+      +'<div class="ops"><button class="bad ok" onclick="admfReview('+w.id+',1)">通过</button><button class="bad" onclick="admfReview('+w.id+',0)">拒绝</button></div></div>';
+  }
+  id('adm-funds').innerHTML=html||'<div class="dim small" style="padding:8px">无待审提现</div>';
+}
+async function admfReview(wid,ok){
+  var r=await api('/api/admin/funds/withdraw/review',{method:'POST',body:JSON.stringify({id:wid,approve:!!ok,note:ok?'':'管理员拒绝'})});
+  if(r.data&&r.data.ok){toast('✅ 已'+(ok?'通过并打款':'拒绝'));loadAdmFunds()}else{toast('❌ '+apiErr(r))}
+}
 async function loadAdmin(){
   var rs=await api('/api/admin/stats');
   if(rs.status===403||(rs.data&&!rs.data.ok)){toast('仅管理员可访问');go('profile');return}
