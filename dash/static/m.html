@@ -381,6 +381,17 @@ select.input{appearance:none}
 
     <!-- ===== 资产 ===== -->
     <section class="screen" id="screen-assets">
+      <div class="card" style="border:1px solid rgba(45,212,191,.35)">
+        <div class="ct">USDT 余额 <span class="xs muted">真实资金 · 充值/提现/买套餐</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:22px;font-weight:800;font-family:var(--mono)" id="f-bal">—</div>
+          <div style="display:flex;gap:6px">
+            <button class="mini on" onclick="go('recharge')">➕ 充值</button>
+            <button class="mini" onclick="go('withdraw')">➖ 提现</button>
+            <button class="mini" onclick="go('plans')">⬆ 套餐</button>
+          </div>
+        </div>
+      </div>
       <div class="equity">
         <div class="t">账户总资产 (USDT) · 模拟账户</div>
         <div class="big" id="a-capital">—</div>
@@ -395,6 +406,48 @@ select.input{appearance:none}
         <div id="a-rows"></div>
       </div>
       <div class="sectip"><div class="i">💰</div><div class="t"><b>白话：</b>总资产=初始$100+已实现盈亏+持仓浮盈。模拟资金与真实资金完全隔离，放心练习。</div></div>
+    </section>
+
+    <!-- ===== 充值 ===== -->
+    <section class="screen" id="screen-recharge">
+      <div class="card">
+        <div class="ct">USDT 充值 <span class="xs muted">Bybit 收款 · 自动入账</span></div>
+        <div class="trow"><span class="k">充值金额 (USDT)</span><input type="number" id="rc-amount" value="100" min="5" max="10000" step="1" style="width:110px"></div>
+        <button class="btn accent" id="rc-create-btn" onclick="rechargeCreate()">生成充值订单</button>
+        <div id="rc-order" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <div class="ct">充值记录</div>
+        <div id="rc-list"></div>
+      </div>
+      <div class="sectip"><div class="i">💡</div><div class="t"><b>白话：</b>系统给你一个<b>精确金额</b>（含唯一尾数），你用钱包按这个金额转账到平台地址，到账后<b>自动识别入账</b>（约1-2分钟）。务必按精确金额转！</div></div>
+    </section>
+
+    <!-- ===== 提现 ===== -->
+    <section class="screen" id="screen-withdraw">
+      <div class="card">
+        <div class="ct">USDT 提现 <span class="xs muted">管理员审核后自动打款</span></div>
+        <div class="trow"><span class="k">可用余额</span><span class="v" id="wd-bal">—</span></div>
+        <div class="trow"><span class="k">提现金额 (USDT)</span><input type="number" id="wd-amount" value="10" min="5" step="1" style="width:110px"></div>
+        <div class="field"><label>TRC20 收款地址（T开头34位）</label><input class="input" id="wd-addr" placeholder="粘贴你的 TRC20 USDT 地址"></div>
+        <div class="dim xs" id="wd-hint" style="margin-bottom:8px"></div>
+        <button class="btn accent" onclick="withdrawCreate()">提交提现申请</button>
+      </div>
+      <div class="card">
+        <div class="ct">提现记录</div>
+        <div id="wd-list"></div>
+      </div>
+      <div class="sectip"><div class="i">⚠️</div><div class="t"><b>白话：</b>提现需管理员审核（工作时间），通过后系统自动从 Bybit 打款到你的地址。手续费 <b id="wd-fee">—</b> USDT/笔。充错链/地址的资金无法找回，请核对！</div></div>
+    </section>
+
+    <!-- ===== 套餐 ===== -->
+    <section class="screen" id="screen-plans">
+      <div class="card" style="padding:10px">
+        <div class="ct">当前套餐 <span class="xs muted">USDT 余额支付</span></div>
+        <div id="pl-current" style="padding:4px 0"></div>
+      </div>
+      <div id="pl-list"></div>
+      <div class="sectip"><div class="i">🎁</div><div class="t"><b>白话：</b>专业版可绑定交易所密钥（为实盘做准备），实盘版解锁真实下单。套餐到期自动降回免费版，账户数据保留。</div></div>
     </section>
 
     <!-- ===== 我的 ===== -->
@@ -523,7 +576,7 @@ function apiErr(r){
 /* ============ 屏幕路由 ============ */
 var curScreen='login';
 var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,profile:1};
-var BACK_MAP={keys:'profile',admin:'profile'};
+var BACK_MAP={keys:'profile',admin:'profile',recharge:'assets',withdraw:'assets',plans:'assets'};
 var TITLES={login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'交易',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台'};
 function go(s){
   if(!id('screen-'+s))return;
@@ -542,7 +595,10 @@ function go(s){
   if(s==='markets')loadMarkets();
   if(s==='pm')loadPmScreen();
   if(s==='trade'){loadKline();}
-  if(s==='assets')loadAssets();
+  if(s==='assets'){loadAssets();loadFunds()}
+  if(s==='recharge')loadRecharge();
+  if(s==='withdraw')loadWithdraw();
+  if(s==='plans')loadPlans();
   if(s==='profile')loadProfile();
   if(s==='keys')loadKeys();
   if(s==='admin')loadAdmin();
@@ -1221,6 +1277,132 @@ function toggleLive(){
 function liveOn(){closeSheet();LIVE.on=true;loadLiveStatus();toast('🔴 实盘模式已开启，下单请看清确认弹窗')}
 /* ============ 资产屏 ============ */
 var EQ=[];
+/* ============ M7 USDT 充值提现 (资产屏+三屏) ============ */
+var FD={bal:0,fee:'1',min:5,max:500,myPlan:'free',exp:0};
+async function loadFunds(){
+  var r=await api('/api/funds/balance');
+  if(r.data){FD.bal=Number(r.data.usdt)||0;id('f-bal').textContent=num(FD.bal,2)+' USDT'}
+}
+async function loadRecharge(){
+  var r=await api('/api/funds/deposits');
+  if(r.data&&r.data.orders)renderRcOrders(r.data.orders);
+}
+function rcStZh(s){return {pending:'⏳ 等待付款',matched:'🔍 链上匹配中',confirmed:'✅ 已入账',expired:'⏰ 已过期',unclaimed:'❓ 待认领'}[s]||s}
+function renderRcOrders(ords){
+  var html='';
+  for(var i=0;i<ords.length;i++){
+    var o=ords[i];
+    html+='<div class="trow" style="justify-content:space-between"><span class="k" style="font-size:11px">'+esc(o.created_ts||'').slice(5,16)
+      +' · '+num(o.amount_unique,4)+' USDT</span><span class="v">'+rcStZh(o.status)+'</span></div>';
+  }
+  id('rc-list').innerHTML=html||'<div class="dim xs">暂无充值记录</div>';
+}
+async function rechargeCreate(){
+  var amt=Number(id('rc-amount').value)||0;
+  var btn=id('rc-create-btn');btn.disabled=true;btn.textContent='生成中…';
+  var r=await api('/api/funds/deposit/create',{method:'POST',body:JSON.stringify({amount:amt})});
+  btn.disabled=false;btn.textContent='生成充值订单';
+  if(!r.data||!r.data.ok){toast('❌ '+(r.data&&r.data.error||apiErr(r)));return}
+  var o=r.data;
+  var el=id('rc-order');
+  el.innerHTML='<div class="card" style="background:var(--surface-2);border:1px solid rgba(45,212,191,.4)">'
+    +'<div class="ct">订单 #'+o.order_id+' <span class="xs muted">'+o.chain+' · 24小时内有效</span></div>'
+    +'<div class="trow"><span class="k">收款地址</span><span class="v mono" style="font-size:11px;word-break:break-all">'+o.address+'</span></div>'
+    +'<div style="text-align:center;margin:6px 0"><span style="font-size:13px;font-weight:800;color:var(--accent)">请转账精确金额</span>'
+    +'<div style="font-size:20px;font-weight:800;font-family:var(--mono);color:var(--up)">'+num(o.amount_unique,4)+' USDT</div></div>'
+    +'<div style="display:flex;gap:6px"><button class="btn ghost" style="min-height:38px" onclick="copyTxt(\''+o.address+'\')">📋 复制地址</button>'
+    +'<button class="btn ghost" style="min-height:38px" onclick="copyTxt(\''+o.amount_unique+'\')">📋 复制金额</button></div>'
+    +'<div class="dim xs" style="text-align:center;margin-top:6px" id="rc-wait">⏳ 等待付款 · 到账自动入账（每分钟核对）</div></div>';
+  pollRc(o.order_id);
+}
+async function pollRc(oid){
+  for(var i=0;i<240;i++){
+    await sleep(5000);
+    var r=await api('/api/funds/deposits');
+    var os=(r.data&&r.data.orders)||[];
+    var o=null;for(var j=0;j<os.length;j++){if(os[j].id===oid){o=os[j];break}}
+    if(!o)return;
+    if(o.status==='confirmed'){id('rc-wait').innerHTML='✅ 充值成功！<b>+'+num(o.amount_unique,4)+' USDT</b> 已入账';loadFunds();return}
+    if(o.status==='expired'){id('rc-wait').innerHTML='⏰ 订单已过期，请重新生成';return}
+    id('rc-wait').textContent='⏳ 等待付款 ('+Math.round((i+1)*5/60)+'分) · 到账自动入账';
+  }
+}
+function sleep(ms){return new Promise(function(res){setTimeout(res,ms)})}
+function copyTxt(t){
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(String(t)).then(function(){toast('✅ 已复制')})}
+  else{toast('长按手动复制: '+t)}
+}
+async function loadWithdraw(){
+  var r=await api('/api/funds/withdraws');
+  var pl=await api('/api/funds/plans');
+  if(pl.data&&pl.data.settings){FD.fee=pl.data.settings.withdraw_fee||'1';FD.min=Number(pl.data.settings.min_withdraw)||5;FD.max=Number(pl.data.settings.max_withdraw)||500;id('wd-fee').textContent=FD.fee}
+  id('wd-bal').textContent=num(FD.bal,2);
+  if(r.data&&r.data.orders)renderWdOrders(r.data.orders);
+  updWdHint();
+}
+function wdStZh(s){return {pending_review:'⏳ 待审核',paid:'✅ 已打款',completed:'✅ 已完成',failed:'❌ 打款失败(已退回)',rejected:'🚫 已拒绝(已退回)'}[s]||s}
+function renderWdOrders(ords){
+  var html='';
+  for(var i=0;i<ords.length;i++){
+    var o=ords[i];
+    html+='<div class="trow" style="justify-content:space-between"><span class="k" style="font-size:11px">#'+o.id+' · '+esc(o.created_ts||'').slice(5,16)
+      +' · '+num(o.amount,2)+' USDT → '+esc(o.address).slice(0,8)+'…</span><span class="v">'+wdStZh(o.status)+'</span></div>';
+  }
+  id('wd-list').innerHTML=html||'<div class="dim xs">暂无提现记录</div>';
+}
+function updWdHint(){
+  var amt=Number(id('wd-amount').value)||0;
+  var fee=Number(FD.fee)||1;
+  var el=id('wd-hint');
+  if(!el)return;
+  el.innerHTML=amt>0?('手续费 '+fee+' USDT · 实际到账 <b>'+(amt-fee>0?num(amt-fee,2):'—')+'</b> USDT · 可用 '+num(FD.bal,2)):'';
+}
+async function withdrawCreate(){
+  var amt=Number(id('wd-amount').value)||0;
+  var addr=(id('wd-addr').value||'').trim();
+  if(amt<FD.min){toast('最低提现 '+FD.min+' USDT');return}
+  if(amt>FD.max){toast('单笔最高 '+FD.max+' USDT');return}
+  if(!addr){toast('请填写 TRC20 地址');return}
+  openSheet('<h3>提现确认</h3><p>金额 <b>'+amt+' USDT</b> + 手续费 '+FD.fee+' → <b>'+esc(addr).slice(0,12)+'…</b><br>提交后由管理员审核并自动打款。确认？</p>'
+    +'<button class="btn accent" onclick="wdGo()">确认提交</button>');
+}
+async function wdGo(){
+  closeSheet();
+  var amt=Number(id('wd-amount').value)||0;
+  var addr=(id('wd-addr').value||'').trim();
+  var r=await api('/api/funds/withdraw/create',{method:'POST',body:JSON.stringify({amount:amt,address:addr})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadWithdraw();loadFunds()}
+  else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
+}
+async function loadPlans(){
+  var r=await api('/api/funds/plans');
+  if(!r.data){return}
+  FD.myPlan=r.data.my_plan;FD.exp=Number(r.data.plan_expires)||0;
+  var pn={free:'免费版',pro:'专业版',live:'实盘版'};
+  var expTxt=FD.exp?(new Date(FD.exp*1000).toLocaleDateString()):'不过期';
+  id('pl-current').innerHTML='<b style="font-size:15px">'+(pn[FD.myPlan]||FD.myPlan)+'</b> <span class="xs muted">'+(FD.myPlan==='free'?'':'· 到期 '+expTxt)+'</span>';
+  var ps=r.data.plans||[],html='';
+  for(var i=0;i<ps.length;i++){
+    var p=ps[i];
+    var isCur=FD.myPlan===p.code;
+    html+='<div class="card" style="border:1px solid '+(isCur?'rgba(45,212,191,.5)':'var(--border)')+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div><b>'+esc(p.name)+'</b> '+(isCur?'<span class="badge green">当前</span>':'')+'<div class="xs muted" style="margin-top:2px">'+esc(p.features||'')+'</div></div>'
+      +'<div style="text-align:right"><b style="font-family:var(--mono)">'+(p.price>0?p.price+' USDT/月':'免费')+'</b>'
+      +(p.price>0&&!isCur?'<div><button class="mini on" onclick="buyPlan(\''+p.code+'\')">购买</button></div>':'')+'</div></div></div>';
+  }
+  id('pl-list').innerHTML=html;
+}
+function buyPlan(code){
+  openSheet('<h3>购买套餐</h3><p>余额支付 <b>'+code+'</b> 套餐（30天），当前余额 '+num(FD.bal,2)+' USDT。确认？</p>'
+    +'<button class="btn accent" onclick="buyPlanGo('+code+')">确认购买</button>');
+}
+async function buyPlanGo(code){
+  closeSheet();
+  var r=await api('/api/funds/plan/buy',{method:'POST',body:JSON.stringify({code:code})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadPlans();loadFunds()}
+  else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
+}
 async function loadAssets(){
   var r=await api('/api/pnl');
   if(!r.data){return}

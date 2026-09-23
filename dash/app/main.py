@@ -21,6 +21,7 @@ import tenants  # noqa: E402
 import bybit_live  # noqa: E402
 import pm_live  # noqa: E402
 import live_exec  # noqa: E402
+from . import funds  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -31,6 +32,7 @@ def _startup():
     users.init_db()
     admin.init_announce()
     keys.init_db()
+    funds.init_db()
 
 
 @app.middleware("http")
@@ -530,6 +532,159 @@ def api_depth_watch(body: dict, __=Depends(require_session)):
         json.dump(reqs, f)
     os.replace(tmp, path)
     return {"ok": True, "symbol": sym, "watching": list(reqs)}
+
+
+# ================= M7 USDT 充值提现 (用户端) =================
+
+@app.get("/api/funds/balance")
+def funds_balance(su=Depends(require_session_user)):
+    return {"ok": True, "usdt": funds.get_balance(su["u"]),
+            "tx": funds.tx_list(su["u"], 30)}
+
+
+@app.post("/api/funds/deposit/create")
+async def funds_deposit_create(request: Request, su=Depends(require_session_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.create_deposit(su["u"], body.get("amount"))
+
+
+@app.get("/api/funds/deposits")
+def funds_deposits(su=Depends(require_session_user)):
+    return {"ok": True, "orders": funds.my_deposits(su["u"], 20),
+            "address": funds.platform_address()}
+
+
+@app.post("/api/funds/withdraw/create")
+async def funds_withdraw_create(request: Request, su=Depends(require_session_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.create_withdraw(su["u"], body.get("amount"), body.get("address"))
+
+
+@app.get("/api/funds/withdraws")
+def funds_withdraws(su=Depends(require_session_user)):
+    return {"ok": True, "orders": funds.my_withdraws(su["u"], 20)}
+
+
+@app.get("/api/funds/plans")
+def funds_plans(su=Depends(require_session_user)):
+    u = users.get_user(su["u"]) or {}
+    exp = float(u.get("plan_expires") or 0)
+    return {"ok": True, "plans": funds.plans_list(),
+            "my_plan": u.get("plan", "free"), "plan_expires": exp,
+            "settings": funds.all_settings()}
+
+
+@app.post("/api/funds/plan/buy")
+async def funds_plan_buy(request: Request, su=Depends(require_session_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.buy_plan(su["u"], str(body.get("code", "")))
+
+
+# ================= M7 USDT 充值提现 (管理员端) =================
+
+@app.get("/api/admin/funds/summary")
+def admin_funds_summary(su=Depends(require_admin)):
+    return {"ok": True, "pending_withdraws": funds.pending_withdraws(),
+            "unclaimed": funds.unclaimed_list(),
+            "settings": funds.all_settings(),
+            "plans": funds.plans_list(include_inactive=True)}
+
+
+@app.post("/api/admin/funds/claim")
+async def admin_funds_claim(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.claim_deposit(su["u"], body.get("order_id"), body.get("uid"))
+
+
+@app.post("/api/admin/funds/withdraw/review")
+async def admin_funds_review(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.review_withdraw(su["u"], body.get("id"), bool(body.get("approve")),
+                                 body.get("note", ""))
+
+
+@app.post("/api/admin/funds/adjust")
+async def admin_funds_adjust(request: Request, su=Depends(require_admin)):
+    """余额调整 (正入负出, 审计留痕)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    try:
+        amt = float(body.get("amount") or 0)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "金额非法"}, status_code=400)
+    if abs(amt) < 0.0001:
+        return {"ok": False, "error": "金额为 0"}
+    bal = funds.add_balance(int(body.get("uid")), amt, "admin",
+                            body.get("note", ""), f"管理员调整 ({su['u']})")
+    return {"ok": True, "new_balance": bal}
+
+
+@app.post("/api/admin/funds/settings")
+async def admin_funds_settings(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    key = str(body.get("key", ""))
+    if key not in ("withdraw_fee", "max_withdraw", "min_withdraw", "deposit_min", "deposit_max"):
+        return {"ok": False, "error": "不支持的设置项"}
+    return funds.set_setting(key, body.get("value"))
+
+
+@app.post("/api/admin/funds/plan")
+async def admin_funds_plan(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.save_plan(body.get("code"), body.get("name"), body.get("price"),
+                           body.get("features"), body.get("sort"),
+                           body.get("active", True), bool(body.get("is_new")))
+
+
+@app.post("/api/admin/funds/plan/delete")
+async def admin_funds_plan_delete(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return funds.delete_plan(body.get("code", ""))
+
+
+@app.post("/api/admin/funds/platform_key")
+async def admin_funds_platform_key(request: Request, su=Depends(require_admin)):
+    """保存平台 Bybit 密钥 (AES-256-GCM 加密落盘, 仅管理员)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    k = str(body.get("api_key", "")).strip()
+    s = str(body.get("secret", "")).strip()
+    if not k or not s:
+        return {"ok": False, "error": "key/secret 必填"}
+    try:
+        funds.save_platform_key(k, s)
+    except Exception as e:
+        return {"ok": False, "error": f"加密保存失败: {e}"}
+    users.audit_log(su["u"], "platform_key_saved", "平台 Bybit 密钥已更新")
+    return {"ok": True}
 
 
 @app.post("/api/pm/order/market")

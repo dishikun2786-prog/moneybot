@@ -226,6 +226,43 @@ def set_status(uid, status):
     return True, "ok"
 
 
+def set_plan(uid, code, expires_ts):
+    """设置套餐 + 到期时间 (unix 秒; 0=不过期) — M7 余额购买/管理用"""
+    with _lock:
+        con = _db()
+        try:
+            con.execute("UPDATE users SET plan=?, plan_expires=? WHERE id=?",
+                        (str(code), float(expires_ts or 0), int(uid)))
+            con.commit()
+        finally:
+            con.close()
+    audit_log(int(uid), "plan_change", f"套餐改为 {code} 到期 {expires_ts}")
+    return True, "ok"
+
+
+def expire_plans():
+    """到期套餐自动降级 free (cron 每日调用) → 返回降级数"""
+    from time import time as _t
+    n = 0
+    with _lock:
+        con = _db()
+        try:
+            rows = con.execute("SELECT id, plan, plan_expires FROM users "
+                               "WHERE plan!='free' AND plan_expires>0 AND plan_expires<?")\
+                .fetchall()
+            now = _t()
+            for uid, plan, exp in rows:
+                if exp and exp < now:
+                    con.execute("UPDATE users SET plan='free', plan_expires=0 WHERE id=?", (uid,))
+                    n += 1
+            con.commit()
+        finally:
+            con.close()
+    if n:
+        audit_log(0, "plan_expire", f"{n} 个用户套餐到期自动降级")
+    return n
+
+
 # ---------- 图形验证码 (内存, 单进程) ----------
 
 def captcha_new(code):
