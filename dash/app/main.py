@@ -512,6 +512,37 @@ def api_instruments(__=Depends(require_session)):
         return {"ok": True, "linear": [], "spot": [], "ts": None}
 
 
+@app.post("/api/kline/watch")
+async def kline_watch(request: Request, su=Depends(require_session_user)):
+    """R4 按需K线: 写 kline_watch.json → 桥2s内订阅 kline.<iv>.<sym> (实时末根)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    sym = str(body.get("symbol") or "").upper()
+    iv = str(body.get("interval") or "15m")
+    if not re.fullmatch(r"[A-Z0-9]{2,20}", sym):
+        return {"ok": False, "error": "symbol 非法"}
+    if iv not in ("1m", "5m", "15m", "1h", "4h", "D", "W", "M"):
+        return {"ok": False, "error": "interval 非法"}
+    try:
+        import pathlib
+        f = pathlib.Path(config.BASE) / "logs" / "kline_watch.json"
+        reqs = {}
+        if f.exists():
+            try:
+                reqs = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                reqs = {}
+        reqs[sym] = iv
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(reqs), encoding="utf-8")
+        tmp.replace(f)
+    except Exception as e:
+        return {"ok": False, "error": f"写watch失败: {e}"}
+    return {"ok": True, "msg": f"{sym} {iv} 实时K线订阅中"}
+
+
 @app.post("/api/depth/watch")
 def api_depth_watch(body: dict, __=Depends(require_session)):
     """P2 按需盘口: 前端请求标的 → 写 depth_watch.json → 桥2s内订阅 orderbook.200 (LRU 20)"""

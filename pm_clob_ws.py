@@ -24,7 +24,7 @@ CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 GAMMA = "https://gamma-api.polymarket.com"
 CLOB_REST = "https://clob.polymarket.com"
 HDR = {"User-Agent": "Mozilla/5.0"}
-MAX_EVENTS = 60
+MAX_EVENTS = 150   # R5: 60→150 全市场覆盖 (分类+搜索)
 REFRESH_S = 1800          # 目录刷新 30min
 BATCH = 100               # 每消息订阅 token 数
 
@@ -44,18 +44,34 @@ def refresh_catalog():
     """Top 活跃事件 → 全部 token ids + 元数据 → pm_tokens.json; 返回 token id 列表"""
     global TOKENS
     evs = []
-    try:
-        evs = http_json(f"{GAMMA}/events?active=true&closed=false&limit={MAX_EVENTS}"
-                        "&order=volume24hr&ascending=false")
-    except Exception as e:
-        print(f"[pm-clob] events 拉取失败: {e}", flush=True)
+    # gamma limit 上限 100, 分页凑 MAX_EVENTS; 失败时退避重试
+    for off in range(0, MAX_EVENTS, 100):
+        for attempt in range(3):
+            try:
+                page = http_json(f"{GAMMA}/events?active=true&closed=false&limit=100"
+                                 f"&offset={off}&order=volume24hr&ascending=false")
+                evs.extend(page)
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"[pm-clob] events 拉取失败(off={off}): {e}", flush=True)
+                else:
+                    time.sleep(2 * (attempt + 1))
+    if not evs:
         return []
-    toks, keys = [], {}
+    toks = []
+    n_mk = 0
     for ev in evs:
-        try:
-            mks = http_json(f"{GAMMA}/markets?event_id={ev['id']}&limit=100&active=true")
-        except Exception:
-            continue
+        mks = ev.get("markets") or []
+        n_mk += len(mks)
+        # R5: 事件分类 (gamma tags) + 市场量价元数据
+        cats = []
+        for tg in (ev.get("tags") or []):
+            lb = tg.get("label") if isinstance(tg, dict) else str(tg)
+            if lb:
+                cats.append(str(lb).lower())
+        cat = cats[0] if cats else "other"
+        ev_vol = float(ev.get("volume24hr") or 0)
         for mk in mks:
             raw = mk.get("clobTokenIds")
             if not raw:
@@ -65,23 +81,27 @@ def refresh_catalog():
             except Exception:
                 continue
             for tok in ids:
+                if not isinstance(tok, str) or not tok.isdigit():
+                    continue
                 key = f"{ev.get('slug', '')}|{mk.get('slug', '')}"
                 toks.append({"token": tok, "key": key, "event_id": str(ev.get("id", "")),
                              "title": ev.get("title") or ev.get("slug", ""),
                              "question": mk.get("question") or "",
                              "outcome": mk.get("outcomes", "?") or "?",
-                             "group": mk.get("groupItemTitle", "")})
-                keys[tok] = key
-    # 去重
+                             "group": mk.get("groupItemTitle", ""),
+                             "cat": cat, "ev_vol": ev_vol,
+                             "mk_chg": float(mk.get("oneDayPriceChange") or 0),
+                             "mk_vol": float(mk.get("volume24hr") or 0)})
+    # 去重: 按 (key, token) 去重 (防事件分页重叠/市场重复)
     uniq = {}
     for t in toks:
-        uniq[t["token"]] = t
+        uniq[(t["key"], t["token"])] = t
     TOKENS = list(uniq.values())
     tmp = TOK_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(TOKENS, f, ensure_ascii=False)
     os.replace(tmp, TOK_FILE)
-    print(f"[pm-clob] 目录刷新: {len(evs)} 事件 → {len(TOKENS)} tokens", flush=True)
+    print(f"[pm-clob] 目录刷新: {len(evs)} 事件/{n_mk} 市场 → {len(TOKENS)} tokens", flush=True)
     return [t["token"] for t in TOKENS]
 
 
@@ -123,9 +143,13 @@ def on_message(ws, m):
         d = json.loads(m)
     except Exception:
         return
+    if not isinstance(d, dict):   # CLOB 部分消息是数组
+        return
     if d.get("event_type") != "price_change":
         return
     for pc in d.get("price_changes", []):
+        if not isinstance(pc, dict):
+            continue
         tok = pc.get("asset_id")
         if not tok:
             continue

@@ -43,7 +43,7 @@ def paged(category, path):
 
 
 def turnover_map(category):
-    """全量 tickers → {symbol: turnover24h}"""
+    """全量 tickers → {symbol: {turnover24h, lastPrice}} (lastPrice 作 WS 缺失兜底)"""
     m = {}
     cursor = ""
     while True:
@@ -56,7 +56,10 @@ def turnover_map(category):
             break
         lst = d["result"]["list"]
         for t in lst:
-            m[t["symbol"]] = float(t.get("turnover24h") or 0)
+            m[t["symbol"]] = {
+                "turnover24h": float(t.get("turnover24h") or 0),
+                "lastPrice": float(t.get("lastPrice") or 0) or None,
+            }
         cursor = d["result"].get("nextPageCursor") or ""
         if not cursor or len(m) >= 4000:
             break
@@ -80,7 +83,8 @@ def build(category, items, turnover):
             "minQty": (it.get("lotSizeFilter") or {}).get("minOrderQty", ""),
             "preListing": bool(it.get("isPreListing")),
             "launchTime": it.get("launchTime", ""),
-            "turnover24h": turnover.get(sym, 0.0),
+            "turnover24h": (turnover.get(sym) or {}).get("turnover24h", 0.0),
+            "lastPrice": (turnover.get(sym) or {}).get("lastPrice"),
         })
     # 按 24h 成交额降序 (活跃度)
     rows.sort(key=lambda r: -r["turnover24h"])

@@ -22,7 +22,8 @@ BOOK_TOPICS = [f"orderbook.200.{s}" for s in DEPTH_SYMS]
 TRADE_TOPICS = [f"publicTrade.{s}" for s in DEPTH_SYMS]
 ALL_TOPICS = KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
 SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
-SPOT_DEPTH_TOPICS = [f"tickers.{s}" for s in DEPTH_SYMS]
+SPOT_PIN_SYMS = [s for s in ("BTCUSDC", "USDTTRY", "ETHUSDC") if s]  # 强制固定订阅
+SPOT_DEPTH_TOPICS = [f"tickers.{s}" for s in list(dict.fromkeys(list(DEPTH_SYMS) + SPOT_PIN_SYMS))]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
@@ -62,10 +63,13 @@ def load_ticker_syms():
 TICKER_SYMS, SPOT_TICKER_SYMS = load_ticker_syms()
 
 
-def _batched_sub(ws, topics):
-    """Bybit WSS 每消息最多10个 topic, 分批订阅"""
+def _batched_sub(ws, topics, delay=0.0):
+    """Bybit WSS 每消息最多10个 topic, 分批订阅
+    delay>0 时批间限速 (spot 通道全量订阅瞬间连发会被 Bybit 限流踢断)"""
     for i in range(0, len(topics), 10):
         ws.send(json.dumps({"op": "subscribe", "args": topics[i:i + 10]}))
+        if delay > 0 and i + 10 < len(topics):
+            time.sleep(delay)
 
 LOCK = threading.Lock()
 PRICES = {}
@@ -77,6 +81,11 @@ WS_REF = {"ws": None}
 # ---- 盘口/成交量状态 (M1) ----
 BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "gaps": n}}
 WATCH_FILE = f"{BASE}/logs/depth_watch.json"   # P2 按需盘口: {sym: req_ts}
+KL_WATCH_FILE = f"{BASE}/logs/kline_watch.json"  # R4 按需K线: {sym: iv}
+KL_SNAP_FILE = f"{BASE}/logs/kl_snap.json"       # R4 实时K线快照
+KL_IV_NUM = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "D": "D", "W": "W", "M": "M"}
+KL_WATCH_MAX = 8
+KL_WATCH_SUB = {}  # sym -> (iv, ts)
 WATCH_MAX = 20      # 动态盘口标的 LRU 上限 (不含 DEPTH_SYMS)
 WATCH_SUB = {s: time.time() for s in DEPTH_SYMS}  # {sym: 订阅时间}
 TRADES = {s: deque(maxlen=30) for s in DEPTH_SYMS}   # 最近30笔逐笔
@@ -126,9 +135,11 @@ def on_msg(ws, m):
             LAST_LAG["ms"] = lag
             N_TICKS["n"] += 1
     elif topic.startswith("kline."):
-        sym = topic.split(".")[2]
+        parts = topic.split(".")  # kline.1.BTCUSDT / kline.15.SOLUSDT
+        iv = parts[1]
+        sym = parts[2]
         with LOCK:
-            KLINES[sym] = {int(k["start"]): k for k in d.get("data", [])}
+            KLINES.setdefault(sym, {})[iv] = {int(k["start"]): k for k in d.get("data", [])}
     elif topic.startswith("orderbook."):
         _on_book(d)
     elif topic.startswith("publicTrade."):
@@ -347,6 +358,28 @@ def snap_loop():
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(payload)
         os.replace(tmp, SNAP_FILE)
+        # 按需K线快照 (小数据: ≤8标的 × 500bar)
+        try:
+            with LOCK:
+                kl = dict(KLINES)
+            kpayload = json.dumps(kl, ensure_ascii=False)
+            ktmp = KL_SNAP_FILE + ".tmp"
+            with open(ktmp, "w", encoding="utf-8") as f:
+                f.write(kpayload)
+            os.replace(ktmp, KL_SNAP_FILE)
+        except Exception:
+            pass
+        # 按需K线快照 (小数据: ≤8标的 × 500bar)
+        try:
+            with LOCK:
+                kl = dict(KLINES)
+            kpayload = json.dumps(kl, ensure_ascii=False)
+            ktmp = KL_SNAP_FILE + ".tmp"
+            with open(ktmp, "w", encoding="utf-8") as f:
+                f.write(kpayload)
+            os.replace(ktmp, KL_SNAP_FILE)
+        except Exception:
+            pass
 
 
 # ---- 现货行情通道 (carry页实时基差需要现货价) ----
@@ -355,14 +388,30 @@ SPOT_SAID = {"hello": False}
 
 
 def spot_on_open(ws):
-    ws.send(json.dumps({"op": "subscribe", "args": SPOT_DEPTH_TOPICS}))
-    _batched_sub(ws, [f"tickers.{s}" for s in SPOT_TICKER_SYMS])
-    print("[bridge] spot通道已连接+订阅", flush=True)
+    shard = getattr(ws, "_shard", (0, None))
+    topics = shard[1] if shard[1] is not None else [f"tickers.{s}" for s in SPOT_TICKER_SYMS]
+    if shard[0] == 0:
+        ws.send(json.dumps({"op": "subscribe", "args": SPOT_DEPTH_TOPICS}))
+    n_batches = (len(topics) + 9) // 10
+    print(f"[bridge] spot#{shard[0]} 连接, 分批订阅 {len(topics)} 个 ({n_batches} 批 x 0.4s)", flush=True)
+    _batched_sub(ws, topics, delay=0.4)
+    print(f"[bridge] spot#{shard[0]} 订阅完成", flush=True)
 
 
 def spot_on_msg(ws, m):
     SPOT_LAST_MSG["t"] = time.time()
     d = json.loads(m)
+    if d.get("op") == "subscribe":
+        if not d.get("success"):
+            print(f"[bridge] spot订阅失败: {d.get('ret_msg')}, 5s后全量限速重订", flush=True)
+            def _retry():
+                time.sleep(5)
+                try:
+                    _batched_sub(ws, [f"tickers.{s}" for s in SPOT_TICKER_SYMS], delay=0.5)
+                except Exception:
+                    pass
+            threading.Thread(target=_retry, daemon=True).start()
+        return
     if not d.get("topic", "").startswith("tickers."):
         return
     sym = d["topic"].split(".")[1]
@@ -377,16 +426,21 @@ def spot_on_msg(ws, m):
             print("[bridge] spot首条行情到达", flush=True)
 
 
-def spot_loop():
+def spot_loop(shard=0, topics=None):
+    """spot ticker 多连接分片: 全量订阅单连接会撞 Bybit 消息速率墙(静默丢数据)
+    shard: 分片号 (0 号兼任 BTC/ETH 盘口), topics: 该分片的 ticker 主题"""
+    if topics is None:
+        topics = [f"tickers.{s}" for s in SPOT_TICKER_SYMS]
     while True:
         SPOT_LAST_MSG["t"] = time.time()
         ws = websocket.WebSocketApp(SPOT_WS, on_message=spot_on_msg, on_open=spot_on_open)
+        ws._shard = (shard, topics)
 
         def _watchdog():
             while True:
                 time.sleep(15)
                 if time.time() - SPOT_LAST_MSG["t"] > 90:
-                    print("[bridge] spot 90s无消息(半开连接), 强制重连", flush=True)
+                    print(f"[bridge] spot#{shard} 90s无消息(半开连接), 强制重连", flush=True)
                     try:
                         ws.close()
                     except Exception:
@@ -397,8 +451,8 @@ def spot_loop():
         try:
             ws.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
-            print(f"[bridge] spot连接异常: {e}", flush=True)
-        print("[bridge] spot连接中断, 5s后重连", flush=True)
+            print(f"[bridge] spot#{shard} 连接异常: {e}", flush=True)
+        print(f"[bridge] spot#{shard} 连接中断, 5s后重连", flush=True)
         time.sleep(5)
 
 
@@ -477,6 +531,38 @@ def test_cb_hook():
             return
 
 
+def watch_kline_loop():
+    """R4 按需K线: 轮询 kline_watch.json → 订阅 kline.<iv>.<sym>; LRU 退订"""
+    while True:
+        time.sleep(2)
+        try:
+            with open(KL_WATCH_FILE, encoding="utf-8") as f:
+                reqs = json.load(f)
+        except Exception:
+            reqs = {}
+        ws = WS_REF["ws"]
+        if not ws:
+            continue
+        for sym, iv in list(reqs.items())[:40]:
+            iv = iv if iv in KL_IV_NUM else "15m"
+            cur = KL_WATCH_SUB.get(sym)
+            if cur and cur[0] == iv:
+                continue
+            ws.send(json.dumps({"op": "subscribe", "args": [f"kline.{KL_IV_NUM[iv]}.{sym}"]}))
+            if cur:  # 同标的换周期: 退旧订新
+                ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[cur[0]]}.{sym}"]}))
+            KL_WATCH_SUB[sym] = (iv, time.time())
+            print(f"[bridge] 按需订阅K线: {sym} {iv} (共{len(KL_WATCH_SUB)})", flush=True)
+        # LRU 退订
+        while len(KL_WATCH_SUB) > KL_WATCH_MAX:
+            oldest = min(KL_WATCH_SUB, key=lambda s: KL_WATCH_SUB[s][1])
+            oiv = KL_WATCH_SUB[oldest][0]
+            ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[oiv]}.{oldest}"]}))
+            KL_WATCH_SUB.pop(oldest, None)
+            KLINES.pop(oldest, None)
+            print(f"[bridge] LRU退订K线: {oldest}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test", action="store_true")
@@ -485,7 +571,14 @@ def main():
     threading.Thread(target=state_loop, daemon=True).start()
     threading.Thread(target=snap_loop, daemon=True).start()
     threading.Thread(target=watch_loop, daemon=True).start()
-    threading.Thread(target=spot_loop, daemon=True).start()
+    threading.Thread(target=watch_kline_loop, daemon=True).start()
+    # spot 多连接分片 (单连接全量订阅撞消息速率墙)
+    SPOT_SHARDS = int(os.environ.get("SPOT_SHARDS", "3"))
+    spot_topics = [f"tickers.{s}" for s in SPOT_TICKER_SYMS if s not in SPOT_PIN_SYMS]
+    n_sp = len(spot_topics)
+    for i in range(SPOT_SHARDS):
+        shard_topics = spot_topics[i * n_sp // SPOT_SHARDS:(i + 1) * n_sp // SPOT_SHARDS]
+        threading.Thread(target=spot_loop, args=(i, shard_topics), daemon=True).start()
     threading.Thread(target=depth_loop, daemon=True).start()
     if args.test:
         threading.Thread(target=test_cb_hook, daemon=True).start()

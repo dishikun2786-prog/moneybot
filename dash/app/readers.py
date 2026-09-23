@@ -450,11 +450,29 @@ _KLINE_CACHE = {}  # REST回源缓存: {(symbol,interval): (ts, bars)}
 
 def klines(symbol="BTCUSDT", interval="15m", limit=300):
     """真实K线 → [{t,o,h,l,c,v}]
-    BTC/ETH 走本地 parquet (秒级回读); 其他标的 REST 回源 Bybit + 60s 缓存 (P1 全标的)"""
+    优先级: ①桥内实时订阅缓存 (kline.<iv>.<sym>, 末根实时) ②BTC/ETH 本地 parquet ③REST 回源"""
     symbol = (symbol or "").upper()
     if interval not in KLINE_IVS:
         interval = "15m"
     limit = max(1, min(int(limit), 500))
+    # ① 实时订阅缓存 (R4: 桥按需订阅 kline 通道, 500ms 落盘; 历史不足时 REST 补齐)
+    live_bars = []
+    try:
+        iv_num = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
+                  "D": "D", "W": "W", "M": "M"}.get(interval, "15")
+        klsnap = os.path.join(config.BASE, "logs", "kl_snap.json")
+        if os.path.exists(klsnap) and time.time() - os.path.getmtime(klsnap) < 30:
+            with open(klsnap, encoding="utf-8") as f:
+                kd = json.load(f)
+            ks = (kd.get(symbol) or {}).get(iv_num)
+            if ks:
+                for st in sorted(ks.keys()):
+                    k = ks[st]
+                    live_bars.append({"t": int(k.get("start", st)), "o": float(k["open"]),
+                                      "h": float(k["high"]), "l": float(k["low"]),
+                                      "c": float(k["close"]), "v": float(k.get("volume", 0))})
+    except Exception:
+        pass
     if symbol in ("BTCUSDT", "ETHUSDT"):
         rows = _q(f"""SELECT ts, open, high, low, close, volume
             FROM read_parquet('{config.DATA}/kline_{interval}/year=*/month=*/*.parquet')
@@ -462,6 +480,13 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300):
         rows.reverse()
         bars = [{"t": int(r[0].timestamp() * 1000), "o": r[1], "h": r[2],
                  "l": r[3], "c": r[4], "v": r[5]} for r in rows]
+        if live_bars and bars:
+            live_min = live_bars[0]["t"]
+            hist = [b for b in bars if b["t"] < live_min]
+            hist.extend([b for b in live_bars if b["t"] >= live_min])
+            if hist:
+                return {"symbol": symbol, "interval": interval,
+                        "bars": hist[-limit:], "live": True}
         return {"symbol": symbol, "interval": interval, "bars": bars}
     # ---- 其他标的: Bybit v5 REST kline, TTL 60s ----
     key = (symbol, interval)
@@ -484,6 +509,15 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300):
                  "l": float(it[3]), "c": float(it[4]), "v": float(it[5])}
                 for it in lst]
         bars.reverse()
+        # R4: 实时订阅缓存存在时, 用 REST 补齐历史段 + 实时末段 (订阅初期 bar 数少)
+        if live_bars:
+            live_min = live_bars[0]["t"]
+            hist = [b for b in bars if b["t"] < live_min]
+            hist.extend([b for b in live_bars if b["t"] >= live_min])
+            if hist:
+                _KLINE_CACHE[key] = (now, hist)
+                return {"symbol": symbol, "interval": interval,
+                        "bars": hist[-limit:], "live": True}
         _KLINE_CACHE[key] = (now, bars)
         return {"symbol": symbol, "interval": interval, "bars": bars[-limit:]}
     except Exception as e:
