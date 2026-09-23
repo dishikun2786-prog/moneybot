@@ -4,11 +4,14 @@ import os
 import re
 import subprocess
 import tempfile
+import json
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(BASE, "dash", "static", "m.html"), encoding="utf-8").read()
 scripts = re.findall(r"<script>(.*?)</script>", src, re.S)
 js = "\n".join(scripts)
+_real_ids = sorted(set(re.findall(r'id="([^"]+)"', src)))
+_ids_json = "[" + ",".join(json.dumps(x) for x in _real_ids) + "]"
 
 TMP = tempfile.mkdtemp(prefix="m_smoke_")
 test = '''
@@ -24,8 +27,9 @@ function makeEl(id){
     scrollIntoView:function(){},
     getContext:function(){return null}};
 }
+var _realIds = new Set(%IDS%);
 var document = {
-  getElementById:function(id){ if(!_els[id])_els[id]=makeEl(id); return _els[id]; },
+  getElementById:function(id){ if(!_realIds.has(id))return null; if(!_els[id])_els[id]=makeEl(id); return _els[id]; },
   querySelector:function(){return makeEl('q')},
   querySelectorAll:function(){return []},
   addEventListener:function(){},
@@ -82,7 +86,13 @@ with open(f, "w", encoding="utf-8") as fh:
 jsfile = os.path.join(TMP, "page.js").replace("\\", "/")
 with open(jsfile, "w", encoding="utf-8") as fh:
     fh.write(js)
-r = subprocess.run(["node", f, jsfile],
+_fid = os.path.join(TMP, "ids.js").replace("\\", "/")
+with open(_fid, "w", encoding="utf-8") as fh:
+    fh.write("module.exports=" + _ids_json + ";")
+_ntest = test.replace("%IDS%", "require(process.argv[3])")
+with open(f, "w", encoding="utf-8") as fh:
+    fh.write(_ntest)
+r = subprocess.run(["node", f, jsfile, _fid],
                    capture_output=True, text=True)
 print(r.stdout)
 print(r.stderr[-800:] if r.returncode else "")

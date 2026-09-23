@@ -2133,7 +2133,7 @@ function tick(){
 /* ============ 初始化 ============ */
 id('head-help').onclick=openHelp;
 id('pm-key').addEventListener('change',updPmHint);
-id('pm-size').addEventListener('input',updPmHint);
+id('pm-shares').addEventListener('input',updPmHint);
 setPmSide('BUY');
 tick();setInterval(tick,30000);
 setInterval(loadPositions,15000);       /* 持仓/浮盈 15s 刷新 */
