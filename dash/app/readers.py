@@ -445,19 +445,53 @@ def cycle():
     return {"state": st, "rounds": rounds}
 
 
+_KLINE_CACHE = {}  # REST回源缓存: {(symbol,interval): (ts, bars)}
+
+
 def klines(symbol="BTCUSDT", interval="15m", limit=300):
-    """真实K线 (parquet) → [{t,o,h,l,c,v}]"""
-    if symbol not in ("BTCUSDT", "ETHUSDT"):
-        symbol = "BTCUSDT"
+    """真实K线 → [{t,o,h,l,c,v}]
+    BTC/ETH 走本地 parquet (秒级回读); 其他标的 REST 回源 Bybit + 60s 缓存 (P1 全标的)"""
+    symbol = (symbol or "").upper()
     if interval not in KLINE_IVS:
         interval = "15m"
-    rows = _q(f"""SELECT ts, open, high, low, close, volume
-        FROM read_parquet('{config.DATA}/kline_{interval}/year=*/month=*/*.parquet')
-        WHERE symbol = '{symbol}' ORDER BY ts DESC LIMIT {int(limit)}""")
-    rows.reverse()
-    bars = [{"t": int(r[0].timestamp() * 1000), "o": r[1], "h": r[2],
-             "l": r[3], "c": r[4], "v": r[5]} for r in rows]
-    return {"symbol": symbol, "interval": interval, "bars": bars}
+    limit = max(1, min(int(limit), 500))
+    if symbol in ("BTCUSDT", "ETHUSDT"):
+        rows = _q(f"""SELECT ts, open, high, low, close, volume
+            FROM read_parquet('{config.DATA}/kline_{interval}/year=*/month=*/*.parquet')
+            WHERE symbol = '{symbol}' ORDER BY ts DESC LIMIT {limit}""")
+        rows.reverse()
+        bars = [{"t": int(r[0].timestamp() * 1000), "o": r[1], "h": r[2],
+                 "l": r[3], "c": r[4], "v": r[5]} for r in rows]
+        return {"symbol": symbol, "interval": interval, "bars": bars}
+    # ---- 其他标的: Bybit v5 REST kline, TTL 60s ----
+    key = (symbol, interval)
+    now = time.time()
+    hit = _KLINE_CACHE.get(key)
+    if hit and now - hit[0] < 60:
+        return {"symbol": symbol, "interval": interval,
+                "bars": hit[1][-limit:], "cached": True}
+    try:
+        import urllib.request
+        iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
+              "D": "D", "W": "W", "M": "M"}.get(interval, "15")
+        url = (f"https://api.bybit.com/v5/market/kline?category=linear"
+               f"&symbol={symbol}&interval={iv}&limit=200")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode())
+        lst = (d.get("result") or {}).get("list") or []
+        bars = [{"t": int(it[0]), "o": float(it[1]), "h": float(it[2]),
+                 "l": float(it[3]), "c": float(it[4]), "v": float(it[5])}
+                for it in lst]
+        bars.reverse()
+        _KLINE_CACHE[key] = (now, bars)
+        return {"symbol": symbol, "interval": interval, "bars": bars[-limit:]}
+    except Exception as e:
+        # 回源失败: 用旧缓存兜底
+        if hit:
+            return {"symbol": symbol, "interval": interval,
+                    "bars": hit[1][-limit:], "cached": True}
+        return {"symbol": symbol, "interval": interval, "bars": [], "error": str(e)[:80]}
 
 
 def _norm_paper(t, strat):

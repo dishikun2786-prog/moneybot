@@ -15,14 +15,14 @@ from collections import deque
 import websocket
 
 BASE = os.path.expanduser("~/polymarket")
-SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-TICKER_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
-KLINE_TOPICS = [f"kline.1.{s}" for s in SYMBOLS]
-BOOK_TOPICS = [f"orderbook.200.{s}" for s in SYMBOLS]
-TRADE_TOPICS = [f"publicTrade.{s}" for s in SYMBOLS]
-ALL_TOPICS = TICKER_TOPICS + KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
+# 深度/微结构标的 (盘口/K线/逐笔/墙/CVD 只对活跃套利标的, 保持 BTC/ETH)
+DEPTH_SYMS = ["BTCUSDT", "ETHUSDT"]
+KLINE_TOPICS = [f"kline.1.{s}" for s in DEPTH_SYMS]
+BOOK_TOPICS = [f"orderbook.200.{s}" for s in DEPTH_SYMS]
+TRADE_TOPICS = [f"publicTrade.{s}" for s in DEPTH_SYMS]
+ALL_TOPICS = KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
 SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
-SPOT_TOPICS = [f"tickers.{s}" for s in SYMBOLS]
+SPOT_DEPTH_TOPICS = [f"tickers.{s}" for s in DEPTH_SYMS]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
@@ -31,10 +31,41 @@ TRADES_LOG = f"{BASE}/logs/trades_1s.jsonl"
 MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
 WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
 BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
+INSTR_FILE = f"{BASE}/logs/bybit_instruments.json"
 STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01}   # 最细聚合档位
 BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0}       # 大单阈值(币)
 WALL_MULT = 8.0        # 墙: 单档size ≥ 同侧前20档均值×MULT
 WALL_SHARE = 0.25      # 或 ≥ 该侧总量×SHARE
+TICKER_CAP = int(os.environ.get("TICKER_CAP", "0"))  # 0=全部; N=按成交额只取前N (CPU降级)
+
+
+def load_ticker_syms():
+    """全标的 ticker 订阅清单 (目录缓存; 缺失时回退 BTC/ETH)"""
+    lin, spot = [], []
+    try:
+        with open(INSTR_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        lin = [r["symbol"] for r in d.get("linear", []) if not r.get("preListing")]
+        spot = [r["symbol"] for r in d.get("spot", [])]
+    except Exception as e:
+        print(f"[bridge] 目录缓存读取失败({e}), 回退 BTC/ETH", flush=True)
+        return list(DEPTH_SYMS), list(DEPTH_SYMS)
+    if TICKER_CAP:
+        lin = lin[:TICKER_CAP]
+    if not lin:
+        lin = list(DEPTH_SYMS)
+    print(f"[bridge] ticker订阅: linear={len(lin)} spot={len(spot)} (cap={TICKER_CAP or '全量'})",
+          flush=True)
+    return lin, spot
+
+
+TICKER_SYMS, SPOT_TICKER_SYMS = load_ticker_syms()
+
+
+def _batched_sub(ws, topics):
+    """Bybit WSS 每消息最多10个 topic, 分批订阅"""
+    for i in range(0, len(topics), 10):
+        ws.send(json.dumps({"op": "subscribe", "args": topics[i:i + 10]}))
 
 LOCK = threading.Lock()
 PRICES = {}
@@ -45,20 +76,21 @@ TEST_DONE = threading.Event()
 WS_REF = {"ws": None}
 # ---- 盘口/成交量状态 (M1) ----
 BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "gaps": n}}
-TRADES = {s: deque(maxlen=30) for s in SYMBOLS}   # 最近30笔逐笔
-AGGS = {s: deque(maxlen=60000) for s in SYMBOLS}  # (T_ms, side, v, p) 滚动窗口原始流
+TRADES = {s: deque(maxlen=30) for s in DEPTH_SYMS}   # 最近30笔逐笔
+AGGS = {s: deque(maxlen=60000) for s in DEPTH_SYMS}  # (T_ms, side, v, p) 滚动窗口原始流
 BIG = deque(maxlen=12)                            # 大单事件
 BIG_PEND = []                                     # 大单待落盘 (depth_loop冲刷)
 DEPTH_SAID = {"hello": False}
-CVDS = {s: {"day": "", "cum": 0.0} for s in SYMBOLS}   # 当日CVD滚动累计
-WALLS_PREV = {s: set() for s in SYMBOLS}               # 上一帧墙价位集合
-MICRO_HIST = {s: deque(maxlen=120) for s in SYMBOLS}   # 分钟级指标环 (t, price, cum_cvd, oi)
-MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in SYMBOLS}  # 本分钟累计
+CVDS = {s: {"day": "", "cum": 0.0} for s in DEPTH_SYMS}   # 当日CVD滚动累计
+WALLS_PREV = {s: set() for s in DEPTH_SYMS}               # 上一帧墙价位集合
+MICRO_HIST = {s: deque(maxlen=120) for s in DEPTH_SYMS}   # 分钟级指标环 (t, price, cum_cvd, oi)
+MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in DEPTH_SYMS}  # 本分钟累计
 
 
 def on_open(ws):
     WS_REF["ws"] = ws
     ws.send(json.dumps({"op": "subscribe", "args": ALL_TOPICS}))
+    _batched_sub(ws, [f"tickers.{s}" for s in TICKER_SYMS])
     with LOCK:
         SNAP["connected_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -88,7 +120,7 @@ def on_msg(ws, m):
             if t.get("openInterestValue"):
                 upd["oi_val"] = float(t["openInterestValue"])
             PRICES[sym].update(upd)
-            SNAP.update(ts=int(time.time() * 1000), lag_ms=lag, prices=dict(PRICES))
+            LAST_LAG["ms"] = lag
             N_TICKS["n"] += 1
     elif topic.startswith("kline."):
         sym = topic.split(".")[2]
@@ -98,7 +130,6 @@ def on_msg(ws, m):
         _on_book(d)
     elif topic.startswith("publicTrade."):
         _on_trade(d)
-    _write_snap()
 
 
 # ---- 盘口深度: 快照+增量按u序列重组 (乱序丢弃, 缺口重订阅) ----
@@ -195,7 +226,7 @@ def depth_loop():
         ts_s = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         with LOCK:
             books_out, trades_out, aggs_out, big_out = {}, {}, {}, list(BIG)
-            for sym in SYMBOLS:
+            for sym in DEPTH_SYMS:
                 b = BOOKS.get(sym)
                 if b and b["snap"]:
                     books_out[sym] = {
@@ -203,7 +234,7 @@ def depth_loop():
                         "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
                 trades_out[sym] = list(TRADES[sym])
             walls_out = {}
-            for sym in SYMBOLS:
+            for sym in DEPTH_SYMS:
                 b = BOOKS.get(sym)
                 if not b or not b["snap"]:
                     continue
@@ -223,7 +254,7 @@ def depth_loop():
                                            "price": float(p)})
                 WALLS_PREV[sym] = cur
             # 本秒 CVD 与分钟缓冲
-            for sym in SYMBOLS:
+            for sym in DEPTH_SYMS:
                 q = AGGS[sym]
                 while q and now - q[0][0] > 300000:
                     q.popleft()
@@ -255,7 +286,7 @@ def depth_loop():
             micro_out = {}
             cur_min = ts_s[:16]
             if last_min and cur_min != last_min:
-                for sym in SYMBOLS:
+                for sym in DEPTH_SYMS:
                     mb = MICRO_BUF[sym]
                     px = PRICES.get(sym, {})
                     rec = {"ts": last_min + ":00", "sym": sym,
@@ -268,7 +299,7 @@ def depth_loop():
                     MICRO_HIST[sym].append((last_min, rec["last"], rec["cum_cvd"], rec["oi"]))
                     MICRO_BUF[sym] = {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0}
             last_min = cur_min
-            for sym in SYMBOLS:
+            for sym in DEPTH_SYMS:
                 micro_out[sym] = {"hist": [list(x) for x in MICRO_HIST[sym]],
                                   "oi": PRICES.get(sym, {}).get("oi"),
                                   "oi_val": PRICES.get(sym, {}).get("oi_val")}
@@ -296,13 +327,21 @@ def _append_log(path, rec):
         print(f"[bridge] 日志写入失败 {path}: {e}", flush=True)
 
 
-def _write_snap():
-    with LOCK:
-        payload = json.dumps(SNAP, ensure_ascii=False)
-    tmp = SNAP_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(payload)
-    os.replace(tmp, SNAP_FILE)
+LAST_LAG = {"ms": None}
+
+
+def snap_loop():
+    """500ms 节流: 全量 PRICES → SNAP → 原子写快照 (1500标的每秒2次, 不再逐消息写)"""
+    while True:
+        time.sleep(0.5)
+        with LOCK:
+            SNAP.update(ts=int(time.time() * 1000), lag_ms=LAST_LAG["ms"],
+                        prices=dict(PRICES))
+            payload = json.dumps(SNAP, ensure_ascii=False)
+        tmp = SNAP_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(payload)
+        os.replace(tmp, SNAP_FILE)
 
 
 # ---- 现货行情通道 (carry页实时基差需要现货价) ----
@@ -311,7 +350,8 @@ SPOT_SAID = {"hello": False}
 
 
 def spot_on_open(ws):
-    ws.send(json.dumps({"op": "subscribe", "args": SPOT_TOPICS}))
+    ws.send(json.dumps({"op": "subscribe", "args": SPOT_DEPTH_TOPICS}))
+    _batched_sub(ws, [f"tickers.{s}" for s in SPOT_TICKER_SYMS])
     print("[bridge] spot通道已连接+订阅", flush=True)
 
 
@@ -330,8 +370,6 @@ def spot_on_msg(ws, m):
         if not SPOT_SAID["hello"]:
             SPOT_SAID["hello"] = True
             print("[bridge] spot首条行情到达", flush=True)
-        SNAP.update(ts=int(time.time() * 1000), prices=dict(PRICES))
-    _write_snap()
 
 
 def spot_loop():
@@ -370,8 +408,9 @@ def persist_loop():
         if not ts or ts == last_sec:
             continue
         last_sec = ts
+        px = snap.get("prices") or {}
         rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "lag_ms": snap["lag_ms"],
-               "prices": snap["prices"]}
+               "prices": {s: px[s] for s in DEPTH_SYMS if s in px}}
         with open(PRICE_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
@@ -382,7 +421,9 @@ def state_loop():
         time.sleep(5)
         with LOCK:
             st = {"alive": N_TICKS["n"] > 0, "ticks": N_TICKS["n"], "lag_ms": SNAP["lag_ms"],
-                  "symbols": sorted(PRICES), "snap_ts": SNAP["ts"],
+                  "symbols": sorted(PRICES), "n_symbols": len(PRICES),
+                  "ticker_syms": len(TICKER_SYMS), "spot_syms": len(SPOT_TICKER_SYMS),
+                  "snap_ts": SNAP["ts"],
                   "connected_at": SNAP.get("connected_at"), "now": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         tmp = STATE_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -406,6 +447,7 @@ def main():
     args = ap.parse_args()
     threading.Thread(target=persist_loop, daemon=True).start()
     threading.Thread(target=state_loop, daemon=True).start()
+    threading.Thread(target=snap_loop, daemon=True).start()
     threading.Thread(target=spot_loop, daemon=True).start()
     threading.Thread(target=depth_loop, daemon=True).start()
     if args.test:

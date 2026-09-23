@@ -101,6 +101,15 @@ select.input{appearance:none}
 .market-item .pr{text-align:right;font-family:var(--mono);font-size:13px}
 .market-item .chg{width:60px;text-align:center;font-size:11px;font-weight:700;padding:4px 0;border-radius:6px;font-family:var(--mono)}
 .chg.up{background:var(--up-soft)}.chg.down{background:var(--down-soft)}
+.tabs{display:flex;gap:4px;margin:8px 0 6px}
+.tabs button{flex:1;border:none;background:var(--surface-2);color:var(--text-2);border-radius:8px;padding:8px 0;font-size:12px;font-weight:600;font-family:var(--sans);cursor:pointer}
+.tabs button.on{background:var(--accent);color:#1a1200}
+.sortrow{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.mini{border:none;background:var(--surface-2);color:var(--text-2);border-radius:6px;padding:4px 10px;font-size:11px;font-family:var(--sans);cursor:pointer}
+.mini.on{background:var(--up-soft);color:var(--up);font-weight:700}
+.favbtn{font-size:15px;padding:0 6px;flex:none;color:var(--text-3);cursor:pointer}
+.searchrow{display:flex;gap:6px;align-items:center}
+.searchrow .input{min-height:38px;padding:8px 11px;font-size:13px}
 .sym-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .sym-head .l{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .sym-head .l .n{font-size:17px;font-weight:700}
@@ -238,7 +247,21 @@ select.input{appearance:none}
 
     <!-- ===== 行情 ===== -->
     <section class="screen" id="screen-markets">
-      <div class="card" style="padding:8px" id="ticker-list"><div class="dim small" style="padding:8px">加载行情中…</div></div>
+      <div class="card" style="padding:8px">
+        <div class="searchrow"><input class="input" id="mk-search" placeholder="🔍 搜索币种（名称 / 代码）" oninput="MKQ=this.value;MKCUR=0;renderTickers()"></div>
+        <div class="tabs" id="mk-tabs">
+          <button data-tab="fav" onclick="setMkTab('fav')">⭐ 自选</button>
+          <button data-tab="linear" onclick="setMkTab('linear')">合约</button>
+          <button data-tab="spot" onclick="setMkTab('spot')">现货</button>
+          <button data-tab="all" class="on" onclick="setMkTab('all')">全部</button>
+        </div>
+        <div class="sortrow">
+          <button id="mk-sort-chg" class="mini on" onclick="setMkSort('chg')">24h涨跌</button>
+          <button id="mk-sort-vol" class="mini" onclick="setMkSort('vol')">成交额</button>
+          <span class="xs muted" id="mk-count" style="margin-left:auto"></span>
+        </div>
+        <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="dim small" style="padding:8px">加载行情中…</div></div>
+      </div>
       <div class="card" style="padding:8px">
         <div class="ct" style="padding:4px 4px 8px">预测市场（Polymarket）<span class="xs muted">按模型价差排序</span></div>
         <div id="pm-top-list"></div>
@@ -571,14 +594,18 @@ async function doLogout(){
 }
 /* ============ 实时行情 (SSE) ============ */
 var PRICES={};
-function priceOf(sym){var p=PRICES[sym]||{};return {last:Number(p.last)||0,spot:Number(p.spot)||0,chg:Number(p.change_pct)||0}}
+function priceOf(sym){var p=PRICES[sym]||{};return {last:Number(p.last)||0,spot:Number(p.spot)||0,chg:Number(p.change_pct)||0,turn:Number(p.turnover24h)||0}}
 function startPrices(){
   try{
-    var es=new EventSource('/api/stream/prices');
+    var es=new EventSource('/api/stream/prices?diff=1');
     es.onmessage=function(ev){
       try{
         var d=JSON.parse(ev.data);
-        if(d&&d.prices)PRICES=d.prices;
+        if(d&&d.prices){
+          if(d.full){PRICES=d.prices}
+          else{for(var k in d.prices){PRICES[k]=d.prices[k]}}
+          if(Object.keys(PRICES).length>4500){var pr={},n=0;for(var k2 in PRICES){pr[k2]=PRICES[k2];if(++n>=3500)break}PRICES=pr}
+        }
         applyPrices();
       }catch(e){}
     };
@@ -593,19 +620,86 @@ function applyPrices(){
   if(now-lastPxRender>1500)renderOb();
   lastPxRender=now;
 }
-/* ============ 行情屏 ============ */
+/* ============ 行情屏 (P1 全标的: 搜索/分类/排序/虚拟滚动/自选) ============ */
 var PM_ROWS=[];
-var SYMS=[['BTCUSDT','比特币','₿'],['ETHUSDT','以太坊','Ξ']];
+var INSTR={linear:[],spot:[]};
+var MKTAB='all',MKSORT='chg',MKQ='',MKCUR=0,MKPAGE=60;
+var MKFAV={};
+try{MKFAV=JSON.parse(localStorage.getItem('mb_favs')||'{}')}catch(e){MKFAV={}}
+function saveFav(){try{localStorage.setItem('mb_favs',JSON.stringify(MKFAV))}catch(e){}}
+function toggleFav(sym){MKFAV[sym]=!MKFAV[sym];saveFav();renderTickers()}
+function setMkTab(t){MKTAB=t;MKCUR=0;
+  var bs=document.querySelectorAll('#mk-tabs button');
+  for(var i=0;i<bs.length;i++){bs[i].className=bs[i].getAttribute('data-tab')===t?'on':''}
+  renderTickers();
+}
+function setMkSort(s){MKSORT=s;MKCUR=0;
+  id('mk-sort-chg').className='mini'+(s==='chg'?' on':'');
+  id('mk-sort-vol').className='mini'+(s==='vol'?' on':'');
+  renderTickers();
+}
+function mkRows(){
+  var rows=[],seen={};
+  for(var i=0;i<INSTR.linear.length;i++){
+    var it=INSTR.linear[i];
+    seen[it.symbol]=1;
+    rows.push({sym:it.symbol,cat:'linear',name:it.name||it.base||it.symbol,turn:it.turnover24h||0});
+  }
+  for(var j=0;j<INSTR.spot.length;j++){
+    var s2=INSTR.spot[j];
+    if(seen[s2.symbol])continue;
+    rows.push({sym:s2.symbol,cat:'spot',name:s2.name||s2.base||s2.symbol,turn:s2.turnover24h||0});
+  }
+  var q=MKQ.trim().toUpperCase(),out=[];
+  for(var k=0;k<rows.length;k++){
+    var r=rows[k];
+    if(MKTAB==='linear'&&r.cat!=='linear')continue;
+    if(MKTAB==='spot'&&r.cat!=='spot')continue;
+    if(MKTAB==='fav'&&!MKFAV[r.sym])continue;
+    if(q&&r.sym.indexOf(q)<0&&(r.name||'').toUpperCase().indexOf(q)<0)continue;
+    out.push(r);
+  }
+  if(MKSORT==='chg')out.sort(function(a,b){return Math.abs(priceOf(b.sym).chg)-Math.abs(priceOf(a.sym).chg)});
+  else out.sort(function(a,b){return b.turn-a.turn});
+  return out;
+}
+function mkTap(sym,cat){
+  if(cat==='spot'){
+    var hasPerp=false;
+    for(var i=0;i<INSTR.linear.length;i++){if(INSTR.linear[i].symbol===sym){hasPerp=true;break}}
+    if(!hasPerp){toast(sym+' 暂只支持现货行情');return}
+  }
+  setTradeSym(sym);go('trade');
+}
+function mkScroll(){
+  var el=id('ticker-list');
+  if(!el)return;
+  if(el.scrollTop+el.clientHeight>=el.scrollHeight-220)MKCUR+=MKPAGE;
+  else if(el.scrollTop<=120)MKCUR=Math.max(0,MKCUR-MKPAGE);
+  else return;
+  renderTickers();
+}
 function renderTickers(){
+  var rows=mkRows();
+  id('mk-count').textContent=rows.length+' 标的';
+  if(!rows.length){
+    id('ticker-list').innerHTML='<div class="dim small" style="padding:8px">'+(MKTAB==='fav'?'暂无自选：点任意币种行右侧 ☆ 添加':'无匹配标的')+'</div>';
+    return;
+  }
+  var start=Math.min(MKCUR,Math.max(0,rows.length-MKPAGE));
+  var end=Math.min(start+MKPAGE,rows.length);
   var list='';
-  for(var i=0;i<SYMS.length;i++){
-    var sym=SYMS[i][0],p=priceOf(sym);
-    var px=p.last,chg=p.chg;
-    var up=chg>=0;
-    list+='<div class="market-item" onclick="setTradeSym(\''+sym+'\')">'
-      +'<div class="mk" style="background:'+(i===0?'#f7931a22;color:#f7931a':'#627eea22;color:#8ea5f8')+'">'+SYMS[i][2]+'</div>'
-      +'<div class="nm"><div class="t">'+sym+' <span class="xs muted">永续</span></div><div class="s">'+SYMS[i][1]+' · 现货 '+(p.spot?fmtPx(p.spot):'—')+'</div></div>'
-      +'<div class="pr">'+(px?fmtPx(px):'—')+'</div><div class="chg '+(up?'up':'down')+'">'+(up?'+':'')+num(chg,2)+'%</div></div>';
+  for(var i=start;i<end;i++){
+    var r=rows[i],p=priceOf(r.sym);
+    var px=r.cat==='linear'?p.last:p.spot,chg=p.chg;
+    var up=chg>=0,isFav=!!MKFAV[r.sym];
+    var coin=(r.name||r.sym).charAt(0).toUpperCase();
+    var hue=(r.sym.charCodeAt(1)*7+(r.sym.charCodeAt(r.sym.length-1)||0))%360;
+    list+='<div class="market-item" onclick="mkTap(\''+r.sym+'\',\''+r.cat+'\')">'
+      +'<div class="mk" style="background:hsl('+hue+',55%,90%);color:hsl('+hue+',50%,32%)">'+coin+'</div>'
+      +'<div class="nm"><div class="t">'+r.sym+' <span class="xs muted">'+(r.cat==='linear'?'永续':'现货')+'</span></div><div class="s">'+esc(r.name)+'</div></div>'
+      +'<div class="favbtn" onclick="event.stopPropagation();toggleFav(\''+r.sym+'\')">'+(isFav?'⭐':'☆')+'</div>'
+      +'<div class="pr">'+(px?fmtPx(px):'—')+'</div><div class="chg '+(up?'up':'down')+'" style="width:64px">'+(up?'+':'')+num(chg,2)+'%</div></div>';
   }
   id('ticker-list').innerHTML=list;
   var pml='';
@@ -620,8 +714,12 @@ function renderTickers(){
 }
 async function loadMarkets(){
   renderTickers();
-  var r=await api('/api/markets?sort=edge');
-  if(r.data&&r.data.rows){PM_ROWS=r.data.rows;renderTickers()}
+  try{
+    var r=await api('/api/instruments');
+    if(r.data){INSTR={linear:r.data.linear||[],spot:r.data.spot||[]};renderTickers()}
+  }catch(e){}
+  var m=await api('/api/markets?sort=edge');
+  if(m.data&&m.data.rows){PM_ROWS=m.data.rows;renderTickers()}
 }
 /* ============ PM 屏 ============ */
 var pmSide='BUY';
@@ -694,15 +792,18 @@ var KL_IV='15m';
 function setTradeSym(sym){
   tradeSym=sym;
   id('t-sym').textContent=sym;
-  id('t-sub').textContent='永续 · '+(sym==='BTCUSDT'?'比特币':'以太坊');
+  var nm='';
+  for(var i=0;i<INSTR.linear.length;i++){if(INSTR.linear[i].symbol===sym){nm=INSTR.linear[i].name;break}}
+  id('t-sub').textContent='永续'+(nm?' · '+nm:'');
   go('trade');
+  loadKline();
 }
 function renderTradePx(){
   var p=priceOf(tradeSym);
   if(!p.last){return}
   var up=p.chg>=0;
   var el=id('t-px');el.textContent=fmtPx(p.last);el.className='p '+(up?'up':'down');
-  var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'% · 现货 '+fmtPx(p.spot);c.className='c '+(up?'up':'down');
+  var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'%'+(p.spot?' · 现货 '+fmtPx(p.spot):'');c.className='c '+(up?'up':'down');
 }
 function swTab(b){
   var bt=document.querySelectorAll('#trade-tabs button');
@@ -758,6 +859,12 @@ function renderOb(){
   if(curScreen!=='trade')return;
   var book=(DEPTH[tradeSym]||{});
   var bids=(book.bids||[]).slice(0,8),asks=(book.asks||[]).slice(0,8);
+  if(!bids.length&&!asks.length){
+    id('ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">该标的实时盘口即将上线（按需订阅开发中）<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>';
+    id('ob-bids').innerHTML='';
+    id('ob-mid').textContent=priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—';
+    return;
+  }
   var i,sumA=0,sumB=0,html='';
   var maxA=0,maxB=0;
   for(i=0;i<asks.length;i++)maxA=Math.max(maxA,Number(asks[i][1])||0);

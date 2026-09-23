@@ -398,23 +398,49 @@ async def api_mode_set(request: Request, su=Depends(require_session_user)):
         return engine_mode.set_mode(str(body.get("strategy", "")), str(body.get("mode", "")))
 
 
+def _price_delta(prices, seen):
+    """SSE diff 核心: 返回 {changed_sym: payload} 并更新 seen (每标的按 ts 去重)"""
+    delta = {s: v for s, v in prices.items() if (v.get("ts") or 0) != seen.get(s)}
+    if delta:
+        seen.update({s: (v.get("ts") or 0) for s, v in delta.items()})
+    return delta
+
+
 @app.get("/api/stream/prices")
 async def stream_prices(request: Request, __=Depends(require_session)):
-    """SSE: Bybit 实时价格推送 (数据源 = bybit_ws_bridge 原子快照, 300ms 轮读)"""
+    """SSE: Bybit 实时价格推送 (数据源 = bybit_ws_bridge 原子快照)
+    默认全量模式(桌面端): 快照ts变化即推送完整 prices
+    ?diff=1 增量模式(移动端): 仅推送有变化的标的, 客户端合并 (首帧 full)"""
     import asyncio
     SNAP = os.path.expanduser("~/polymarket/logs/bybit_prices.json")
+    diff_mode = request.query_params.get("diff") == "1"
 
     async def gen():
         last_ts = None
         last_send = time.time()
+        seen = {}  # diff模式: 每标的已推 ts
+        sent_full = False
         while True:
             if await request.is_disconnected():
                 break
             try:
                 with open(SNAP, encoding="utf-8") as f:
                     data = json.loads(f.read())
-                if data.get("ts") != last_ts:
-                    last_ts = data["ts"]
+                snap_ts = data.get("ts")
+                if diff_mode:
+                    prices = data.get("prices") or {}
+                    if not sent_full:
+                        seen = {s: (v.get("ts") or 0) for s, v in prices.items()}
+                        sent_full = True
+                        yield f"data: {json.dumps({'ts': snap_ts, 'prices': prices, 'full': True}, ensure_ascii=False)}\n\n"
+                        last_send = time.time()
+                    else:
+                        delta = _price_delta(prices, seen)
+                        if delta:
+                            yield f"data: {json.dumps({'ts': snap_ts, 'prices': delta, 'delta': True}, ensure_ascii=False)}\n\n"
+                            last_send = time.time()
+                elif snap_ts != last_ts:
+                    last_ts = snap_ts
                     last_send = time.time()
                     yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
             except Exception:
@@ -426,6 +452,19 @@ async def stream_prices(request: Request, __=Depends(require_session)):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/instruments")
+def api_instruments(__=Depends(require_session)):
+    """Bybit 全标的目录 (P1): {linear:[{symbol,name,turnover24h,tickSize,qtyStep,...}], spot:[...]}"""
+    try:
+        with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),
+                  encoding="utf-8") as f:
+            d = json.load(f)
+        return {"ok": True, "linear": d.get("linear", []), "spot": d.get("spot", []),
+                "ts": d.get("ts")}
+    except Exception:
+        return {"ok": True, "linear": [], "spot": [], "ts": None}
 
 
 @app.get("/api/stream/depth")
