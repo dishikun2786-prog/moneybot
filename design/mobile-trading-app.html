@@ -254,6 +254,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   <button class="nav" data-s="register" onclick="go('register')">📝 注册（密码+验证码）</button>
   <div class="grp">用户端</div>
   <button class="nav" data-s="markets" onclick="go('markets')">📈 行情列表</button>
+  <button class="nav" data-s="pm" onclick="go('pm')">🔮 预测市场（PM）</button>
   <button class="nav" data-s="trade" onclick="go('trade')">⚡ 交易主界面</button>
   <button class="nav" data-s="assets" onclick="go('assets')">💰 资产总览</button>
   <button class="nav" data-s="profile" onclick="go('profile')">👤 我的（用户中心）</button>
@@ -342,13 +343,65 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
           <div class="pr">148.22</div><div class="chg up">+0.87%</div>
         </div>
       </div>
+      <div class="card" style="padding:8px">
+        <div class="ct" style="padding:4px 4px 8px">预测市场（Polymarket） <span class="xs muted">YES/NO 二元市场</span></div>
+        <div class="market-item" onclick="go('pm')">
+          <div class="mk" style="background:#1c7ed622;color:#4dabf7">₿</div>
+          <div class="nm"><div class="t">BTC 年底破 $100,000？</div><div class="s">YES 67¢ · NO 35¢ · 99天结算</div></div>
+          <div class="pr up">67¢</div><div class="chg up">+3¢</div>
+        </div>
+        <div class="market-item" onclick="go('pm')">
+          <div class="mk" style="background:#627eea22;color:#8ea5f8">Ξ</div>
+          <div class="nm"><div class="t">ETH 年底破 $5,000？</div><div class="s">YES 41¢ · NO 61¢ · 99天结算</div></div>
+          <div class="pr down">41¢</div><div class="chg down">-2¢</div>
+        </div>
+      </div>
       <div class="sectip"><div class="i">💡</div><div class="t"><b>白话说明：</b>这里是行情列表，点任意币种进入交易界面。「永续」=没有到期日的合约，可做多（看涨）也可做空（看跌）。资金费率是多空双方每8小时互付的利息。</div></div>
+    </section>
+
+    <!-- ===== 预测市场 ===== -->
+    <section class="screen" id="screen-pm">
+      <div class="row" style="margin-bottom:10px"><b style="font-size:15px">预测市场对冲</b><span class="badge gray">Polymarket CLOB</span></div>
+      <div class="card" style="padding:8px">
+        <div class="ct" style="padding:4px 4px 8px">市场列表 <span class="xs muted">价格单位：美分¢</span></div>
+        <div class="market-item" onclick="toast('演示：进入市场详情')">
+          <div class="mk" style="background:#1c7ed622;color:#4dabf7">₿</div>
+          <div class="nm"><div class="t">BTC 年底破 $100,000？</div><div class="s">YES 67¢ / NO 35¢ · 交易量 $1.2M</div></div>
+          <div style="text-align:right"><div class="mono" style="font-size:13px;color:var(--up)">67¢</div><div class="xs muted">YES 买方报价</div></div>
+        </div>
+        <div class="market-item" onclick="toast('演示：进入市场详情')">
+          <div class="mk" style="background:#627eea22;color:#8ea5f8">Ξ</div>
+          <div class="nm"><div class="t">ETH 年底破 $5,000？</div><div class="s">YES 41¢ / NO 61¢ · 交易量 $860K</div></div>
+          <div style="text-align:right"><div class="mono" style="font-size:13px;color:var(--down)">41¢</div><div class="xs muted">YES 买方报价</div></div>
+        </div>
+      </div>
+      <div class="card ticket">
+        <div class="ct">下单 · BTC &gt;$100,000 <span class="xs muted">1¢ = $0.01</span></div>
+        <div class="seg" style="margin-bottom:10px">
+          <button class="on">买入 YES</button><button>买入 NO</button>
+        </div>
+        <div class="trow"><span class="k">价格（美分，0.01-0.99）</span><span class="v mono">67¢ = $0.67</span></div>
+        <div class="trow"><span class="k">数量（股）</span><span class="v mono">15.0</span></div>
+        <div class="trow"><span class="k">订单类型</span><span class="v mono">GTC（挂单有效）</span></div>
+        <div class="trow"><span class="k">预计成本</span><span class="v mono">$10.05</span></div>
+        <div class="trow"><span class="k">费率</span><span class="v">taker 0.07%×p×(1-p) · <span class="up">maker 负费率=返佣</span></span></div>
+        <button class="btn buy" onclick="toast('演示：YES 买单已提交（GTC·EIP-712签名）')">买入 YES · $10.05</button>
+      </div>
+      <div class="card pos-card long">
+        <div class="phead"><div><span class="badge green">持仓</span> <b style="font-size:13px">BTC &gt;$100,000 · YES</b><div class="xs muted" style="margin-top:3px">15 股 · 均价 64¢ · 结算价 $1 或 $0</div></div>
+          <div style="text-align:right"><div class="mono" style="font-size:15px;font-weight:700" id="pm-upnl">+$0.45</div><div class="xs muted">未实现盈亏</div></div></div>
+        <div class="row">
+          <button class="btn outline" style="width:48%" onclick="toast('演示：限价卖出 68¢ 挂单已提交')">限价卖出</button>
+          <button class="btn sell" style="width:48%" onclick="toast('演示：市价卖出已确认（二次确认后成交）')">市价卖出</button>
+        </div>
+      </div>
+      <div class="sectip"><div class="i">🎲</div><div class="t"><b>白话说明：</b>预测市场只有两种结果——对了结算为 <b>$1</b>，错了为 <b>$0</b>。价格即概率：YES 67¢ = 市场认为发生概率 67%。买 YES=押发生；买 NO=押不发生。对冲逻辑：与 BTC 现货/合约仓位反向布局，锁定价差。</div></div>
     </section>
 
     <!-- ===== 交易主界面 ===== -->
     <section class="screen" id="screen-trade">
       <div class="sym-head">
-        <div class="l"><div class="n">BTCUSDT</div><span class="sub">永续 · 比特币</span><span class="badge yellow">托管模式</span></div>
+        <div class="l"><div class="n">BTCUSDT</div><span class="sub">永续 · 比特币</span><span class="badge yellow">托管模式</span><span class="badge green">资金费率 +0.010%</span></div>
         <div class="r"><div class="p up">86,432.5</div><div class="c up">+1,976.5 (+2.34%)</div></div>
       </div>
       <div class="seg" style="margin-bottom:10px" id="trade-tabs">
@@ -373,17 +426,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
             <button id="dir-buy" class="on-buy" onclick="setDir('buy')">开多（看涨）</button>
             <button id="dir-sell" onclick="setDir('sell')">开空（看跌）</button>
           </div>
-          <div class="trow"><span class="k">价格 (USDT)</span><span class="v">86,432.5</span></div>
-          <div class="trow"><span class="k">数量</span><span class="v">0.0100 BTC ≈ 864.33 USDT</span></div>
+          <div class="seg" style="margin-bottom:10px" id="otype">
+            <button class="on" onclick="swSeg(this)">限价单</button>
+            <button onclick="swSeg(this)">市价单</button>
+          </div>
+          <div class="trow"><span class="k">价格 (USDT) · 最小变动 0.1</span><span class="v">86,432.5</span></div>
+          <div class="trow"><span class="k">数量 (BTC) · 步长 0.001</span><span class="v">0.0100</span></div>
           <div class="amount-grid">
             <button onclick="toast('已填入 25%')">25%</button><button onclick="toast('已填入 50%')">50%</button>
             <button onclick="toast('已填入 75%')">75%</button><button onclick="toast('已填入 100%')">100%</button>
           </div>
-          <div class="tpsl">
-            <div class="field"><label>止盈</label><input class="input mono" value="87,800"></div>
-            <div class="field"><label>止损</label><input class="input mono" value="85,600"></div>
+          <div class="trow" style="margin-bottom:6px"><span class="k">杠杆（保证金模式）</span><span class="v xs muted">UTA 统一账户 · 全仓</span></div>
+          <div class="seg" style="margin-bottom:10px" id="lev">
+            <button class="on" onclick="swSeg(this)">2x</button>
+            <button onclick="swSeg(this)">5x</button>
+            <button onclick="swSeg(this)">10x</button>
+            <button onclick="swSeg(this)">20x</button>
           </div>
-          <button class="btn buy" id="order-btn" onclick="placeOrder()">买入 / 开多 · 保证金 $20</button>
+          <div class="tpsl">
+            <div class="field"><label>止盈（触发价）</label><input class="input mono" value="87,800"></div>
+            <div class="field"><label>止损（触发价）</label><input class="input mono" value="85,600"></div>
+          </div>
+          <label style="display:flex;gap:7px;align-items:center;margin:4px 0 10px;cursor:pointer;font-size:11px;color:var(--text-2)">
+            <input type="checkbox"> 只减仓（reduceOnly）· 平仓/降仓时防止反向加仓
+          </label>
+          <div class="trow" style="margin-bottom:8px"><span class="k">费率</span><span class="v">taker 0.055% · maker 0.02%</span></div>
+          <button class="btn buy" id="order-btn" onclick="placeOrder(this)">买入 / 开多 · 保证金 $20 (5x)</button>
         </div>
       </div>
       <div class="tabbody" id="tab-ob">
@@ -468,26 +536,55 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
     <!-- ===== 密钥绑定 ===== -->
     <section class="screen" id="screen-keys">
       <div class="card keycard">
-        <div class="khead"><div class="t"><span style="font-size:16px">🟧</span> Bybit 密钥</div><span class="badge gray">未绑定</span></div>
-        <div class="field"><label>API Key</label>
-          <div class="pwdwrap"><input class="input mono" id="bybit-key" placeholder="从 Bybit 官网创建 API Key" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+        <div class="khead"><div class="t"><span style="font-size:16px">🟧</span> Bybit 密钥</div><span class="badge green">已绑定 · 2026-09-20</span></div>
+        <div class="row" style="padding:5px 0"><span class="dim xs">API Key（掩码）</span><span class="mono xs">3pO9••••••••aQ2</span></div>
+        <div class="row" style="padding:5px 0"><span class="dim xs">权限</span><span class="xs">现货交易 ✓ · 合约交易 ✓ · 提现 ✗</span></div>
+        <div class="row" style="padding:5px 0"><span class="dim xs">上次连通性测试</span><span class="xs up">通过 · 余额 1,240.5 USDT（统一账户）</span></div>
+        <div class="row" style="margin-top:10px;gap:8px">
+          <button class="btn outline" onclick="testKey('Bybit')">重新测试</button>
+          <button class="btn outline" style="color:var(--down)" onclick="toast('演示：已解绑，平台交易权已撤销（审计留痕）')">解绑</button>
         </div>
-        <div class="field"><label>API Secret</label>
-          <div class="pwdwrap"><input class="input mono" type="password" placeholder="仅用于服务端签名，不回传展示" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
-          <div class="hint">Secret 提交后即 AES-256-GCM 加密存储，任何人（含管理员）都无法再次查看明文</div>
-        </div>
-        <button class="btn outline" onclick="testKey('Bybit')">🔌 连通性测试（余额/权限校验）</button>
         <div id="key-test-result" style="display:none;margin-top:8px"></div>
       </div>
       <div class="card keycard">
-        <div class="khead"><div class="t"><span style="font-size:16px">🟦</span> Polymarket 钱包</div><span class="badge gray">未绑定</span></div>
-        <div class="field"><label>钱包私钥 / Relayer Key</label>
-          <div class="pwdwrap"><input class="input mono" type="password" placeholder="支持 CLOB 交易的钱包密钥" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
-          <div class="hint">PM 部分国家/地区受限，请确认所在地合规后再绑定</div>
+        <div class="khead"><div class="t"><span style="font-size:16px">🟧</span> 绑定新 Bybit 密钥</div></div>
+        <div class="sectip"><div class="i">⚠️</div><div class="t"><b>创建密钥时的三个关键点：</b>① Secret <b>仅显示一次</b>，请先妥善保存；② 权限需同时勾选「<b>现货交易</b>」+「<b>合约交易</b>」（本平台套利策略两个都用）；③ 若开启 IP 白名单，请添加服务器 IP：<b class="mono">34.253.194.97</b>，否则 API 拒绝连接。</div></div>
+        <div class="field"><label>API Key</label>
+          <div class="pwdwrap"><input class="input mono" placeholder="从 Bybit 官网创建（建议子账户·只交易权限）" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
         </div>
-        <button class="btn outline" onclick="testKey('Polymarket')">🔌 连通性测试</button>
+        <div class="field"><label>API Secret</label>
+          <div class="pwdwrap"><input class="input mono" type="password" placeholder="仅用于服务端签名" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+          <div class="hint">AES-256-GCM 加密存储；不写入日志；不返回明文；不走浏览器 localStorage</div>
+        </div>
+        <button class="btn accent" onclick="testKey('Bybit')">🔌 连通性测试（五项校验）</button>
       </div>
-      <div class="sectip"><div class="i">🔒</div><div class="t"><b>白话说明：</b>① 绑定后先做「连通性测试」——确认密钥有效、有余额、权限正确；② 实盘有独立风控：单笔上限、日亏熔断、交易对白名单；③ 建议先在 Bybit 开通「只交易」权限的子账户密钥。</div></div>
+      <div class="card keycard">
+        <div class="khead"><div class="t"><span style="font-size:16px">🟦</span> Polymarket 钱包</div><span class="badge gray">未绑定</span></div>
+        <div class="seg" style="margin-bottom:10px" id="pm-bind">
+          <button class="on" onclick="pmBind(0)">钱包签名连接</button>
+          <button onclick="pmBind(1)">一次性私钥导入</button>
+          <button onclick="pmBind(2)">Relayer Key</button>
+        </div>
+        <div id="pm-bind-0">
+          <div class="sectip"><div class="i">✅</div><div class="t"><b>推荐方式</b>：浏览器钱包签名授权，<b>私钥不出你的设备</b>。平台只保存派生的交易凭证（只能交易，不能提现）。</div></div>
+          <button class="btn accent" onclick="testKey('Polymarket')">连接钱包并授权（L1 签名 → 派生交易凭证）</button>
+        </div>
+        <div id="pm-bind-1" style="display:none">
+          <div class="sectip"><div class="i">⚠️</div><div class="t"><b>一次性模式</b>：粘贴钱包私钥 → 服务端立即派生交易凭证 → <b>私钥随即丢弃不存储</b>。owner 私钥=资金控制权限，请仅在自己信任的环境操作。</div></div>
+          <div class="field"><label>钱包私钥（一次性）</label>
+            <div class="pwdwrap"><input class="input mono" type="password" placeholder="0x...（用完即弃）" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+          </div>
+          <button class="btn accent" onclick="testKey('Polymarket')">导入并派生（私钥即弃）</button>
+        </div>
+        <div id="pm-bind-2" style="display:none">
+          <div class="sectip"><div class="i">💡</div><div class="t">在 Polymarket「设置 → Relayer API Keys」创建：得到 <b>Signer 地址 + API 密钥（UUID）</b>，用于免 gas 交易。</div></div>
+          <div class="field"><label>Signer 地址</label><input class="input mono" placeholder="0x..."></div>
+          <div class="field"><label>Relayer API Key</label><input class="input mono" placeholder="UUIDv7 格式"></div>
+          <button class="btn accent" onclick="testKey('Polymarket')">保存并测试</button>
+        </div>
+        <div class="hint" style="margin-top:8px">连通性测试将检查：钱包地址 · 链（Polygon/Base）· <b>USDC 余额</b> · <b>交易所授权(allowance)</b> · 地理可用性。PM 部分国家/地区受限（如美/加/澳等前端受限），爱尔兰等 API 不受限。</div>
+      </div>
+      <div class="sectip"><div class="i">🔒</div><div class="t"><b>白话说明：</b>① 绑定后先做「连通性测试」，全项通过才能开实盘；② Bybit 建议开通「只交易」权限的<b>子账户</b>密钥（隔离风险）；③ 解绑 = 撤销平台交易权，你的资金始终只在你自己的交易所/链上账户里；④ 实盘有独立风控：单笔上限、日亏熔断、交易对白名单。</div></div>
     </section>
 
     <!-- ===== 管理后台 ===== -->
@@ -562,8 +659,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 <script>
 /* ============ 屏幕路由 ============ */
 var curScreen = 'guide';
-var SCREENS = ['login','register','markets','trade','assets','profile','keys','admin'];
-var TITLES = {login:'交易室',register:'创建账户',markets:'行情',trade:'BTCUSDT',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台'};
+var SCREENS = ['login','register','markets','pm','trade','assets','profile','keys','admin'];
+var TITLES = {login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'BTCUSDT',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台'};
 function go(s){
   if(curScreen===s){return}
   curScreen = s;
@@ -581,10 +678,11 @@ var HELPS = {
   login:'<h3>💡 登录页怎么用</h3><p><b>账号+密码+图形验证码</b>三重验证。验证码看不清就点图片换一张。<br>连续输错 5 次账号会锁定 15 分钟（防暴力破解）。<br>「忘记密码」通过注册邮箱找回。还没有账号？点下方注册，<b>注册即送 $100 模拟资金</b>。</p>',
   register:'<h3>💡 注册页怎么用</h3><p>① 设置账号和密码（8位以上、含字母+数字）<br>② 填邮箱用于找回密码<br>③ 输入图形验证码（防机器人）<br>④ 勾选同意服务条款与风险声明<br>完成后自动登录并发放 <b>$100 模拟资金</b>，先用模拟账户熟悉交易，再考虑实盘。</p>',
   markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对的<b>最新价和 24h 涨跌幅</b>（绿涨红跌）。<br>点击任意币种进入交易界面。<br>「永续」= 没有到期日的合约，既可以<b>做多</b>（押涨）也可以<b>做空</b>（押跌）。<br>资金费率：多空双方每 8 小时互付一次利息，是本平台套利策略的核心收益来源。</p>',
-  trade:'<h3>💡 交易页怎么用</h3><p>顶部是<b>实时价格与涨跌幅</b>。<br><b>K线</b>看走势 · <b>盘口</b>看买卖挂单 · <b>持仓</b>看现有仓位。<br>下单区：先选「开多看涨」或「开空看跌」，设好止盈止损，点买入/卖出。<br>持仓卡可「止盈止损」「切换手动/托管」「平仓」（平仓有二次确认）。<br>⚠️ 手动模式由你自己决策；托管模式由策略自动开平仓。</p>',
+  pm:'<h3>💡 预测市场怎么用</h3><p>市场只有两种结果：<b>对了结算 $1，错了结算 $0</b>。<br>价格即概率：YES 67¢ = 市场认为发生概率 67%。<br><b>买 YES</b>=押发生；<b>买 NO</b>=押不发生。<br>价格单位是<b>美分</b>（0.01-0.99），数量单位是<b>股</b>。<br>对冲用法：与 BTC/ETH 的现货/合约仓位反向布局，锁定价差。<br>maker 挂单有<b>返佣</b>（负费率），被动成交更省。</p>',
+  trade:'<h3>💡 交易页怎么用</h3><p>顶部是<b>实时价格</b>与<b>资金费率</b>（本平台套利策略的核心收益来源）。<br><b>K线</b>看走势 · <b>盘口</b>看买卖挂单 · <b>持仓</b>看现有仓位。<br>下单区：① 选开多/开空 ② 限价或市价 ③ 价格与数量必须符合精度（0.1 / 0.001）④ 选杠杆 ⑤ 设止盈止损（触发价）⑥ 平仓/降仓勾「只减仓」防反向加仓。<br>⚠️ 下单按钮提交中会短暂锁定，防止重复下单。</p>',
   assets:'<h3>💡 资产页怎么用</h3><p><b>总资产</b> = 持仓市值 + 可用资金。<br><b>今日盈亏曲线</b>看当天赚亏走势。<br><b>资产分布</b>列出各策略占用资金与可用保证金。<br>模拟账户资金与真实资金完全隔离，可放心练习。</p>',
   profile:'<h3>💡 我的页怎么用</h3><p><b>API 密钥绑定</b>：开启实盘的入口（绑定你自己的 Bybit/Polymarket 密钥）。<br><b>实盘模式设置</b>：风控限额、交易对白名单。<br><b>订阅与套餐</b>：升级/续费。<br><b>新手教程</b>：3 分钟学会对冲套利。<br>管理员账号额外可见「管理后台」入口。</p>',
-  keys:'<h3>💡 密钥绑定怎么用</h3><p>① 到 Bybit 官网创建 API Key（建议开「只交易」权限的子账户密钥）<br>② 填入 Key 和 Secret → 点<b>连通性测试</b>：系统校验密钥有效、余额、权限<br>③ 测试通过后才可开启实盘<br>Secret 提交即加密存储（AES-256-GCM），<b>任何人包括管理员都无法再查看明文</b>。实盘有独立风控：单笔上限、日亏熔断、白名单。</p>',
+  keys:'<h3>💡 密钥绑定怎么用</h3><p><b>Bybit</b>：① 到官网创建 API Key（建议子账户·只交易权限）② Secret <b>仅显示一次</b> ③ 权限需同时勾「现货交易」+「合约交易」④ 开了 IP 白名单就添加服务器 IP：<span class="mono">34.253.194.97</span><br>提交后点<b>连通性测试</b>（五项校验），全过才能开实盘；失败会显示中文原因（余额不足/只读密钥/IP 不在白名单等）。<br><b>Polymarket</b>：推荐<b>钱包签名连接</b>——私钥不出设备，平台只存派生交易凭证（不可提现）。<br>密钥 AES-256 加密存储，任何人（含管理员）都无法再查看明文；解绑即撤销平台交易权。</p>',
   admin:'<h3>💡 管理后台怎么用</h3><p><b>统计面板</b>：注册数/活跃/收入/实盘转化。<br><b>用户管理</b>：点击用户进入详情，可设风控限额、禁用/启用、重置密码。<br><b>密钥管理</b>：只显示绑定状态，支持强制解绑。<br><b>审计日志</b>：所有管理操作留痕（谁、何时、做了什么）。<br>平台运营要点：模拟免费获客 → 专业版订阅 → 实盘版变现。</p>'
 };
 function openSheet(k){
@@ -649,9 +747,25 @@ function swTab(b){
   document.querySelectorAll('.tabbody').forEach(function(x){x.classList.remove('on')});
   document.getElementById('tab-'+b.dataset.t).classList.add('on');
 }
-function placeOrder(){
-  toast(side==='buy'?'开多委托已成交（演示）':'开空委托已成交（演示）');
-  swTab(document.querySelector('#trade-tabs button[data-t=pos]'));
+function placeOrder(btn){
+  btn.disabled = true; btn.textContent = '提交中…（防重复点击）';
+  setTimeout(function(){
+    btn.disabled = false;
+    btn.textContent = (side==='buy'?'买入 / 开多 · 保证金 $20 (5x)':'卖出 / 开空 · 保证金 $20 (5x)');
+    toast(side==='buy'?'开多委托已成交（演示）':'开空委托已成交（演示）');
+    swTab(document.querySelector('#trade-tabs button[data-t=pos]'));
+  }, 800);
+}
+function swSeg(b){
+  var p = b.parentElement;
+  for(var i=0;i<p.children.length;i++){p.children[i].classList.remove('on')}
+  b.classList.add('on');
+}
+function pmBind(i){
+  for(var k=0;k<3;k++){
+    var el=document.getElementById('pm-bind-'+k);
+    if(el){el.style.display = k===i?'block':'none'}
+  }
 }
 function closePos(btn){
   if(!btn.dataset.confirm){btn.dataset.confirm='1';btn.textContent='确认平仓?';btn.style.background='#8a1c2c';return}
@@ -662,10 +776,15 @@ function closePos(btn){
 function testKey(v){
   var r=document.getElementById('key-test-result');
   r.style.display='block';
-  r.innerHTML='<div class="sectip"><div class="i">⏳</div><div class="t">正在校验 '+v+' 密钥…（余额/权限/签名测试）</div></div>';
+  var items = v==='Bybit'
+    ? ['账户类型：UTA 统一账户','余额：1,240.5 USDT','现货交易权限','合约交易权限','IP 白名单（34.253.194.97）']
+    : ['钱包地址：0xB1ae•••29F6','链：Base ✓','USDC 余额：5.02','交易所授权 allowance：已授权','地理可用性：不受限'];
+  r.innerHTML='<div class="sectip"><div class="i">⏳</div><div class="t">正在校验 '+v+' 五项…</div></div>';
   setTimeout(function(){
-    r.innerHTML='<div class="sectip"><div class="i">✅</div><div class="t"><b>连通性测试通过</b>：密钥有效 · 账户余额充足 · 交易权限正常。可开启实盘模式。</div></div>';
-    toast(v+' 密钥绑定成功（演示）');
+    var lis='';
+    for(var i=0;i<items.length;i++){lis+='<div class="row" style="padding:3px 0"><span class="xs dim">'+items[i]+'</span><span class="xs up">✓</span></div>'}
+    r.innerHTML='<div class="sectip"><div class="i">✅</div><div class="t"><b>五项校验全部通过</b>：'+lis+'可开启实盘模式（失败时这里会显示中文原因，如「IP 不在白名单」「余额不足」「只读密钥」）。</div></div>';
+    toast(v+' 连通性测试通过（演示）');
   },900);
 }
 /* ============ Toast ============ */
