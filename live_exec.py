@@ -417,17 +417,14 @@ def _pm_resolve_token(body):
 
 
 def pm_market_order(uid, body):
-    """P4 PM 原生市价吃单: {token_id 或 key, side(BUY/SELL), amount_usd}
-    实时 best_ask/best_bid 限价即时成交 (FOK); 兜底按金额/0.5 中间价估算"""
+    """P4/R12 PM 原生市价吃单: {token_id 或 key+outcome(YES/NO), side(BUY/SELL), shares 或 amount_usd}
+    实时 best_ask/best_bid 限价即时成交 (FOK); 股数优先 (PM 原生按股数交易)"""
     side = str(body.get("side", "")).upper()
     if side not in ("BUY", "SELL"):
         return {"ok": False, "error": "方向须 BUY/SELL"}
-    try:
-        amount = float(body.get("amount_usd") or 0)
-    except Exception:
-        return {"ok": False, "error": "金额非法"}
-    if amount < MIN_ORDER_USDT:
-        return {"ok": False, "error": f"金额须 ≥ ${MIN_ORDER_USDT}"}
+    outcome = str(body.get("outcome", "")).upper()
+    if side == "BUY" and not body.get("token_id") and outcome not in ("YES", "NO"):
+        return {"ok": False, "error": "买入须指定 outcome=YES/NO"}
     tok = _pm_resolve_token(body)
     if not tok:
         return {"ok": False, "error": "无法解析 token (市场不在实时目录, 用完整 token_id 下单)"}
@@ -437,10 +434,23 @@ def pm_market_order(uid, body):
     price = float(q["ask"] if side == "BUY" else q["bid"])
     if not (0.001 <= price <= 0.999):
         return {"ok": False, "error": "实时价异常: " + str(price)}
-    size = round(amount / price, 2)
+    # R12: 股数优先; amount_usd 兼容换算
+    try:
+        if body.get("shares") is not None:
+            size = round(float(body["shares"]), 2)
+        else:
+            amount = float(body.get("amount_usd") or 0)
+            if amount < MIN_ORDER_USDT:
+                return {"ok": False, "error": f"金额须 ≥ ${MIN_ORDER_USDT}"}
+            size = round(amount / price, 2)
+    except Exception:
+        return {"ok": False, "error": "数量非法"}
     if size < 1:
-        return {"ok": False, "error": "金额过小 (股数<1)"}
-    ok, err = _gate(uid, "pm", amount)
+        return {"ok": False, "error": "数量过小 (股数<1)"}
+    if size > 500:
+        return {"ok": False, "error": "单笔股数上限 500"}
+    notional = round(size * price, 2)
+    ok, err = _gate(uid, "pm", max(notional, 1.0))
     if not ok:
         return {"ok": False, "error": err}
     s = keys.get_secrets(uid, "pm")
@@ -454,10 +464,11 @@ def pm_market_order(uid, body):
     oid = d.get("orderID") or d.get("id")
     _append(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                   "venue": "pm", "action": f"market_{side}", "token_id": tok, "price": price,
-                  "size": size, "notional": amount, "order_id": oid, "order_type": "FOK"})
+                  "size": size, "notional": notional, "order_id": oid, "order_type": "FOK",
+                  "outcome": outcome})
     users.audit_log(uid, "live_order", f"PM市场单 {side} {tok[:16]} {size}@{price} → {oid}")
-    return {"ok": True, "msg": f"已市价{('买入' if side == 'BUY' else '卖出')} {size}股 @{price}¢ → {oid}",
-            "order_id": oid, "price": price, "size": size}
+    return {"ok": True, "msg": f"已市价{('买入' if side == 'BUY' else '卖出')} {size}股 @{price*100:.1f}¢ → {oid}",
+            "order_id": oid, "price": price, "size": size, "notional": notional}
 
 
 

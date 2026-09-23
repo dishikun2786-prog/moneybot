@@ -58,6 +58,14 @@ var TEST = [
   "check('openSymDetail', typeof openSymDetail === 'function');",
   "check('loadSpotCard', typeof loadSpotCard === 'function');",
   "check('klStart', typeof klStart === 'function');",
+  "check('setPmOutcome', typeof setPmOutcome === 'function');",
+  "check('pmPreview', typeof pmPreview === 'function');",
+  "check('pmSellFill', typeof pmSellFill === 'function');",
+  "check('pmRt', typeof pmRt === 'function');",
+  "check('pmOpenGo', typeof pmOpenGo === 'function');",
+  "check('confirmPmOpen', typeof confirmPmOpen === 'function');",
+  "try{ var _pv = pmPreview({ask:0.62}, 10); check('pmPreview买入预览', _pv.indexOf('成本')>=0 && _pv.indexOf('潜在回报')>=0, _pv); }catch(e){ check('pmPreview买入预览', false, e); }",
+  "try{ pmSide='SELL'; PM_MY_POS={shares:7}; var _pv2 = pmPreview({bid:0.60}, 3); check('pmPreview卖出预览', _pv2.indexOf('持有')>=0 && _pv2.indexOf('回款')>=0 && _pv2.indexOf('1.80')>=0, _pv2); }catch(e){ check('pmPreview卖出预览', false, e); }",
   "console.log('\\\\nSMOKE: '+__ok.filter(Boolean).length+'/'+__ok.length+' OK');",
   "process.exit(__ok.every(Boolean)?0:1);"
 ].join("\\n");

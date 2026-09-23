@@ -327,11 +327,19 @@ def pnl_overview():
     capital = round(INITIAL_CAPITAL + realized_total + unreal, 2)
     positions = []
     for key, p in (pm_st.get("positions") or {}).items():
+        sh = p.get("shares")
+        if sh:
+            note = f"{sh:g}股 · 成本${float(p.get('cost_usd', 0)):.2f}"
+            if p.get("outcome"):
+                note += f" · {p['outcome']}"
+        else:
+            note = f"{p.get('size_usd', 0):.0f}$名义"
         positions.append({"strat": _STRAT_ZH.get("PM桶对冲", "预测市场对冲"),
                           "key": zh_market(*key.split("|", 1))[:40],
                           "key_orig": key,
                           "side": _SIDE_ZH.get(p["side"], p["side"]),
-                          "entry": p.get("entry"), "note": f"{p.get('size_usd', 0):.0f}$名义"})
+                          "entry": p.get("entry"), "note": note,
+                          "shares": sh, "outcome": p.get("outcome", "")})
     for sym, p in (cy_st.get("positions") or {}).items():
         sym_zh = "比特币" if sym == "BTCUSDT" else "以太坊"
         d = p.get("dir", "fwd")

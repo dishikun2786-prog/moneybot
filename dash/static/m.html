@@ -213,6 +213,15 @@ select.input{appearance:none}
 .livebar.live{border-color:rgba(246,70,93,.5);background:var(--down-soft)}
 .livebar.live .dot{background:var(--down)}
 .livebar button{margin-left:auto;border:1px solid var(--border-2);background:none;color:var(--text-2);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;font-family:var(--sans)}
+/* R12 PM 原生交易样式 */
+.yesno-row{display:flex;gap:8px;margin-bottom:10px}
+.yesno-row button{flex:1;border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-m);padding:10px 8px;cursor:pointer;color:var(--text-2);font-family:var(--sans);transition:all var(--t-fast) var(--ease)}
+.yesno-row button b{font-size:14px;display:block}
+.yesno-row button span{font-size:11px}
+.yesno-row button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.preview{display:flex;gap:6px;margin:4px 0 8px}
+.preview>div{flex:1;background:var(--surface-2);border-radius:var(--r-s);padding:8px 6px;text-align:center}
+.preview b{display:block;font-size:13px;margin-top:2px}
 /* R11 P2: 搜索清除按钮 + 市场选择弹层 */
 .searchwrap{position:relative}
 .searchwrap .clearx{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;background:var(--surface-3);color:var(--text-2);border:none;font-size:11px;line-height:24px;text-align:center;padding:0;cursor:pointer}
@@ -327,20 +336,23 @@ select.input{appearance:none}
         <div id="pm-load-hint" class="xs muted" style="display:none;padding:6px 2px">⏳ 加载市场中…</div>
       </div>
       <div class="card ticket">
-        <div class="ct">下单 <span class="xs muted">模型价 vs 盘口价 · 自主判断</span></div>
+        <div class="ct">下单 <span class="xs muted">对了结算 $1/股 · 错了 $0</span></div>
         <div class="field"><label>市场</label>
           <select class="input" id="pm-key" style="display:none"></select>
           <button class="input selbtn" id="pm-key-btn" onclick="openPmPicker()" style="width:100%;text-align:left;font-size:13px;min-height:38px">— 点击选择市场 —</button>
         </div>
         <div class="dirrow">
-          <button id="pm-buy" class="on-buy" onclick="setPmSide('BUY')">买入 YES/NO</button>
+          <button id="pm-buy" class="on-buy" onclick="setPmSide('BUY')">买入</button>
           <button id="pm-sell" onclick="setPmSide('SELL')">卖出</button>
         </div>
-        <div class="trow"><span class="k">盘口价（美分）</span><span class="v" id="pm-px">—</span></div>
-        <div class="trow"><span class="k">名义金额 ($)</span><span class="v" id="pm-cost">—</span></div>
-        <div class="trow gaprow"><span class="k">金额</span><input type="number" id="pm-size" value="5" min="1" max="50" step="1" style="width:90px" title="名义($)"></div>
+        <div class="yesno-row" id="pm-yesno-row" style="display:none">
+          <button id="pm-yes" onclick="setPmOutcome('YES')"><b>YES</b><span id="pm-yes-px" class="mono">—¢</span></button>
+          <button id="pm-no" onclick="setPmOutcome('NO')"><b>NO</b><span id="pm-no-px" class="mono">—¢</span></button>
+        </div>
+        <div class="trow gaprow"><span class="k" id="pm-qty-label">份额数量</span><input type="number" id="pm-shares" value="10" min="1" max="500" step="1" style="width:90px" oninput="updPmHint()"></div>
+        <div id="pm-preview"></div>
         <div class="dim xs" id="pm-hint" style="margin-bottom:8px"></div>
-        <button class="btn buy" id="pm-order-btn" onclick="confirmPmOpen()">开仓</button>
+        <button class="btn buy" id="pm-order-btn" onclick="confirmPmOpen()">买入下单</button>
       </div>
       <div id="pm-pos-list"></div>
       <div class="sectip"><div class="i">🎲</div><div class="t"><b>白话：</b>对了结算 <b>$1</b>，错了 <b>$0</b>。价格即概率：YES 67¢=市场认为概率 67%。买 YES=押发生，买 NO=押不发生。与币圈仓位反向布局=对冲锁价差。</div></div>
@@ -1060,9 +1072,39 @@ function setPmSide(s){
   id('pm-sell').className=s==='SELL'?'on-sell':'';
   var b=id('pm-order-btn');
   b.className=s==='BUY'?'btn buy':'btn sell';
-  b.textContent=s==='BUY'?'买入开仓':'卖出开仓';
+  b.textContent=s==='BUY'?'买入下单':'卖出下单';
+  id('pm-yesno-row').style.display=s==='BUY'?'':'none';
+  id('pm-qty-label').textContent=s==='BUY'?'份额数量':'卖出数量';
   updPmHint();
 }
+function setPmOutcome(o){
+  PM_OUTCOME=o;
+  id('pm-yes').className=o==='YES'?'on':'';
+  id('pm-no').className=o==='NO'?'on':'';
+  updPmHint();
+}
+function pmPreview(rt,sh){
+  if(pmSide==='BUY'){
+    var ask=rt?rt.ask:null;
+    if(ask==null)return '';
+    var cost=sh*ask;
+    var pot=sh-cost;
+    return '<div class="preview">'
+      +'<div><span class="xs muted">成本</span><b class="mono">$'+cost.toFixed(2)+'</b></div>'
+      +'<div><span class="xs muted">潜在回报</span><b class="mono up">$'+pot.toFixed(2)+'</b></div>'
+      +'<div><span class="xs muted">份额价</span><b class="mono">'+(ask*100).toFixed(1)+'¢</b></div></div>';
+  }else{
+    var bid=rt?rt.bid:null;
+    var held=PM_MY_POS?PM_MY_POS.shares:0;
+    if(bid==null)return '';
+    var proceeds=Math.min(sh,held||0)*bid;
+    return '<div class="preview">'
+      +'<div><span class="xs muted">持有</span><b class="mono">'+(held||0)+' 股</b></div>'
+      +'<div><span class="xs muted">回款</span><b class="mono">$'+proceeds.toFixed(2)+'</b></div>'
+      +'<div><span class="xs muted">卖价</span><b class="mono">'+(bid*100).toFixed(1)+'¢</b></div></div>';
+  }
+}
+var PM_MY_POS=null;
 /* P4: PM 实时行情 (CLOB WS → SSE diff) */
 var PM_PX={};
 var PM_TOKENS=[];
@@ -1103,12 +1145,13 @@ async function loadPmMks(reset){
     for(var i=0;i<toks.length;i++){
       var t=toks[i];
       PM_TOKENS.push(t);
-      if(!PM_TOKS_BYKEY[t.key])PM_TOKS_BYKEY[t.key]=[];
+      if(!PM_TOKS_BYKEY[t.key])PM_TOKS_BYKEY[t.key]={YES:[],NO:[]};
       if(!PM_MKS_BYKEY[t.key]){
         var mk={key:t.key,title:t.title,question:t.question,tzh:t.title_zh||'',qzh:t.question_zh||'',cat:t.cat||'other',ev_vol:t.ev_vol||0,mk_vol:t.mk_vol||0,mk_chg:t.mk_chg||0,toks:[]};
         PM_MKS_BYKEY[t.key]=mk;PM_MKS.push(mk);
       }else{PM_MKS_BYKEY[t.key].mk_vol=Math.max(PM_MKS_BYKEY[t.key].mk_vol,t.mk_vol||0)}
-      if(PM_TOKS_BYKEY[t.key].indexOf(t.token)<0)PM_TOKS_BYKEY[t.key].push(t.token);
+      var oc=String(t.outcome||'').toUpperCase()==='NO'?'NO':'YES';
+      if(PM_TOKS_BYKEY[t.key][oc].indexOf(t.token)<0)PM_TOKS_BYKEY[t.key][oc].push(t.token);
       if(PM_MKS_BYKEY[t.key].toks.indexOf(t.token)<0)PM_MKS_BYKEY[t.key].toks.push(t.token);
     }
     PM_OFFSET+=toks.length;
@@ -1121,8 +1164,9 @@ async function loadPmMks(reset){
   id('pm-load-hint').style.display='none';
   if(id('pm-skel'))id('pm-skel').style.display='none';
 }
-function pmRt(key){
-  var ts=PM_TOKS_BYKEY[key]||[];
+function pmRt(key,outcome){
+  var bk=PM_TOKS_BYKEY[key]||{};
+  var ts=outcome?(bk[outcome]||[]):((bk.YES||[]).concat(bk.NO||[]));
   var out=null;
   for(var i=0;i<ts.length;i++){
     var p=PM_PX[ts[i]];
@@ -1263,52 +1307,84 @@ async function loadPmScreen(){
 }
 function updPmHint(){
   var sel=id('pm-key');if(!sel)return;
-  var m=PM_ROWS.find(function(x){return (x.event+'|'+x.market)===sel.value});
-  if(!m){return}
-  var rt=pmRt(sel.value);
-  var px=pmSide==='BUY'?(rt?rt.ask:Number(m.best_ask||0)):(rt?rt.bid:Number(m.best_bid||0));
-  var sz=Number(id('pm-size').value)||0;
-  id('pm-px').textContent=px?px.toFixed(3)+'¢':'—';
-  id('pm-cost').textContent=px?'$'+(px*sz).toFixed(2):'—';
+  var key=PM_KEY_VAL||sel.value;
+  if(!key){return}
+  var sh=Number(id('pm-shares').value)||0;
+  var oc=pmSide==='BUY'?PM_OUTCOME:'';
+  var rt=pmRt(key,oc);
+  var rtY=pmRt(key,'YES'),rtN=pmRt(key,'NO');
+  if(id('pm-yes-px'))id('pm-yes-px').textContent=rtY?((rtY.ask*100).toFixed(1)+'¢'):'—¢';
+  if(id('pm-no-px'))id('pm-no-px').textContent=rtN?((rtN.ask*100).toFixed(1)+'¢'):'—¢';
+  id('pm-preview').innerHTML=pmPreview(rt,sh);
+  var m=PM_ROWS.find(function(x){return (x.event+'|'+x.market)===key});
   var rtBadge=rt?'<span class="badge green">实时</span> ':'<span class="badge gray">分钟快照</span> ';
-  id('pm-hint').innerHTML=rtBadge+'买一 '+num(rt?rt.bid:m.best_bid,3)+' / 卖一 '+num(rt?rt.ask:m.best_ask,3)
-    +'¢ · 模型价 <b class="accent">'+num(m.model_p,3)+'</b> · 价差 买'+num(m.edge_buy_c,1)+'¢/卖'+num(m.edge_sell_c,1)+'¢';
+  id('pm-hint').innerHTML=rtBadge+'买一 '+num(rt?rt.bid:0,3)+' / 卖一 '+num(rt?rt.ask:0,3)
+    +'¢'+(m?' · 模型价 <b class="accent">'+num(m.model_p,3)+'</b>':'');
 }
 function confirmPmOpen(){
-  var sel=id('pm-key');
-  if(!sel||!sel.value){toast('请选择市场');return}
-  if(pmSide!=='BUY'){toast('卖出需先持有该市场仓位（平仓请点持仓卡片按钮）');return}
-  var sz=Number(id('pm-size').value)||0;
-  if(sz<1||sz>50){toast('金额 1-50$');return}
+  var key=PM_KEY_VAL||(id('pm-key')?id('pm-key').value:'');
+  if(!key){toast('请选择市场');return}
+  if(pmSide==='BUY'&&!PM_OUTCOME){toast('请选择 YES 或 NO');return}
+  var sh=Number(id('pm-shares').value)||0;
+  if(sh<1||sh>500){toast('股数须 1-500 股');return}
   var live=LIVE.on;
-  var rt=pmRt(sel.value);
-  var pxTxt=rt?('实时 '+(pmSide==='BUY'?rt.ask:rt.bid).toFixed(3)+'¢'):'盘口价';
-  openSheet('<h3>🔮 '+(live?'🔴 实盘':'纸面')+' PM 原生买入</h3><p>市场：<b>'+esc(sel.value.split('|')[0])+'</b><br>方向：<b>买入</b> · 名义 <b>$'+sz+'</b>（'+pxTxt+(live?' 市价吃单 FOK':'')+'）<br>'+(live?'将真实下单到 Polymarket CLOB！':'模拟资金，无真实风险')+'</p>'
-    +'<button class="btn buy" id="cf-yes" onclick="pmOpenGo()">确认开仓</button>');
+  var rt=pmRt(key,pmSide==='BUY'?PM_OUTCOME:'');
+  var px=pmSide==='BUY'?(rt?rt.ask:null):(rt?rt.bid:null);
+  if(!px){toast('暂无该方向盘口价');return}
+  var cost=pmSide==='BUY'?sh*px:null;
+  openSheet('<h3>🔮 '+(live?'🔴 实盘':'纸面')+' PM 原生'+(pmSide==='BUY'?'买入':'卖出')+'</h3>'
+    +'<p>市场：<b>'+esc(key.split('|')[0])+'</b><br>'
+    +(pmSide==='BUY'
+      ?'方向：<b>'+PM_OUTCOME+'</b> · 股数 <b>'+sh+'</b> · 成本 <b>$'+cost.toFixed(2)+'</b> · 潜在回报 <b>$'+(sh-cost).toFixed(2)+'</b>'
+      :'卖出 <b>'+sh+'</b> 股 · 预估回款 <b>$'+(sh*px).toFixed(2)+'</b>')
+    +(live?' · 市价吃单 FOK':'')+'<br>'+(live?'将真实下单到 Polymarket CLOB！':'模拟资金，无真实风险')+'</p>'
+    +'<button class="btn '+(pmSide==='BUY'?'buy':'sell')+'" id="cf-yes" onclick="pmOpenGo()">确认'+(pmSide==='BUY'?'买入':'卖出')+'</button>');
 }
 async function pmOpenGo(){
   closeSheet();
-  var key=id('pm-key').value,sz=Number(id('pm-size').value)||5;
+  var key=PM_KEY_VAL||(id('pm-key')?id('pm-key').value:'');
+  var sh=Number(id('pm-shares').value)||10;
+  var body={key:key,side:pmSide,shares:sh};
+  if(pmSide==='BUY')body.outcome=PM_OUTCOME;
   var r;
   if(LIVE.on){
-    r=await api('/api/pm/order/market',{method:'POST',body:JSON.stringify({key:key,side:'BUY',amount_usd:sz})});
+    r=await api('/api/pm/order/market',{method:'POST',body:JSON.stringify(body)});
   }else{
-    r=await api('/api/manual/trade',{method:'POST',body:JSON.stringify({action:'open_pm',key:key,side:'BUY',size_usd:sz})});
+    if(pmSide==='SELL'){
+      r=await api('/api/manual/trade',{method:'POST',body:JSON.stringify({action:'pm_sell_shares',key:key,shares:sh})});
+    }else{
+      r=await api('/api/manual/trade',{method:'POST',body:JSON.stringify(Object.assign({action:'open_pm'},body))});
+    }
   }
-  if(r.data&&r.data.ok){toast('✅ PM 开仓成功');loadPmPositions()}else{toast('❌ '+apiErr(r))}
+  if(r.data&&r.data.ok){toast('✅ PM '+(pmSide==='BUY'?'买入':'卖出')+'成功');loadPmPositions();PM_MY_POS=null;updPmHint()}else{toast('❌ '+apiErr(r))}
 }
 async function loadPmPositions(){
   var r=await api('/api/pnl');
   if(!r.data){return}
   var ps=(r.data.positions||[]).filter(function(p){return p.strat==='预测市场对冲'});
+  PM_POS_ALL=ps;
   var html='';
   for(var i=0;i<ps.length;i++){
     var p=ps[i];
-    html+='<div class="card pos-card long"><div class="phead"><div><span class="badge green">持仓</span> <b style="font-size:13px">'+esc(p.key)+'</b><div class="xs muted" style="margin-top:3px">'+esc(p.side||'')+' · '+esc(p.note||'')+' · 入场 '+esc(p.entry||'—')+'</div></div></div>'
-      +'<div class="pbtns"><button class="abtn bad" onclick="pmClose(\''+esc(p.key_orig||p.key)+'\')">平仓</button></div></div>';
+    html+='<div class="card pos-card long"><div class="phead"><div><span class="badge green">持仓</span> <b style="font-size:13px">'+esc(p.key)+'</b><div class="xs muted" style="margin-top:3px">'+esc(p.side||'')+(p.outcome?' · '+esc(p.outcome):'')+' · '+esc(p.note||'')+' · 入场 '+esc(p.entry||'—')+'</div></div></div>'
+      +'<div class="pbtns"><button class="abtn" onclick="pmSellFill(\''+esc(p.key_orig||p.key)+'\')">卖出</button><button class="abtn bad" onclick="pmClose(\''+esc(p.key_orig||p.key)+'\')">平仓</button></div></div>';
   }
   id('pm-pos-list').innerHTML=html||'<div class="dim small" style="padding:8px">暂无 PM 持仓</div>';
 }
+function pmSellFill(key){
+  PM_KEY_VAL=key;
+  var sel=id('pm-key');if(sel)sel.value=key;
+  var mk=PM_MKS_BYKEY[key];
+  var btn=id('pm-key-btn');
+  if(btn)btn.innerHTML='✓ '+(mk&&mk.tzh?mk.tzh:key.split('|')[1]);
+  var ps=PM_POS_ALL.find(function(x){return (x.key_orig||x.key)===key});
+  PM_MY_POS=ps||null;
+  setPmSide('SELL');
+  if(ps&&ps.shares)id('pm-shares').value=Math.min(ps.shares,500);
+  updPmHint();
+  document.querySelector('.ticket').scrollIntoView({behavior:'smooth',block:'start'});
+}
+var PM_POS_ALL=[];
 async function pmClose(key){
   openSheet('<h3>🔮 确认平仓</h3><p>按当前盘口价平掉该 PM 仓位，盈亏计入账户。确认？</p><button class="btn sell" onclick="pmCloseGo(\''+esc(key)+'\')">确认平仓</button>');
 }

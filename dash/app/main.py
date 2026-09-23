@@ -22,6 +22,7 @@ import bybit_live  # noqa: E402
 import pm_live  # noqa: E402
 import live_exec  # noqa: E402
 from . import funds  # noqa: E402
+from . import pm_admin  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -446,7 +447,7 @@ async def manual_trade(request: Request, su=Depends(require_session_user)):
     action = str(body.get("action", ""))
     if action not in ("open_hedge", "close_perp_leg", "close_orphan", "close_both",
                       "close_spot_to_naked", "close_naked", "edit_naked_tpsl", "close_pm",
-                      "open_pm", "open_naked"):
+                      "open_pm", "pm_sell_shares", "open_naked"):
         return JSONResponse({"ok": False, "error": f"未知动作: {action}"}, status_code=400)
     with tenants.tenant(su["u"]):
         return paper_ops.execute(action, body)
@@ -819,6 +820,42 @@ def _pm_zh():
     return _PM_ZH_CACHE["data"]
 
 
+@app.get("/api/admin/pm-markets")
+def api_pm_markets(request: Request, __=Depends(require_admin)):
+    """R12 P2: PM 标的列表 (搜索+状态过滤+分页)"""
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = max(10, min(int(request.query_params.get("limit") or 100), 500))
+    except Exception:
+        limit = 100
+    return {"ok": True,
+            **pm_admin.list_markets(request.query_params.get("q", ""),
+                                    request.query_params.get("state", ""),
+                                    offset, limit)}
+
+
+@app.post("/api/admin/pm-markets/set")
+async def api_pm_markets_set(request: Request, __=Depends(require_admin)):
+    """R12 P2: 批量上下线 {keys:[...], state:on/off, note}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "bad request"}
+    keys = body.get("keys") or []
+    if not isinstance(keys, list) or not keys or len(keys) > 500:
+        return {"ok": False, "error": "keys 须为 1-500 数组"}
+    state = str(body.get("state") or "")
+    try:
+        n = pm_admin.set_state([str(k) for k in keys], state,
+                               str(body.get("note") or "")[:100])
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "msg": f"已{'上线' if state == 'on' else '下线'} {n} 个标的", "n": n}
+
+
 @app.get("/api/pm/tokens")
 def api_pm_tokens(request: Request, __=Depends(require_session)):
     """P4 token→市场 映射, R8 懒加载: ?cat=&q=&offset=&limit= 服务端过滤分页
@@ -833,6 +870,10 @@ def api_pm_tokens(request: Request, __=Depends(require_session)):
         toks = _PM_TOK_CACHE["data"] or []
     except Exception:
         return {"ok": True, "tokens": [], "total": 0, "cats": {}}
+    # R12 P2: 过滤下线标的
+    off = pm_admin.off_keys()
+    if off:
+        toks = [t for t in toks if t.get("key") not in off]
     cat = (request.query_params.get("cat") or "").strip().lower()
     q = (request.query_params.get("q") or "").strip().lower()
     try:
@@ -875,6 +916,7 @@ def api_pm_tokens(request: Request, __=Depends(require_session)):
     for t in page:
         it = {"token": t["token"], "key": t["key"], "title": t.get("title", ""),
               "question": t.get("question", ""), "cat": t.get("cat", "other"),
+              "outcome": t.get("outcome", ""),
               "ev_vol": t.get("ev_vol", 0), "mk_chg": t.get("mk_chg", 0),
               "mk_vol": t.get("mk_vol", 0)}
         if zh:

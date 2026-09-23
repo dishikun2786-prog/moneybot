@@ -669,42 +669,67 @@ def edit_naked_tpsl(sym, tp, sl):
 
 
 
-def _pm_rt_px(key):
-    """PM 实时价 (pm_clob_ws 桥): key=event|market → {bid, ask, last} 或 None
-    优先 CLOB WS 实时价, 兜底 parquet 快照"""
+def _pm_rt_px(key, outcome=""):
+    """PM 实时价 (pm_clob_ws 桥): key=event|market → {bid, ask, last, token} 或 None
+    outcome=YES/NO 时只取对应 token (R12: YES/NO 是独立 token, 必须区分)
+    回退链: CLOB 实时 bid/ask → 引擎快照 (title|group 映射, 部分市场无实时盘口但引擎有抓)"""
     try:
         with open(_resolve("PM_TOKENS"), encoding="utf-8") as f:
             toks = json.load(f)
         with open(_resolve("PM_PX"), encoding="utf-8") as f:
             px = json.load(f).get("prices", {})
         cand = []
+        t0 = None
         for t in toks:
-            if t.get("key") == key:
-                p = px.get(t["token"])
-                if p:
-                    cand.append(p)
-        if cand:
-            bid = min(x["bid"] for x in cand if x.get("bid") is not None)
-            ask = max(x["ask"] for x in cand if x.get("ask") is not None)
-            last = next((x["last"] for x in cand if x.get("last") is not None), None)
-            return {"bid": bid, "ask": ask, "last": last}
+            if t.get("key") != key:
+                continue
+            if t0 is None:
+                t0 = t
+            if outcome and str(t.get("outcome", "")).upper() != outcome.upper():
+                continue
+            p = px.get(t["token"])
+            if p:
+                cand.append((t["token"], p))
+        bids = [x[1]["bid"] for x in cand if x[1].get("bid") is not None]
+        asks = [x[1]["ask"] for x in cand if x[1].get("ask") is not None]
+        if bids or asks:
+            bid = min(bids) if bids else (min(asks) if asks else None)
+            ask = max(asks) if asks else (max(bids) if bids else None)
+            last = next((x[1]["last"] for x in cand
+                         if x[1].get("last") not in (None, 0)), None)
+            return {"bid": bid, "ask": ask, "last": last, "token": cand[0][0]}
+        # 回退: 引擎快照 (event=title, market=group)
+        if t0:
+            title, group = t0.get("title", ""), t0.get("group", "")
+            if title and group:
+                from paper_engine import latest_snapshot
+                for r in latest_snapshot():
+                    if r.get("event") == title and r.get("market") == group:
+                        b = float(r.get("pm_bid") or 0)
+                        a = float(r.get("pm_ask") or 0)
+                        if b > 0 or a > 0:
+                            b = b or a
+                            a = a or b
+                            return {"bid": b, "ask": a, "last": b, "token": None,
+                                    "snap": True}
     except Exception:
         pass
     return None
 
 
-def open_pm(key, side, size_usd):
-    """PM 手动开仓 (点击时刻盘口快照定价)"""
-    try:
-        size = float(size_usd)
-    except Exception:
-        return {"ok": False, "error": "金额非法"}
-    if not (1 <= size <= 20):
-        return {"ok": False, "error": "金额须1-20$"}
+def open_pm(key, side, size_usd=None, outcome="", shares=None):
+    """PM 手动开仓 (点击时刻盘口快照定价)
+    R12: 股数优先 (PM 原生按股数交易); outcome=YES/NO 精确定位 token;
+    size_usd 向后兼容 → shares = size_usd / px"""
     if side not in ("BUY", "SELL"):
         return {"ok": False, "error": "方向须BUY/SELL"}
+    if side == "BUY" and not outcome:
+        return {"ok": False, "error": "买入须选择 YES 或 NO"}
+    outcome = str(outcome).upper()
+    if outcome and outcome not in ("YES", "NO"):
+        return {"ok": False, "error": "outcome 须 YES/NO"}
     from paper_engine import latest_snapshot, FEE_RATE
-    rt = _pm_rt_px(key)
+    rt = _pm_rt_px(key, outcome)
     src_tag = "实时盘口"
     if rt and rt.get("bid") is not None and rt.get("ask") is not None and rt["ask"] >= rt["bid"] > 0:
         bid, ask = rt["bid"], rt["ask"]
@@ -716,26 +741,56 @@ def open_pm(key, side, size_usd):
         bid, ask = float(snap.get("pm_bid", 0) or 0), float(snap.get("pm_ask", 0) or 0)
         src_tag = "分钟快照"
     px = ask if side == "BUY" else bid
-    if px <= 0:
-        return {"ok": False, "error": "盘口价格无效"}
+    if not (0.001 <= px <= 0.999):
+        return {"ok": False, "error": "盘口价格无效: " + str(px)}
+    # 股数解析: shares 优先; size_usd 兼容换算
+    try:
+        if shares is not None:
+            n_shares = float(shares)
+        elif size_usd is not None:
+            n_shares = round(float(size_usd) / px, 2)
+        else:
+            return {"ok": False, "error": "须给 shares 或 size_usd"}
+    except Exception:
+        return {"ok": False, "error": "数量非法"}
+    if not (1 <= n_shares <= 500):
+        return {"ok": False, "error": "股数须 1-500 股"}
+    cost = round(n_shares * px, 4)
     f = _lock()
     try:
         st = _read(_resolve("PAPER_STATE"), {})
         if key in (st.get("positions") or {}):
             return {"ok": False, "error": "该市场已有持仓, 先平仓"}
         st.setdefault("positions", {})[key] = {"side": side, "entry": px, "t0": time.time(),
-                                               "size_usd": size, "entry_fee_c": FEE_RATE,
+                                               "shares": n_shares, "cost_usd": cost,
+                                               "outcome": outcome or "",
+                                               "token": rt.get("token", "") if rt else "",
+                                               "entry_fee_c": FEE_RATE,
                                                "exit_fee_c": FEE_RATE}
-        fees = size * FEE_RATE / 100
+        fees = cost * FEE_RATE / 100
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
         _write(_resolve("PAPER_STATE"), st)
         _log_trade(_resolve("PAPER_TRADES"), dict(key=key, side=side, action="MANUAL_OPEN_PM",
-                                      entry=px, size_usd=size, entry_fee_c=FEE_RATE))
-        _audit("open_pm", key, {"side": side, "entry": px, "size": size, "src": src_tag})
+                                      entry=px, shares=n_shares, cost_usd=cost,
+                                      outcome=outcome, entry_fee_c=FEE_RATE))
+        _audit("open_pm", key, {"side": side, "outcome": outcome, "entry": px,
+                                "shares": n_shares, "src": src_tag})
+        pot = round(n_shares - cost, 2)
         return {"ok": True, "msg": f"已开PM仓位 {key[:28]}… ({src_tag}) "
-                                   f"{('买入' if side == 'BUY' else '卖出')}@{px:.4f} (名义{size}$)"}
+                                   f"{('YES' if outcome == 'YES' else ('NO' if outcome == 'NO' else side))} "
+                                   f"{n_shares}股@{px:.4f} (成本${cost} · 对了赚${pot})"}
     finally:
         _unlock(f)
+
+
+def _pm_pnl(side, entry, exit_px, shares, fee_in_c, fee_out_c):
+    """PM 仓位 PnL: (exit-entry)×shares - 双边费 (R12 股数精确版, 与引擎 pnl_usd 同公式但股数参数化)"""
+    if side == "BUY":
+        gross = (exit_px - entry) * shares
+    else:
+        gross = (entry - exit_px) * shares
+    fees = shares * (fee_in_c + fee_out_c) / 100
+    return round(gross - fees, 4)
 
 
 def open_naked(sym, dir_, notional, tp, sl):
@@ -782,6 +837,57 @@ def open_naked(sym, dir_, notional, tp, sl):
         _unlock(f)
 
 
+def pm_sell_shares(key, shares=None):
+    """R12: PM 卖出持有的份额 (部分/全平) — PM 无裸空, 卖出只能减持有"""
+    from paper_engine import latest_snapshot, FEE_RATE
+    f = _lock()
+    try:
+        st = _read(_resolve("PAPER_STATE"), {})
+        pos = (st.get("positions") or {}).get(key)
+        if not pos:
+            return {"ok": False, "error": f"{key} 无PM持仓"}
+        held = float(pos.get("shares") or 0)
+        if held <= 0:
+            return {"ok": False, "error": "该持仓无份额记录(旧仓), 请用平仓"}
+        try:
+            n = float(shares) if shares is not None else held
+        except Exception:
+            return {"ok": False, "error": "数量非法"}
+        if not (0 < n <= held + 1e-9):
+            return {"ok": False, "error": f"卖出数量须 ≤ 持有 {held:g} 股"}
+        n = min(n, held)
+        rt = _pm_rt_px(key, pos.get("outcome", ""))
+        if rt and rt.get("bid") is not None:
+            px_exit = rt["bid"]
+        else:
+            snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
+            snap = snaps.get(key)
+            if not snap:
+                return {"ok": False, "error": f"{key} 无实时盘口快照, 稍后再试"}
+            px_exit = float(snap.get("pm_bid", 0) or 0)
+        if not (0.001 <= px_exit <= 0.999):
+            return {"ok": False, "error": "盘口卖价无效"}
+        full = n >= held - 1e-9
+        pnl = _pm_pnl(pos["side"], pos["entry"], px_exit, n,
+                      pos.get("entry_fee_c", FEE_RATE), pos.get("exit_fee_c", FEE_RATE))
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
+        _log_trade(_resolve("PAPER_TRADES"), dict(key=key, side=pos["side"],
+                    action="MANUAL_SELL_PM", entry=pos["entry"], exit=px_exit,
+                    shares=n, pnl=pnl))
+        if full:
+            st["n_trades"] = st.get("n_trades", 0) + 1
+            del st["positions"][key]
+        else:
+            pos["shares"] = round(held - n, 4)
+            pos["cost_usd"] = round(pos.get("cost_usd", 0) * (held - n) / held, 4)
+        _write(_resolve("PAPER_STATE"), st)
+        _audit("pm_sell_shares", key, {"shares": n, "exit": px_exit, "pnl": pnl, "full": full})
+        return {"ok": True, "msg": f"卖出 {n:g} 股 @{px_exit:.4f} (PnL {pnl:+.4f}$)"
+                                   f"{' · 已全平' if full else ''}"}
+    finally:
+        _unlock(f)
+
+
 def close_pm(key):
     """平 PM 纸面桶 (用引擎同源盘口快照定价)"""
     from paper_engine import latest_snapshot, pnl_usd, TICK, FEE_RATE
@@ -796,11 +902,17 @@ def close_pm(key):
         if not snap:
             return {"ok": False, "error": f"{key} 无实时盘口快照, 稍后再试"}
         bid, ask = float(snap.get("pm_bid", 0)), float(snap.get("pm_ask", 0))
+        # R12: 优先实时盘口精确价 (outcome token)
+        rt = _pm_rt_px(key, pos.get("outcome", ""))
+        if rt and rt.get("bid") is not None and rt.get("ask") is not None:
+            bid, ask = rt["bid"], rt["ask"]
         px_exit = max(bid - TICK, 0.001) if pos["side"] == "BUY" else min(ask + TICK, 0.999)
+        # R12: 手动仓位按实际股数算 PnL (引擎 SHARES=100 只适用引擎仓)
+        n_sh = float(pos.get("shares") or (pos.get("size_usd", 0) / max(pos["entry"], 0.001)) or 100)
         trade = dict(key=key, side=pos["side"], action="MANUAL_CLOSE_PM",
                      entry=pos["entry"], exit=px_exit,
                      entry_fee_c=pos.get("entry_fee_c", FEE_RATE), exit_fee_c=pos.get("exit_fee_c", FEE_RATE))
-        pnl = pnl_usd(trade)
+        pnl = _pm_pnl(pos["side"], pos["entry"], px_exit, n_sh, trade["entry_fee_c"], trade["exit_fee_c"])
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
         st.setdefault("n_trades", 0)
         st["n_trades"] += 1
@@ -819,7 +931,10 @@ DISPATCH = {
     "close_orphan": lambda a: close_orphan(a.get("symbol", "")),
     "open_naked": lambda a: open_naked(a.get("symbol", ""), a.get("dir", "fwd"),
                                        a.get("notional", 10), a.get("tp"), a.get("sl")),
-    "open_pm": lambda a: open_pm(a.get("key", ""), a.get("side", ""), a.get("size_usd", 5)),
+    "open_pm": lambda a: open_pm(a.get("key", ""), a.get("side", ""),
+                                   a.get("size_usd"), a.get("outcome", ""),
+                                   a.get("shares")),
+    "pm_sell_shares": lambda a: pm_sell_shares(a.get("key", ""), a.get("shares")),
     "close_both": lambda a: close_both(a.get("symbol", "")),
     "close_spot_to_naked": lambda a: close_spot_to_naked(a.get("symbol", ""), a.get("tp"), a.get("sl")),
     "close_naked": lambda a: close_naked(a.get("symbol", "")),

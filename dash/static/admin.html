@@ -73,6 +73,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <button data-t="audit">审计流水</button>
     <button data-t="ann">公告管理</button>
     <button data-t="funds" style="color:#2dd4bf">资金管理</button>
+    <button data-t="pm" style="color:#a78bfa">PM 标的管理</button>
   </div>
 
   <div class="panel on" id="p-users">
@@ -138,6 +139,28 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
       <button class="btn" onclick="fSaveKey()">加密保存</button>
     </div>
   </div>
+  <div class="panel" id="p-pm">
+    <div class="row" style="margin-bottom:10px"><b style="color:#a78bfa">🔮 PM 标的管理</b>
+      <span class="dim" id="pmadm-stats"></span></div>
+    <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
+      <input id="pmadm-q" placeholder="搜索标的（中/英文/事件key）..." style="width:260px"
+             oninput="pmadmDebounce()">
+      <select id="pmadm-st" style="width:110px" onchange="loadPmAdmin(0)">
+        <option value="">全部状态</option><option value="on">已上线</option><option value="off">已下线</option></select>
+      <button class="btn" onclick="pmadmAll()">全选本页</button>
+      <button class="btn" onclick="pmadmInvert()">反选本页</button>
+      <button class="btn ok" onclick="pmadmSet('on')">✅ 批量上线</button>
+      <button class="btn bad" onclick="pmadmSet('off')">⛔ 批量下线</button>
+    </div>
+    <div class="row dim" style="margin-bottom:8px">勾选标的 → 点批量上线/下线；下线后移动端全站不再展示、不可下单</div>
+    <div class="row" style="margin-bottom:8px;gap:8px;flex-wrap:wrap">
+      <label><input type="checkbox" id="pmadm-checkall" onchange="pmadmCheckAll()"> 全选已加载</label>
+      <button class="btn dim" onclick="loadPmAdmin(0)">刷新</button>
+      <button class="btn dim" onclick="pmadmMore()">加载更多</button>
+    </div>
+    <div id="pmadm-list" style="max-height:60vh;overflow-y:auto"></div>
+  </div>
+
 </div>
 
 <div class="modal-bg" id="modal"><div class="modal" id="mbox"></div></div>
@@ -163,6 +186,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   if(b.dataset.t==='audit')loadAudit(0);
   if(b.dataset.t==='ann')loadAnn();
   if(b.dataset.t==='funds')loadFundsPanel();
+  if(b.dataset.t==='pm')loadPmAdmin(0);
 });
 
 // ---- stats ----
@@ -348,3 +372,46 @@ async function fSaveKey(){
 </script>
 </body>
 </html>
+
+// ---- R12 P2 PM 标的管理 ----
+let PMADM={offset:0,q:'',state:'',rows:[],checked:{}};
+let pmadmTimer=null;
+function pmadmDebounce(){clearTimeout(pmadmTimer);pmadmTimer=setTimeout(()=>{PMADM.q=$('#pmadm-q').value.trim();loadPmAdmin(0)},350)}
+async function loadPmAdmin(offset){
+  if(offset===0){PMADM.offset=0;PMADM.rows=[];PMADM.checked={};}
+  PMADM.state=$('#pmadm-st')?$('#pmadm-st').value:'';
+  const qs=new URLSearchParams({q:PMADM.q,state:PMADM.state,offset:PMADM.offset,limit:100});
+  const {d}=await j('GET','/api/admin/pm-markets?'+qs);
+  if(!d||!d.rows){$('#pmadm-list').innerHTML='<div class="dim">加载失败（无管理员权限？）</div>';return}
+  PMADM.rows=PMADM.rows.concat(d.rows);
+  $('#pmadm-stats').textContent='共 '+d.total+' 个市场 · 下线 '+d.off_n+' 个';
+  renderPmAdm();
+}
+function renderPmAdm(){
+  const rows=PMADM.rows;
+  if(!rows.length){$('#pmadm-list').innerHTML='<div class="dim">无匹配标的</div>';return}
+  $('#pmadm-list').innerHTML='<table><thead><tr><th style="width:34px">勾</th><th>市场</th><th>分类</th><th>成交额</th><th>状态</th></tr></thead><tbody>'
+    +rows.map(r=>`<tr>
+      <td><input type="checkbox" data-pmkey="${escAttr(r.key)}" onchange="pmadmCheck('${escAttr(r.key)}',this.checked)"></td>
+      <td style="max-width:420px"><b>${esc(r.title_zh||r.title)}</b><div class="dim" style="font-size:11px">${esc(r.title||'')}</div></td>
+      <td>${esc(r.cat||'other')}</td>
+      <td>${fmtNum(r.ev_vol||0)}</td>
+      <td>${r.state==='off'?'<span style="color:#f87171">⛔ 下线</span>':'<span style="color:#34d399">✅ 上线</span>'}</td>
+      </tr>`).join('')+'</tbody></table>';
+  for(const k in PMADM.checked){const cb=document.querySelector(`input[data-pmkey="${CSS.escape(k)}"]`);if(cb)cb.checked=PMADM.checked[k]}
+}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function escAttr(s){return String(s).replace(/"/g,'&quot;')}
+function pmadmCheck(k,v){if(v)PMADM.checked[k]=1;else delete PMADM.checked[k]}
+function pmadmAll(){PMADM.rows.forEach(r=>PMADM.checked[r.key]=1);renderPmAdm()}
+function pmadmInvert(){PMADM.rows.forEach(r=>{PMADM.checked[r.key]=PMADM.checked[r.key]?0:1;if(!PMADM.checked[r.key])delete PMADM.checked[r.key]});renderPmAdm()}
+function pmadmCheckAll(){const v=$('#pmadm-checkall').checked;PMADM.rows.forEach(r=>{if(v)PMADM.checked[r.key]=1;else delete PMADM.checked[r.key]});renderPmAdm()}
+async function pmadmMore(){PMADM.offset=PMADM.rows.length;await loadPmAdmin()}
+async function pmadmSet(state){
+  const keys=Object.keys(PMADM.checked);
+  if(!keys.length){alert('请先勾选标的');return}
+  if(!confirm(`确认${state==='on'?'上线':'下线'} ${keys.length} 个标的？`))return;
+  const {d}=await j('POST','/api/admin/pm-markets/set',{keys,state});
+  if(d&&d.ok){alert(d.msg||'操作成功');PMADM.checked={};loadPmAdmin(0)}else{alert((d&&d.error)||'操作失败')}
+}
+
