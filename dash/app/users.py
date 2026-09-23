@@ -6,6 +6,7 @@
 """
 import os
 import re
+import sys
 import time
 import uuid
 import bcrypt
@@ -144,6 +145,12 @@ def create_user(username, email, pw):
         finally:
             con.close()
     audit_log(uid, "register", f"注册 {username}", "", "")
+    try:  # M2: 注册即初始化租户目录 ($100纸面账户+默认参数+托管模式)
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        import tenants  # noqa: E402
+        tenants.seed(uid)
+    except Exception:
+        pass  # 种子失败不阻断注册 (首轮引擎调度会兜底初始化)
     return True, "ok"
 
 

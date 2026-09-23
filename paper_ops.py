@@ -15,15 +15,34 @@ try:
 except ImportError:  # Windows 本地测试环境
     fcntl = None
 
-BASE = os.environ.get("PAPER_BASE") or os.path.expanduser("~/polymarket")
-CARRY_STATE = f"{BASE}/logs/carry_state.json"
-PAPER_STATE = f"{BASE}/logs/paper_state.json"
-CARRY_TRADES = f"{BASE}/logs/carry_trades.jsonl"
-PAPER_TRADES = f"{BASE}/logs/paper_trades.jsonl"
-AUDIT = f"{BASE}/logs/manual_actions.jsonl"
-SNAP = f"{BASE}/logs/bybit_prices.json"
-CARRY_LOG = f"{BASE}/logs/carry_1m.jsonl"
-LOCK_PATH = f"{BASE}/logs/.state.lock"
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用/测试 (实际路径一律走 __getattr__ 租户解析)
+
+# 租户感知路径 (PEP 562 动态属性; 测试可 setattr monkeypatch 覆盖)
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "CARRY_STATE": lambda: tenants.state("carry"),
+    "PAPER_STATE": lambda: tenants.state("paper"),
+    "CARRY_TRADES": lambda: tenants.trades("carry"),
+    "PAPER_TRADES": lambda: tenants.trades("paper"),
+    "AUDIT": lambda: tenants.audit_manual(),
+    "SNAP": lambda: tenants.shared_log("bybit_prices.json"),
+    "CARRY_LOG": lambda: tenants.shared_log("carry_1m.jsonl"),
+    "LOCK_PATH": lambda: tenants.lock_path(),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'paper_ops' has no attribute '{name}'")
 
 FEE_SPOT = 0.001
 FEE_PERP = 0.00055
@@ -32,8 +51,8 @@ MAX_NAKED_NOTIONAL = 50.0
 
 
 def _lock():
-    os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
-    f = open(LOCK_PATH, "w")
+    os.makedirs(os.path.dirname(_resolve("LOCK_PATH")), exist_ok=True)
+    f = open(_resolve("LOCK_PATH"), "w")
     if fcntl:
         fcntl.flock(f, fcntl.LOCK_EX)
     return f
@@ -67,7 +86,7 @@ def _now():
 def _audit(action, sym, detail):
     rec = {"ts": _now(), "action": action, "symbol": sym}
     rec.update(detail or {})
-    with open(AUDIT, "a", encoding="utf-8") as f:
+    with open(_resolve("AUDIT"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
@@ -81,7 +100,7 @@ def _prices():
     """{sym: {"perp": float, "spot": float|None}}"""
     out = {}
     try:
-        snap = json.load(open(SNAP))
+        snap = json.load(open(_resolve("SNAP")))
         for sym, p in snap.get("prices", {}).items():
             if p.get("last"):
                 out[sym] = {"perp": float(p["last"]),
@@ -90,7 +109,7 @@ def _prices():
         pass
     if not out:
         try:
-            rows = [json.loads(l) for l in open(CARRY_LOG) if l.strip()]
+            rows = [json.loads(l) for l in open(_resolve("CARRY_LOG")) if l.strip()]
             last_ts = rows[-1]["ts"]
             for r in rows:
                 if r["ts"] == last_ts:
@@ -102,7 +121,7 @@ def _prices():
 
 def _latest_carry_row(sym):
     try:
-        rows = [json.loads(l) for l in open(CARRY_LOG) if l.strip()]
+        rows = [json.loads(l) for l in open(_resolve("CARRY_LOG")) if l.strip()]
         for r in reversed(rows):
             if r.get("symbol") == sym:
                 return r
@@ -129,7 +148,7 @@ def open_hedge(sym, notional, dir_="fwd"):
     row = _latest_carry_row(sym)
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {"positions": {}, "orphans": {}, "naked": {},
+        st = _read(_resolve("CARRY_STATE"), {"positions": {}, "orphans": {}, "naked": {},
                                  "day_pnl": 0.0, "cum_pnl": 0.0, "n_rounds": 0})
         if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
             return {"ok": False, "error": f"{sym} 已有持仓/孤儿/裸腿, 先平仓"}
@@ -143,8 +162,8 @@ def open_hedge(sym, notional, dir_="fwd"):
             funding_acc=0.0, next_funding_ts=int((row or {}).get("next_funding_ts", 0)),
             last_fr=(row or {}).get("funding_rate", 0.0), reused=False,
             notional=notional, dir=dir_)
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_OPEN_HEDGE",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_OPEN_HEDGE",
                                       spot_entry=px["spot"], perp_entry=px["perp"],
                                       notional=notional, dir=dir_))
         _audit("open_hedge", sym, {"spot": px["spot"], "perp": px["perp"], "notional": notional,
@@ -163,7 +182,7 @@ def close_orphan(sym):
         return {"ok": False, "error": f"{sym} 无实时价(现货价缺失)"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         orph = (st.get("orphans") or {}).get(sym)
         if not orph:
             return {"ok": False, "error": f"{sym} 无孤儿现货腿"}
@@ -175,8 +194,8 @@ def close_orphan(sym):
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
         del st["orphans"][sym]
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_ORPHAN",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_CLOSE_ORPHAN",
                                       spot_entry=orph["spot_entry"], spot_exit=px["spot"],
                                       pnl_usd=round(pnl, 3), notional=n))
         _audit("close_orphan", sym, {"spot_exit": px["spot"], "pnl": round(pnl, 3)})
@@ -192,7 +211,7 @@ def close_perp_leg(sym):
         return {"ok": False, "error": f"{sym} 无实时价"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         pos = (st.get("positions") or {}).get(sym)
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
@@ -206,8 +225,8 @@ def close_perp_leg(sym):
                                                  next_funding_ts=pos.get("next_funding_ts", 0),
                                                  notional=n, dir=d)
         del st["positions"][sym]
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_PERP_LEG",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_CLOSE_PERP_LEG",
                                       perp_entry=pos["perp_entry"], perp_exit=px["perp"], dir=d,
                                       perp_pnl_usd=round(perp_pnl, 3), funding_acc=pos.get("funding_acc", 0)))
         _audit("close_perp_leg", sym, {"perp_exit": px["perp"], "perp_pnl": round(perp_pnl, 3), "dir": d})
@@ -223,7 +242,7 @@ def close_both(sym):
         return {"ok": False, "error": f"{sym} 无实时价(现货价缺失)"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         pos = (st.get("positions") or {}).get(sym)
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
@@ -239,8 +258,8 @@ def close_both(sym):
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
         del st["positions"][sym]
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_BOTH",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_CLOSE_BOTH",
                                       spot_entry=pos["spot_entry"], spot_exit=px["spot"], dir=d,
                                       perp_entry=pos["perp_entry"], perp_exit=px["perp"],
                                       pnl_usd=round(total, 3), funding_acc=pos.get("funding_acc", 0)))
@@ -261,7 +280,7 @@ def close_spot_to_naked(sym, tp, sl):
         return {"ok": False, "error": f"{sym} 无实时价(现货价缺失)"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         pos = (st.get("positions") or {}).get(sym)
         if not pos:
             return {"ok": False, "error": f"{sym} 无双腿持仓"}
@@ -288,8 +307,8 @@ def close_spot_to_naked(sym, tp, sl):
                                                next_funding_ts=pos.get("next_funding_ts", 0),
                                                dir=d)
         del st["positions"][sym]
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_SPOT_TO_NAKED",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_SPOT_TO_NAKED",
                                       spot_entry=pos["spot_entry"], spot_exit=px["spot"], dir=d,
                                       perp_entry=entry, tp=tp, sl=sl, notional=n))
         _audit("close_spot_to_naked", sym, {"spot_exit": px["spot"], "perp_entry": entry,
@@ -307,7 +326,7 @@ def close_naked(sym):
         return {"ok": False, "error": f"{sym} 无实时价"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         nk = (st.get("naked") or {}).get(sym)
         if not nk:
             return {"ok": False, "error": f"{sym} 无裸腿持仓"}
@@ -318,8 +337,8 @@ def close_naked(sym):
         fees = FEE_PERP * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         del st["naked"][sym]
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_CLOSE_NAKED",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_CLOSE_NAKED",
                                       perp_entry=nk["perp_entry"], perp_exit=px["perp"],
                                       perp_pnl_usd=round(perp_pnl, 3), funding_acc=nk.get("funding_acc", 0)))
         _audit("close_naked", sym, {"perp_exit": px["perp"], "pnl": round(perp_pnl, 3)})
@@ -336,7 +355,7 @@ def edit_naked_tpsl(sym, tp, sl):
         return {"ok": False, "error": "止盈/止损数值非法"}
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         nk = (st.get("naked") or {}).get(sym)
         if not nk:
             return {"ok": False, "error": f"{sym} 无裸腿持仓"}
@@ -348,7 +367,7 @@ def edit_naked_tpsl(sym, tp, sl):
             return {"ok": False, "error": f"方向错误: 多头止损须<{entry}, 止盈须>{entry}"}
         old = (nk["tp"], nk["sl"])
         nk["tp"], nk["sl"] = tp, sl
-        _write(CARRY_STATE, st)
+        _write(_resolve("CARRY_STATE"), st)
         _audit("edit_naked_tpsl", sym, {"old_tp": old[0], "old_sl": old[1], "new_tp": tp, "new_sl": sl})
         return {"ok": True, "msg": f"止盈止损已更新 {sym}: {old[0]}→{tp} / {old[1]}→{sl}"}
     finally:
@@ -376,7 +395,7 @@ def open_pm(key, side, size_usd):
         return {"ok": False, "error": "盘口价格无效"}
     f = _lock()
     try:
-        st = _read(PAPER_STATE, {})
+        st = _read(_resolve("PAPER_STATE"), {})
         if key in (st.get("positions") or {}):
             return {"ok": False, "error": "该市场已有持仓, 先平仓"}
         st.setdefault("positions", {})[key] = {"side": side, "entry": px, "t0": time.time(),
@@ -384,8 +403,8 @@ def open_pm(key, side, size_usd):
                                                "exit_fee_c": FEE_RATE}
         fees = size * FEE_RATE / 100
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
-        _write(PAPER_STATE, st)
-        _log_trade(PAPER_TRADES, dict(key=key, side=side, action="MANUAL_OPEN_PM",
+        _write(_resolve("PAPER_STATE"), st)
+        _log_trade(_resolve("PAPER_TRADES"), dict(key=key, side=side, action="MANUAL_OPEN_PM",
                                       entry=px, size_usd=size, entry_fee_c=FEE_RATE))
         _audit("open_pm", key, {"side": side, "entry": px, "size": size})
         return {"ok": True, "msg": f"已开PM仓位 {key[:28]}… "
@@ -415,7 +434,7 @@ def open_naked(sym, dir_, notional, tp, sl):
     row = _latest_carry_row(sym)
     f = _lock()
     try:
-        st = _read(CARRY_STATE, {})
+        st = _read(_resolve("CARRY_STATE"), {})
         if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
             return {"ok": False, "error": f"{sym} 已有持仓/孤儿/裸腿"}
         naked = st.get("naked", {})
@@ -428,8 +447,8 @@ def open_naked(sym, dir_, notional, tp, sl):
                                                last_fr=(row or {}).get("funding_rate", 0.0),
                                                next_funding_ts=int((row or {}).get("next_funding_ts", 0)),
                                                dir=dir_, src="cycle")
-        _write(CARRY_STATE, st)
-        _log_trade(CARRY_TRADES, dict(symbol=sym, action="MANUAL_OPEN_NAKED",
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_OPEN_NAKED",
                                       perp_entry=entry, notional=notional, tp=tp, sl=sl, dir=dir_))
         _audit("open_naked", sym, {"entry": entry, "notional": notional, "tp": tp, "sl": sl, "dir": dir_})
         return {"ok": True, "msg": f"已开裸{'空' if dir_ == 'fwd' else '多'}仓 {sym} @{entry:.1f} "
@@ -443,7 +462,7 @@ def close_pm(key):
     from paper_engine import latest_snapshot, pnl_usd, TICK, FEE_RATE
     f = _lock()
     try:
-        st = _read(PAPER_STATE, {})
+        st = _read(_resolve("PAPER_STATE"), {})
         pos = (st.get("positions") or {}).get(key)
         if not pos:
             return {"ok": False, "error": f"{key} 无PM持仓"}
@@ -461,8 +480,8 @@ def close_pm(key):
         st.setdefault("n_trades", 0)
         st["n_trades"] += 1
         del st["positions"][key]
-        _write(PAPER_STATE, st)
-        _log_trade(PAPER_TRADES, trade)
+        _write(_resolve("PAPER_STATE"), st)
+        _log_trade(_resolve("PAPER_TRADES"), trade)
         _audit("close_pm", key, {"exit": px_exit, "pnl": pnl})
         return {"ok": True, "msg": f"已平PM仓位 {key[:30]}… @{px_exit:.4f} (PnL {pnl:+.4f}$)"}
     finally:

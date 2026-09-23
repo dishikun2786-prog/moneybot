@@ -6,9 +6,27 @@ import json
 import os
 import time
 
-BASE = os.environ.get("PAPER_BASE") or os.path.expanduser("~/polymarket")
-MODE_FILE = f"{BASE}/engine/mode.json"
-AUDIT = f"{BASE}/logs/mode_actions.jsonl"
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用 (实际路径走 __getattr__)
+
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "MODE_FILE": lambda: tenants.mode_file(),
+    "AUDIT": lambda: tenants.audit_mode(),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'engine_mode' has no attribute '{name}'")
 STRATEGIES = ("carry", "paper_pm")
 MODES = ("auto", "manual")
 _ZH_S = {"carry": "现货×永续套利", "paper_pm": "预测市场对冲"}
@@ -17,7 +35,7 @@ _ZH_M = {"auto": "托管", "manual": "手动"}
 
 def load():
     try:
-        d = json.load(open(MODE_FILE))
+        d = json.load(open(_resolve("MODE_FILE")))
     except Exception:
         d = {}
     return {s: (d.get(s) if d.get(s) in MODES else "auto") for s in STRATEGIES}
@@ -28,16 +46,16 @@ def set_mode(strategy, mode):
         return {"ok": False, "error": f"未知策略: {strategy} (可选: {list(STRATEGIES)})"}
     if mode not in MODES:
         return {"ok": False, "error": f"未知模式: {mode} (可选: auto/manual)"}
-    os.makedirs(os.path.dirname(MODE_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(_resolve("MODE_FILE")), exist_ok=True)
     d = load()
     old = d[strategy]
     if old == mode:
         return {"ok": True, "msg": f"{_ZH_S[strategy]} 已是{_ZH_M[mode]}模式", "unchanged": True}
     d[strategy] = mode
-    tmp = MODE_FILE + ".tmp"
+    tmp = _resolve("MODE_FILE") + ".tmp"
     json.dump(d, open(tmp, "w"), ensure_ascii=False, indent=1)
-    os.replace(tmp, MODE_FILE)
-    with open(AUDIT, "a", encoding="utf-8") as f:
+    os.replace(tmp, _resolve("MODE_FILE"))
+    with open(_resolve("AUDIT"), "a", encoding="utf-8") as f:
         f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                             "strategy": strategy, "old": old, "new": mode},
                            ensure_ascii=False) + "\n")

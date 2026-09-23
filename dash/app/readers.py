@@ -7,6 +7,10 @@ import subprocess
 import time
 import duckdb
 from . import config
+import sys
+import os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+import tenants  # noqa: E402
 
 FV = f"{config.DATA}/fv_snapshot/year=*/month=*/*.parquet"
 LAT = f"{config.DATA}/latency/year=*/month=*/*.parquet"
@@ -105,11 +109,11 @@ def analysis():
 def paper():
     st = {}
     try:
-        st = json.load(open(os.path.expanduser("~/polymarket/logs/paper_state.json")))
+        st = json.load(open(tenants.state("paper")))
     except Exception:
         pass
     trades = []
-    tp = os.path.expanduser("~/polymarket/logs/paper_trades.jsonl")
+    tp = tenants.trades("paper")
     if os.path.exists(tp):
         with open(tp) as f:
             lines = f.readlines()[-20:]
@@ -180,9 +184,9 @@ def carry():
     except Exception:
         pass
     st, trades = {}, []
-    for name, path in (("state", "~/polymarket/logs/carry_state.json"),
-                       ("trades", "~/polymarket/logs/carry_trades.jsonl")):
-        p = os.path.expanduser(path)
+    for name, path in (("state", tenants.state("carry")),
+                       ("trades", tenants.trades("carry"))):
+        p = path
         try:
             if name == "state":
                 st = json.load(open(p))
@@ -306,7 +310,7 @@ def _mtm_carry(st):
 def pnl_overview():
     """模拟盘整体盈亏: 资金 = 初始100 + Σ每日已实现 + 今日已实现 + 未实现MTM"""
     eq = []
-    eqp = os.path.expanduser("~/polymarket/logs/equity_daily.jsonl")
+    eqp = tenants.equity_daily()
     if os.path.exists(eqp):
         with open(eqp) as f:
             for line in f:
@@ -314,8 +318,8 @@ def pnl_overview():
                     eq.append(json.loads(line))
                 except Exception:
                     pass
-    pm_st = _json("~/polymarket/logs/paper_state.json") or {}
-    cy_st = _json("~/polymarket/logs/carry_state.json") or {}
+    pm_st = _json(tenants.state("paper")) or {}
+    cy_st = _json(tenants.state("carry")) or {}
     pm_day = float(pm_st.get("day_pnl", 0.0))
     cy_day = float(cy_st.get("day_pnl", 0.0))
     realized_total = sum(float(e.get("total", 0.0)) for e in eq) + pm_day + cy_day
@@ -412,8 +416,6 @@ def share_view():
 
 
 KLINE_IVS = ("1m", "5m", "15m", "1h", "4h", "D", "W", "M")
-_LOGS = os.path.expanduser("~/polymarket/logs")
-_PARAMS_FILE = os.path.expanduser("~/polymarket/strategy_params.json")
 
 # 策略说明（策略面板展示）
 STRATEGY_INFO = {
@@ -424,10 +426,10 @@ STRATEGY_INFO = {
 
 
 def strategy():
-    """当前策略参数 + 说明 (单一参数源 strategy_params.json)"""
+    """当前策略参数 + 说明 (单一参数源 strategy_params.json, 租户隔离)"""
     params = {}
     try:
-        params = json.load(open(_PARAMS_FILE))
+        params = json.load(open(tenants.params_file()))
     except Exception:
         pass
     zh = {k: v["zh"] for k, v in STRATEGY_INFO.items()}
@@ -437,9 +439,9 @@ def strategy():
 
 
 def cycle():
-    """循环恢复策略状态 + 最近回合"""
-    st = _json("~/polymarket/logs/swing_cycle.json") or {}
-    rounds = _tail_jsonl("~/polymarket/logs/swing_rounds.jsonl", 20)
+    """循环恢复策略状态 + 最近回合 (租户隔离)"""
+    st = _json(tenants.cycle_state()) or {}
+    rounds = _tail_jsonl(tenants.cycle_rounds(), 20)
     return {"state": st, "rounds": rounds}
 
 
@@ -491,7 +493,7 @@ def tape(limit=100):
     """两引擎交易事件流归一化 (尾部读取, 时间倒序)"""
     events = []
     for fname, fn in (("paper_trades.jsonl", _norm_paper), ("carry_trades.jsonl", _norm_carry)):
-        p = f"{_LOGS}/{fname}"
+        p = os.path.join(tenants.logs(), fname)
         if not os.path.exists(p):
             continue
         with open(p, encoding="utf-8") as f:
@@ -529,10 +531,10 @@ def system():
             logs[name] = "".join(open(p, encoding="utf-8", errors="replace").readlines()[-40:])
         except Exception:
             logs[name] = ""
-    # AI 操作审计 (最近12条)
+    # AI 操作审计 (最近12条, 租户隔离)
     ai_actions = []
     try:
-        with open(os.path.expanduser("~/polymarket/logs/ai_actions.jsonl"), encoding="utf-8") as f:
+        with open(tenants.ai_audit(), encoding="utf-8") as f:
             lines = f.readlines()[-12:]
         for line in lines:
             try:

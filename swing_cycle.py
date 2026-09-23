@@ -12,10 +12,28 @@ import time
 
 import paper_ops
 
-BASE = os.path.expanduser("~/polymarket")
-STATE_FILE = f"{BASE}/logs/swing_cycle.json"
-ROUNDS_LOG = f"{BASE}/logs/swing_rounds.jsonl"
-PARAMS_FILE = f"{BASE}/strategy_params.json"
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用 (实际路径走 __getattr__)
+
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "STATE_FILE": lambda: tenants.cycle_state(),
+    "ROUNDS_LOG": lambda: tenants.cycle_rounds(),
+    "PARAMS_FILE": lambda: tenants.params_file(),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'swing_cycle' has no attribute '{name}'")
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 
 ENABLED = 0
@@ -33,7 +51,7 @@ NOTIONAL_CAP = 30.0
 def hot_load():
     global ENABLED, MIN_SCORE, BASE_NOTIONAL, MULT, MAX_LADDER, TP_PCT, SL_PCT, DAILY_LOSS_CAP, COOLDOWN_S
     try:
-        d = json.load(open(PARAMS_FILE)).get("cycle", {})
+        d = json.load(open(_resolve("PARAMS_FILE"))).get("cycle", {})
         if d.get("enabled") is not None:
             ENABLED = int(float(d["enabled"]))
         if d.get("min_score") is not None:
@@ -58,7 +76,7 @@ def hot_load():
 
 def _read():
     try:
-        return json.load(open(STATE_FILE))
+        return json.load(open(_resolve("STATE_FILE")))
     except Exception:
         return {"round": 0, "phase": "IDLE", "ladder": 0, "cum_pnl": 0.0, "cycle_day_pnl": 0.0,
                 "day": "", "frozen_until": 0.0, "cooldown_until": 0.0, "symbol": None, "dir": None,
@@ -66,13 +84,13 @@ def _read():
 
 
 def _write(st):
-    tmp = STATE_FILE + ".tmp"
+    tmp = _resolve("STATE_FILE") + ".tmp"
     json.dump(st, open(tmp, "w"), ensure_ascii=False, indent=1)
-    os.replace(tmp, STATE_FILE)
+    os.replace(tmp, _resolve("STATE_FILE"))
 
 
 def _audit_round(rec):
-    with open(ROUNDS_LOG, "a", encoding="utf-8") as f:
+    with open(_resolve("ROUNDS_LOG"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
@@ -213,7 +231,7 @@ def cycle():
 def load_micro(sym, n=10):
     rows, walls = [], []
     try:
-        for line in open(f"{BASE}/logs/micro_1m.jsonl").read().splitlines()[-40:]:
+        for line in open(tenants.shared_log("micro_1m.jsonl")).read().splitlines()[-40:]:
             try:
                 r = json.loads(line)
                 if r.get("sym") == sym:
@@ -223,7 +241,7 @@ def load_micro(sym, n=10):
     except Exception:
         pass
     try:
-        for line in open(f"{BASE}/logs/wall_events.jsonl").read().splitlines()[-40:]:
+        for line in open(tenants.shared_log("wall_events.jsonl")).read().splitlines()[-40:]:
             try:
                 w = json.loads(line)
                 if w.get("sym") == sym:

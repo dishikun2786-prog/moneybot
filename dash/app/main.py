@@ -16,6 +16,7 @@ import ai_client  # noqa: E402
 import ai_tools  # noqa: E402
 import paper_ops  # noqa: E402
 import engine_mode  # noqa: E402
+import tenants  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -193,8 +194,9 @@ def api_analysis(__=Depends(require_session)):
 
 
 @app.get("/api/paper")
-def api_paper(__=Depends(require_session)):
-    return readers.paper()
+def api_paper(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.paper()
 
 
 @app.get("/carry")
@@ -203,8 +205,9 @@ def carry_page():
 
 
 @app.get("/api/carry")
-def api_carry(__=Depends(require_session)):
-    return readers.cached("carry", 15, readers.carry)
+def api_carry(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.cached(f"carry:{su['u']}", 15, readers.carry)
 
 
 @app.get("/pnl")
@@ -224,13 +227,15 @@ def api_klines(symbol: str = "BTCUSDT", interval: str = "15m",
 
 
 @app.get("/api/tape")
-def api_tape(limit: int = 100, __=Depends(require_session)):
-    return readers.tape(min(limit, 200))
+def api_tape(limit: int = 100, su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.tape(min(limit, 200))
 
 
 @app.get("/api/strategy")
-def api_strategy(__=Depends(require_session)):
-    return readers.strategy()
+def api_strategy(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.strategy()
 
 
 @app.get("/trade-proto")
@@ -244,24 +249,26 @@ def share_page(token: str):
 
 
 @app.get("/api/pnl")
-def api_pnl(__=Depends(require_session)):
-    return readers.pnl_overview()
+def api_pnl(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.pnl_overview()
 
 
 @app.get("/api/share/{token}")
 def api_share(token: str):
     if not readers.valid_share(token):
         raise HTTPException(status_code=404, detail="分享链接无效或已撤销")
-    return readers.share_view()
+    with tenants.tenant(1):  # 分享页 = 平台主账户(admin)展示盘
+        return readers.share_view()
 
 
 @app.post("/api/share/generate")
-def api_gen(__=Depends(require_session)):
+def api_gen(__=Depends(require_admin)):
     return {"token": readers.generate_share()}
 
 
 @app.post("/api/share/revoke")
-async def api_revoke(request: Request, __=Depends(require_session)):
+async def api_revoke(request: Request, __=Depends(require_admin)):
     try:
         body = await request.json()
     except Exception:
@@ -299,7 +306,7 @@ def ai_allowed(ip, max_n=15, window=300):
 
 
 @app.post("/api/ai/chat")
-async def ai_chat(request: Request, __=Depends(require_session)):
+async def ai_chat(request: Request, su=Depends(require_session_user)):
     ip = request.client.host if request.client else "?"
     if not ai_allowed(ip):
         return JSONResponse({"error": "频率过高, 请稍后再试"}, status_code=429)
@@ -308,11 +315,17 @@ async def ai_chat(request: Request, __=Depends(require_session)):
     except Exception:
         return JSONResponse({"error": "bad request"}, status_code=400)
     messages = (body.get("messages") or [])[-20:]
+    uid = su["u"]
+
+    def tenant_executor(tool, args):
+        """工具执行级租户包裹: 仅持锁于单次工具调用, 不阻塞长LLM流"""
+        with tenants.tenant(uid):
+            return ai_tools.execute_tool(tool, args)
 
     async def gen():
         try:
             agen = iterate_in_threadpool(
-                ai_client.run_agent(messages, ai_tools.TOOLS, ai_tools.execute_tool))
+                ai_client.run_agent(messages, ai_tools.TOOLS, tenant_executor))
             async for ev in agen:
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -323,17 +336,18 @@ async def ai_chat(request: Request, __=Depends(require_session)):
 
 
 @app.post("/api/ai/approve")
-async def ai_approve(request: Request, __=Depends(require_session)):
+async def ai_approve(request: Request, su=Depends(require_session_user)):
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
-    return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
+    with tenants.tenant(su["u"]):
+        return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
 
 
 @app.post("/api/manual/trade")
-async def manual_trade(request: Request, __=Depends(require_session)):
-    """手动纸面交易: open_hedge/close_perp_leg/close_both/close_spot_to_naked/close_naked/edit_naked_tpsl/close_pm"""
+async def manual_trade(request: Request, su=Depends(require_session_user)):
+    """手动纸面交易: open_hedge/close_perp_leg/close_both/close_spot_to_naked/close_naked/edit_naked_tpsl/close_pm (租户隔离)"""
     try:
         body = await request.json()
     except Exception:
@@ -343,12 +357,13 @@ async def manual_trade(request: Request, __=Depends(require_session)):
                       "close_spot_to_naked", "close_naked", "edit_naked_tpsl", "close_pm",
                       "open_pm", "open_naked"):
         return JSONResponse({"ok": False, "error": f"未知动作: {action}"}, status_code=400)
-    return paper_ops.execute(action, body)
+    with tenants.tenant(su["u"]):
+        return paper_ops.execute(action, body)
 
 
 @app.post("/api/params")
-async def api_params_save(request: Request, __=Depends(require_session)):
-    """手动保存策略参数 (白名单+范围校验, 原子写, git留痕, 引擎热加载生效)"""
+async def api_params_save(request: Request, su=Depends(require_session_user)):
+    """手动保存策略参数 (白名单+范围校验, 原子写, git留痕, 引擎热加载生效; 租户隔离)"""
     try:
         body = await request.json()
     except Exception:
@@ -356,21 +371,24 @@ async def api_params_save(request: Request, __=Depends(require_session)):
     changes = body.get("changes")
     if not isinstance(changes, dict) or not changes:
         return JSONResponse({"ok": False, "error": "未提供修改内容"}, status_code=400)
-    return ai_tools.apply_params_direct(changes, "manual")
+    with tenants.tenant(su["u"]):
+        return ai_tools.apply_params_direct(changes, "manual")
 
 
 @app.get("/api/mode")
-def api_mode(__=Depends(require_session)):
-    return engine_mode.load()
+def api_mode(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return engine_mode.load()
 
 
 @app.post("/api/mode")
-async def api_mode_set(request: Request, __=Depends(require_session)):
+async def api_mode_set(request: Request, su=Depends(require_session_user)):
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
-    return engine_mode.set_mode(str(body.get("strategy", "")), str(body.get("mode", "")))
+    with tenants.tenant(su["u"]):
+        return engine_mode.set_mode(str(body.get("strategy", "")), str(body.get("mode", "")))
 
 
 @app.get("/api/stream/prices")
@@ -434,8 +452,9 @@ async def stream_depth(request: Request, __=Depends(require_session)):
 
 
 @app.get("/api/cycle")
-def api_cycle(__=Depends(require_session)):
-    return readers.cycle()
+def api_cycle(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.cycle()
 
 
 @app.get("/api/micro")
@@ -444,5 +463,6 @@ def api_micro(__=Depends(require_session)):
 
 
 @app.get("/api/system")
-def api_system(__=Depends(require_session)):
-    return readers.system()
+def api_system(su=Depends(require_session_user)):
+    with tenants.tenant(su["u"]):
+        return readers.system()

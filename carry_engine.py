@@ -14,11 +14,30 @@ import time
 import engine_mode
 import paper_ops
 
-BASE = os.path.expanduser("~/polymarket")
-CARRY = f"{BASE}/logs/carry_1m.jsonl"
-STATE = f"{BASE}/logs/carry_state.json"
-TRADES = f"{BASE}/logs/carry_trades.jsonl"
-HALT = f"{BASE}/engine/HALT"
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用 (实际路径走 __getattr__)
+
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "CARRY": lambda: tenants.shared_log("carry_1m.jsonl"),
+    "STATE": lambda: tenants.state("carry"),
+    "TRADES": lambda: tenants.trades("carry"),
+    "HALT": lambda: tenants.halt_file(),
+    "PARAMS_FILE": lambda: tenants.params_file(),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'carry_engine' has no attribute '{name}'")
 
 TH_IN_ANN = 5.0
 MAX_HOLD_H = 14 * 24
@@ -33,7 +52,6 @@ ENTRY_WINDOW_MIN = 60  # 结算前N分钟入场窗口 (0=关闭)
 BORROW_ANN = 5.0      # 反向套利: 空现货的借贷年化成本%
 SWING_FILTER = False  # 波段过滤开关: 入场前要求微结构评分达标
 SWING_MIN_SCORE = 50.0  # 波段评分阈值(0-100)
-PARAMS_FILE = f"{BASE}/strategy_params.json"
 
 
 def hot_load():
@@ -42,7 +60,7 @@ def hot_load():
     global COMP_BASE, COMP_MIN, COMP_MAX, ENTRY_WINDOW_MIN, BORROW_ANN
     global SWING_FILTER, SWING_MIN_SCORE
     try:
-        d = json.load(open(PARAMS_FILE)).get("carry", {})
+        d = json.load(open(_resolve("PARAMS_FILE"))).get("carry", {})
         if d.get("theta_in_ann_pct") is not None:
             TH_IN_ANN = float(d["theta_in_ann_pct"])
         if d.get("max_hold_h") is not None:
@@ -126,7 +144,7 @@ def load_micro_ctx(sym, n=10):
     """读 micro_1m + wall_events 尾部 (引擎波段评分数据源)"""
     rows, walls = [], []
     try:
-        for line in open(f"{BASE}/logs/micro_1m.jsonl").read().splitlines()[-40:]:
+        for line in open(tenants.shared_log("micro_1m.jsonl")).read().splitlines()[-40:]:
             try:
                 r = json.loads(line)
                 if r.get("sym") == sym:
@@ -136,7 +154,7 @@ def load_micro_ctx(sym, n=10):
     except Exception:
         pass
     try:
-        for line in open(f"{BASE}/logs/wall_events.jsonl").read().splitlines()[-40:]:
+        for line in open(tenants.shared_log("wall_events.jsonl")).read().splitlines()[-40:]:
             try:
                 w = json.loads(line)
                 if w.get("sym") == sym:
@@ -192,7 +210,7 @@ def engine_release():
 
 def latest():
     rows = []
-    with open(CARRY, encoding="utf-8") as f:
+    with open(_resolve("CARRY"), encoding="utf-8") as f:
         for line in f:
             try:
                 rows.append(json.loads(line))
@@ -205,9 +223,9 @@ def latest():
 
 
 def load_state():
-    if os.path.exists(STATE):
+    if os.path.exists(_resolve("STATE")):
         try:
-            return json.load(open(STATE))
+            return json.load(open(_resolve("STATE")))
         except Exception:
             pass
     return {"positions": {}, "orphans": {}, "naked": {}, "day": time.strftime("%Y-%m-%d", time.gmtime()),
@@ -215,11 +233,11 @@ def load_state():
 
 
 def save_state(st):
-    json.dump(st, open(STATE, "w"), ensure_ascii=False, indent=1)
+    json.dump(st, open(_resolve("STATE"), "w"), ensure_ascii=False, indent=1)
 
 
 def log_trade(rec):
-    with open(TRADES, "a", encoding="utf-8") as f:
+    with open(_resolve("TRADES"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
@@ -233,7 +251,7 @@ def cycle():
     if not data:
         print("  [warn] carry_1m 无数据")
         return
-    if os.path.exists(HALT):
+    if os.path.exists(_resolve("HALT")):
         print("  [HALT] 引擎停机")
         return
     # 数据新鲜度

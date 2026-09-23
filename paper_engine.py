@@ -15,10 +15,28 @@ import time
 
 import paper_ops
 
-BASE = os.path.expanduser("~/polymarket")
-CSV = f"{BASE}/logs/bybit_pm_fv.csv"
-STATE = f"{BASE}/logs/paper_state.json"
-TRADES = f"{BASE}/logs/paper_trades.jsonl"
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用 (实际路径走 __getattr__)
+
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "CSV": lambda: tenants.shared_log("bybit_pm_fv.csv"),
+    "STATE": lambda: tenants.state("paper"),
+    "TRADES": lambda: tenants.trades("paper"),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'paper_engine' has no attribute '{name}'")
 
 FEE_RATE = 0.07
 SHARES = 100
@@ -35,7 +53,7 @@ def hot_load():
     """热加载策略参数 (strategy_params.json paper_pm组 → 模块全局, 每轮调用)"""
     global TH_IN_C, TH_OUT_C, MAX_HOLD_H, MAX_POSITIONS, MAX_EXPOSURE_USD, MAX_DAILY_LOSS, SHARES
     try:
-        d = json.load(open(f"{BASE}/strategy_params.json")).get("paper_pm", {})
+        d = json.load(open(tenants.params_file())).get("paper_pm", {})
         if d.get("min_gross_edge_c") is not None:
             TH_IN_C = float(d["min_gross_edge_c"])
         if d.get("theta_out_c") is not None:
@@ -60,7 +78,7 @@ def fee_c(p):
 
 def latest_snapshot():
     rows = []
-    with open(CSV, encoding="utf-8") as f:
+    with open(_resolve("CSV"), encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     if not rows:
         return []
@@ -73,9 +91,9 @@ def underlying_of(event):
 
 
 def load_state():
-    if os.path.exists(STATE):
+    if os.path.exists(_resolve("STATE")):
         try:
-            return json.load(open(STATE))
+            return json.load(open(_resolve("STATE")))
         except Exception:
             pass
     return {"positions": {}, "day": time.strftime("%Y-%m-%d", time.gmtime()),
@@ -83,11 +101,11 @@ def load_state():
 
 
 def save_state(st):
-    json.dump(st, open(STATE, "w"), ensure_ascii=False, indent=1)
+    json.dump(st, open(_resolve("STATE"), "w"), ensure_ascii=False, indent=1)
 
 
 def log_trade(rec):
-    with open(TRADES, "a", encoding="utf-8") as f:
+    with open(_resolve("TRADES"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 

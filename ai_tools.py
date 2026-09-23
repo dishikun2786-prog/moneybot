@@ -8,9 +8,29 @@ import subprocess
 import sys
 import time
 
-BASE = os.path.expanduser("~/polymarket")
-PARAMS = f"{BASE}/strategy_params.json"
-sys.path.insert(0, f"{BASE}/dash")
+import tenants
+
+BASE = tenants.ROOT  # 保留: 兼容旧引用 (实际路径走 __getattr__)
+sys.path.insert(0, os.path.join(BASE, "dash"))
+
+def _resolve(name):
+    """内部路径解析: 测试 setattr monkeypatch 优先, 否则租户动态解析"""
+    if name in globals():
+        return globals()[name]
+    return _DYN[name]()
+
+_DYN = {
+    "PARAMS": lambda: tenants.params_file(),
+    "PENDING_FILE": lambda: tenants.ai_pending(),
+    "AUDIT_FILE": lambda: tenants.ai_audit(),
+}
+
+
+def __getattr__(name):
+    f = _DYN.get(name)
+    if f:
+        return f()
+    raise AttributeError(f"module 'ai_tools' has no attribute '{name}'")
 
 
 def _read_json(path, default=None):
@@ -31,8 +51,8 @@ def _sh(cmd, timeout=30):
 def t_strategy_status():
     svc = {u: _sh(f"systemctl is-active {u}", 5).strip() for u in
            ("pm-monitor", "pm-wss", "pm-dash", "pm-carry")}
-    carry = _read_json(f"{BASE}/logs/carry_state.json", {})
-    paper = _read_json(f"{BASE}/logs/paper_state.json", {})
+    carry = _read_json(tenants.state("carry"), {})
+    paper = _read_json(tenants.state("paper"), {})
     cpos = {k: "持有" for k in (carry.get("positions") or {})}
     ppos = [(k.split("|")[-1], v.get("side")) for k, v in (paper.get("positions") or {}).items()]
     last_carry = _sh("tail -1 ~/polymarket/logs/carry_1m.jsonl | head -c 120", 5).strip()
@@ -47,7 +67,7 @@ def t_strategy_status():
 
 
 def t_list_params():
-    d = _read_json(PARAMS, {})
+    d = _read_json(_resolve("PARAMS"), {})
     d.pop("_comment", None)
     zh = {
         "carry": {"theta_in_ann_pct": "入场阈值(资金费率年化%)", "max_hold_h": "最长持仓小时",
@@ -105,26 +125,24 @@ PARAM_SCHEMA = {
                  "max_positions": ("int", 1, 10), "max_daily_loss": ("float", 0.5, 50)},
     "monitor": {"cal_sigma_up": ("float", 0.7, 1.5), "cal_sigma_down": ("float", 0.7, 1.5)},
 }
-PENDING_FILE = f"{BASE}/engine/ai_pending.json"
-AUDIT_FILE = f"{BASE}/logs/ai_actions.jsonl"
 ALLOWED_UNITS = ("pm-monitor", "pm-wss", "pm-dash", "pm-carry")
 
 
 def _pending():
     try:
-        return json.load(open(PENDING_FILE))
+        return json.load(open(_resolve("PENDING_FILE")))
     except Exception:
         return {}
 
 
 def _save_pending(p):
-    os.makedirs(os.path.dirname(PENDING_FILE), exist_ok=True)
-    json.dump(p, open(PENDING_FILE, "w"), ensure_ascii=False, indent=1)
+    os.makedirs(os.path.dirname(_resolve("PENDING_FILE")), exist_ok=True)
+    json.dump(p, open(_resolve("PENDING_FILE"), "w"), ensure_ascii=False, indent=1)
 
 
 def _audit(action, detail):
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "action": action, **detail}
-    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+    with open(_resolve("AUDIT_FILE"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
@@ -134,7 +152,7 @@ def _validate_changes(changes):
         return [], "未提供修改内容"
     if len(changes) > 3:
         return [], "单次最多修改3个参数"
-    params = _read_json(PARAMS, {})
+    params = _read_json(_resolve("PARAMS"), {})
     diff = []
     for group, kv in changes.items():
         schema = PARAM_SCHEMA.get(group)
@@ -172,6 +190,8 @@ def t_update_params(args):
 
 
 def t_git_rollback(args):
+    if not tenants.is_admin():
+        return {"status": "rejected", "error": "仅管理员账户支持 git 参数回退 (用户账户参数改动不入 git, 由审计留痕)"}
     rev = str(args.get("rev", "")).strip()
     if not rev:
         return {"status": "rejected", "error": "必须提供 rev (git提交哈希或HEAD~N)"}
@@ -190,6 +210,8 @@ def t_git_rollback(args):
 
 
 def t_restart_engine(args):
+    if not tenants.is_admin():
+        return {"status": "rejected", "error": "仅管理员可重启引擎服务"}
     unit = str(args.get("unit", "")).strip()
     if unit not in ALLOWED_UNITS:
         return {"status": "rejected", "error": f"不允许重启的单元: {unit} (允许: {list(ALLOWED_UNITS)})"}
@@ -210,16 +232,19 @@ def apply_params_direct(changes, source="manual"):
     diff, err = _validate_changes(changes)
     if err:
         return {"ok": False, "error": err}
-    params = _read_json(PARAMS, {})
+    params = _read_json(_resolve("PARAMS"), {})
     for c in diff:
         params.setdefault(c["group"], {})[c["key"]] = c["new"]
-    tmp = PARAMS + ".tmp"
+    tmp = _resolve("PARAMS") + ".tmp"
     json.dump(params, open(tmp, "w"), ensure_ascii=False, indent=2)
-    os.replace(tmp, PARAMS)
+    os.replace(tmp, _resolve("PARAMS"))
     summary = ", ".join(f"{c['group']}.{c['key']}={c['old']}→{c['new']}" for c in diff)
-    out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m '手动改参: {summary}'", 15)
+    git_note = "租户参数(不入git)"
+    if tenants.is_admin():
+        out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m '手动改参: {summary}'", 15)
+        git_note = out.strip()[:40] or "committed"
     _audit("manual_params", {"source": source, "changes": changes,
-                             "summary": summary, "git": out.strip()[:40] or "committed"})
+                             "summary": summary, "git": git_note})
     return {"ok": True, "msg": f"已保存并提交: {summary}", "diff": diff,
             "note": "引擎下轮热加载生效(≤60s)"}
 
@@ -247,13 +272,16 @@ def apply_pending(action_id, approve):
 
 def _apply(act):
     if act["type"] == "update_params":
-        params = _read_json(PARAMS, {})
+        params = _read_json(_resolve("PARAMS"), {})
         for c in act["diff"]:
             params.setdefault(c["group"], {})[c["key"]] = c["new"]
-        json.dump(params, open(PARAMS, "w"), ensure_ascii=False, indent=2)
+        json.dump(params, open(_resolve("PARAMS"), "w"), ensure_ascii=False, indent=2)
         summary = ", ".join(f"{c['group']}.{c['key']}={c['old']}→{c['new']}" for c in act["diff"])
-        out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m 'AI改参: {summary}'", 15)
-        return True, {"msg": f"已生效并提交: {summary}", "commit": out.strip()[:40] or "committed"}
+        commit = "租户参数(不入git)"
+        if tenants.is_admin():
+            out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m 'AI改参: {summary}'", 15)
+            commit = out.strip()[:40] or "committed"
+        return True, {"msg": f"已生效: {summary}", "commit": commit}
     if act["type"] == "git_rollback":
         rev = act["rev"]
         out = _sh(f"cd {BASE} && git checkout {rev} -- strategy_params.json && git commit -q -m 'AI回退参数到 {rev}'", 20)
