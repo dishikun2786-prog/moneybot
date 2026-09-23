@@ -54,9 +54,13 @@ with TestClient(app) as c:
     cid = r["captcha_id"]
     code = captcha_code(cid)
 
-    print("== 注册 ==")
+    print("== 注册 == (未勾选条款应被拒)")
+    r0 = c.post("/api/auth/register", json={"username": "e2euser1", "email": "e2e@t.com",
+                                            "password": "e2epass123",
+                                            "captcha_id": cid, "captcha_code": code})
+    check("未勾选条款被拒", r0.status_code == 400)
     r = c.post("/api/auth/register", json={"username": "e2euser1", "email": "e2e@t.com",
-                                           "password": "e2epass123",
+                                           "password": "e2epass123", "terms": True,
                                            "captcha_id": cid, "captcha_code": code})
     d = r.json()
     check("注册成功+自动登录", r.status_code == 200 and d["ok"] and d["user"]["role"] == "user")

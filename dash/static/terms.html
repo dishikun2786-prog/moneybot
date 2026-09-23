@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>服务条款与风险披露 · 交易室</title>
+<style>
+:root{--bg:#0b0e11;--card:#1a1d24;--line:#2a2f3a;--fg:#eceef3;--dim:#8b98a5;--acc:#f7a600}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 10px;color:var(--acc)}
+p,li{font-size:13.5px;line-height:1.8;color:var(--dim)}
+b{color:var(--fg)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin:14px 0}
+.warn{border-color:#5c2b2b;background:#1d1313}
+.warn h2{color:#f6465d}
+a{color:var(--acc)}
+.foot{margin-top:40px;text-align:center;font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>服务条款与风险披露声明</h1>
+<p>最后更新：2026-09-23</p>
+
+<div class="box">
+<h2>一、服务性质</h2>
+<ul>
+<li>本平台（交易室）是<b>量化交易工具</b>：提供行情数据、模拟对冲套利引擎、手动交易面板与实盘下单通道，<b>不构成任何投资建议</b>。</li>
+<li>平台的策略模型（基差套利、循环恢复、波段过滤等）均为历史数据回测产物，<b>不保证未来收益</b>。</li>
+<li>注册即获 $100 <b>模拟资金</b>（纸面账户），与真实资金完全隔离，仅用于练习与学习。</li>
+</ul>
+</div>
+
+<div class="box">
+<h2>二、账户与密钥</h2>
+<ul>
+<li>账户归注册人所有，禁止转借；连续输错 5 次密码账号锁定 15 分钟。</li>
+<li>绑定交易所密钥（Bybit/Polymarket）需<b>专业版或实盘版</b>套餐；密钥以 <b>AES-256-GCM 加密存储</b>，仅在下单瞬间解密使用，页面仅显示掩码。</li>
+<li>Polymarket 采用「派生凭证即弃私钥」方案：私钥仅在绑定时一次性用于派生 L2 凭证，<b>不落盘存储</b>。</li>
+<li>您应使用<b>最小权限</b>的 API 密钥（建议：仅交易权限、关闭提现），并定期轮换。</li>
+</ul>
+</div>
+
+<div class="warn">
+<h2>三、风险披露（请仔细阅读）</h2>
+<ul>
+<li><b>本金风险</b>：数字资产价格波动剧烈，实盘交易可能造成<b>全部本金损失</b>。</li>
+<li><b>对冲≠无风险</b>：现货×永续对冲仍面临资金费率转向、现货卖空限制、流动性不足、交易所宕机等风险；极端行情下双腿可能无法同时成交。</li>
+<li><b>杠杆风险</b>：永续合约自带杠杆，价格反向波动可能触发强平。</li>
+<li><b>技术风险</b>：网络延迟、API 故障、系统停机可能导致订单未成交或部分成交。</li>
+<li><b>监管风险</b>：数字资产及衍生品在部分司法辖区受限制，您应确保交易行为符合所在地法律。</li>
+<li>实盘模式开启后，交易室下单按钮将路由至真实交易所；平台已内置风控（单笔限额/日累计熔断/持仓上限/二次确认），但<b>风控不能消除市场风险</b>。</li>
+</ul>
+</div>
+
+<div class="box">
+<h2>四、平台责任边界</h2>
+<ul>
+<li>平台对用户在<b>模拟盘</b>的盈亏不承担任何责任（模拟资金无真实价值）。</li>
+<li>平台不对因市场、网络、交易所原因导致的<b>实盘交易损失</b>承担赔偿责任。</li>
+<li>用户使用 AI 助手等工具产生的交易决策，由用户自行负责。</li>
+</ul>
+</div>
+
+<div class="foot">同意条款即表示您已理解并接受上述全部内容<br>© 2026 交易室 · <a href="/login">返回登录</a></div>
+</div>
+</body>
+</html>

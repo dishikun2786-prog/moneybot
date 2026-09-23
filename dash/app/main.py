@@ -144,6 +144,8 @@ async def api_register(request: Request, response: Response):
         return JSONResponse({"ok": False, "err": "请求格式错误"}, status_code=400)
     if not auth.login_allowed():
         return JSONResponse({"ok": False, "err": "尝试过多, 1分钟后再试"}, status_code=429)
+    if not body.get("terms"):
+        return JSONResponse({"ok": False, "err": "请先阅读并同意《服务条款》与《风险披露声明》"}, status_code=400)
     if not users.captcha_check(body.get("captcha_id"), body.get("captcha_code")):
         return JSONResponse({"ok": False, "err": "验证码错误或已过期，请刷新重试"}, status_code=400)
     ok, msg = users.create_user(body.get("username") or "", body.get("email") or "",
@@ -565,6 +567,12 @@ def keys_page(__=Depends(require_session)):
     return FileResponse(STATIC / "keys.html")
 
 
+@app.get("/terms")
+def terms_page():
+    """服务条款与风险披露 (无需登录)"""
+    return FileResponse(STATIC / "terms.html")
+
+
 @app.get("/api/keys")
 def api_keys(su=Depends(require_session_user)):
     return {"keys": keys.list_keys(su["u"]), "limits": keys.get_limits(su["u"])}
@@ -576,6 +584,10 @@ async def api_keys_bybit_bind(request: Request, su=Depends(require_session_user)
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    u = users.get_user(su["u"])
+    if u.get("plan") not in ("pro", "live"):
+        return JSONResponse({"ok": False,
+                             "error": "绑定交易所密钥需专业版或实盘版套餐 (当前: 免费版)"}, status_code=403)
     api_key = (body.get("key") or "").strip()
     secret = (body.get("secret") or "").strip()
     if not api_key or not secret:
@@ -625,6 +637,10 @@ async def api_keys_pm_bind(request: Request, su=Depends(require_session_user)):
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    u = users.get_user(su["u"])
+    if u.get("plan") not in ("pro", "live"):
+        return JSONResponse({"ok": False,
+                             "error": "绑定交易所密钥需专业版或实盘版套餐 (当前: 免费版)"}, status_code=403)
     private_key = (body.get("private_key") or "").strip()
     wallet = (body.get("wallet") or "").strip() or None
     relayer_key = (body.get("relayer_key") or "").strip() or None

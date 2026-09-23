@@ -92,7 +92,7 @@ h1{text-align:center;font-size:20px;margin-bottom:4px}
         <div class="captcha-row"><input class="input" id="r-cap" placeholder="输入右侧4位字符" style="text-transform:uppercase" maxlength="4"><img id="cap-img2" alt="验证码" onclick="loadCaptcha()"></div>
         <div class="hint">验证码用于防止机器人批量注册，提交后自动刷新</div>
       </div>
-      <label class="terms"><input type="checkbox" id="r-terms" checked> 我已阅读并同意《服务条款》与《风险披露声明》：数字资产对冲交易存在风险，实盘交易可能造成本金损失。</label>
+      <label class="terms"><input type="checkbox" id="r-terms"> 我已阅读并同意<a href="/terms" target="_blank" style="color:#f7a600">《服务条款》</a>与<a href="/terms" target="_blank" style="color:#f7a600">《风险披露声明》</a>：数字资产对冲交易存在风险，实盘交易可能造成本金损失。</label>
       <button class="btn" id="btn-register" onclick="doRegister()">注册并领取 $100 模拟资金</button>
       <div class="linkrow" style="justify-content:center"><a onclick="swTab('login')">已有账号？直接登录</a></div>
     </div>
@@ -174,7 +174,7 @@ async function doRegister(){
   if(!$('r-terms').checked){showErr('请先勾选同意服务条款与风险声明');return}
   if(!c || !capId2){showErr('请输入验证码');return}
   busy = true; lock(b); b.textContent = '注册中…';
-  var r = await post('/api/auth/register', {username:u, email:m, password:p, captcha_id:capId2, captcha_code:c});
+  var r = await post('/api/auth/register', {username:u, email:m, password:p, captcha_id:capId2, captcha_code:c, terms: $('r-terms').checked});
   if(r.data.ok){
     showOk('注册成功！$100 模拟资金已到账，正在进入交易室…');
     setTimeout(function(){location.href='/trade'}, 800);
