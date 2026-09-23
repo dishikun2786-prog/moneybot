@@ -573,6 +573,13 @@ def terms_page():
     return FileResponse(STATIC / "terms.html")
 
 
+@app.get("/m")
+def mobile_page():
+    """移动版交易室 (手机优先, 全功能: 登录/行情/PM/交易/资产/密钥/管理)
+    页面本身含登录/注册屏, 无需会话拦截; 登录态由页内 /api/auth/me 探测"""
+    return FileResponse(STATIC / "m.html")
+
+
 @app.get("/api/keys")
 def api_keys(su=Depends(require_session_user)):
     return {"keys": keys.list_keys(su["u"]), "limits": keys.get_limits(su["u"])}

@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 
-E2E_HOME = os.environ.get("E2E_HOME", "/tmp/m1_e2e_home")
+E2E_HOME = os.environ.get("E2E_HOME") or tempfile.mkdtemp(prefix="m1_e2e_")
 os.makedirs(E2E_HOME, exist_ok=True)
 os.environ["USERS_DB"] = os.path.join(E2E_HOME, "e2e_users.db")
 
