@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交易室 · 移动端 UI 原型（多用户版）</title>
+<style>
+/* ============ 设计令牌 ============ */
+:root{
+  --bg:#0a0b0e;            /* 页面底色 */
+  --app-bg:#121318;        /* 应用底色 */
+  --surface:#1a1c23;       /* 卡片面 */
+  --surface-2:#22242e;     /* 抬高面/输入框 */
+  --border:#262933;        /* 分隔线 */
+  --border-2:#323648;      /* 强分隔 */
+  --text:#eceef3;          /* 主文字 */
+  --text-2:#9aa3b2;        /* 次文字 */
+  --text-3:#5c6470;        /* 弱文字 */
+  --accent:#f7a600;        /* 品牌黄 */
+  --accent-soft:rgba(247,166,0,.12);
+  --up:#3ebd93;            /* 多/涨 */
+  --up-soft:rgba(62,189,147,.14);
+  --down:#f6465d;          /* 空/跌 */
+  --down-soft:rgba(246,70,93,.14);
+  --radius:12px;
+  --radius-s:8px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:'Inter',system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;
+  display:flex;gap:0;align-items:flex-start;padding:24px;justify-content:flex-start}
+/* ============ 左侧控制面板 (演示用) ============ */
+.panel{width:280px;flex:none;position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto;padding-right:8px}
+.panel h1{font-size:15px;font-weight:700;margin-bottom:4px}
+.panel .sub{font-size:12px;color:var(--text-3);line-height:1.6;margin-bottom:14px}
+.panel .grp{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 6px}
+.panel button.nav{display:flex;width:100%;text-align:left;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;
+  background:none;border:1px solid transparent;color:var(--text-2);font-size:13px;cursor:pointer;font-family:var(--sans)}
+.panel button.nav:hover{background:var(--surface)}
+.panel button.nav.on{background:var(--accent-soft);color:var(--accent);border-color:rgba(247,166,0,.35)}
+.panel button.nav .dot{width:6px;height:6px;border-radius:50%;background:var(--text-3);flex:none}
+.panel button.nav.on .dot{background:var(--accent)}
+.panel .note{margin-top:16px;padding:10px 12px;border-radius:8px;background:var(--surface);
+  font-size:11px;color:var(--text-3);line-height:1.7}
+.panel .note b{color:var(--text-2)}
+/* ============ 手机框 ============ */
+.stage{flex:1;display:flex;justify-content:center;min-width:0;padding:10px 0}
+.phone{width:390px;height:844px;flex:none;background:var(--app-bg);border-radius:46px;position:relative;
+  border:1px solid #2c2f3a;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 10px #17181d;overflow:hidden;
+  display:flex;flex-direction:column}
+/* 状态栏 + 灵动岛 */
+.statusbar{height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:12px;font-weight:600}
+.statusbar .time{font-variant-numeric:tabular-nums}
+.island{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:110px;height:28px;background:#000;border-radius:16px;z-index:5}
+/* 应用头 */
+.apphead{height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--border)}
+.apphead .title{font-size:16px;font-weight:700;display:flex;align-items:center;gap:7px}
+.apphead .title .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#000;font-weight:900;font-size:12px}
+.apphead .acts{display:flex;gap:6px}
+.iconbtn{width:34px;height:34px;border-radius:8px;background:none;border:1px solid transparent;color:var(--text-2);
+  font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.iconbtn:hover{background:var(--surface);border-color:var(--border)}
+/* 内容区 */
+.body{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+.screen{display:none;padding:12px 12px 96px;animation:fade .18s ease}
+.screen.on{display:block}
+@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* ============ 底部导航 ============ */
+.tabbar{flex:none;height:64px;display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
+.tabbar button{flex:1;background:none;border:none;color:var(--text-3);font-size:10px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--sans);min-height:44px}
+.tabbar button .ico{font-size:19px;line-height:1}
+.tabbar button.on{color:var(--accent)}
+/* ============ 通用组件 ============ */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+.card .ct{font-size:11px;color:var(--text-3);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .down{color:var(--down)} .accent{color:var(--accent)}
+.muted{color:var(--text-3)} .dim{color:var(--text-2)}
+.small{font-size:11px} .xs{font-size:10px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:3px 8px;border-radius:999px;font-weight:600}
+.badge.green{background:var(--up-soft);color:var(--up)}
+.badge.red{background:var(--down-soft);color:var(--down)}
+.badge.yellow{background:var(--accent-soft);color:var(--accent)}
+.badge.gray{background:rgba(154,163,178,.12);color:var(--text-2)}
+.seg{display:flex;background:var(--surface-2);border-radius:8px;padding:3px;gap:3px}
+.seg button{flex:1;border:none;background:none;color:var(--text-2);font-size:12px;padding:7px 0;border-radius:6px;
+  cursor:pointer;font-family:var(--sans);min-height:32px}
+.seg button.on{background:var(--bg);color:var(--text);font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;border:none;border-radius:10px;
+  font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:46px}
+.btn.buy{background:var(--up);color:#06251a}
+.btn.sell{background:var(--down);color:#2b0a10}
+.btn.accent{background:var(--accent);color:#1a1200}
+.btn.ghost{background:var(--surface-2);color:var(--text)}
+.btn.outline{background:none;border:1px solid var(--border-2);color:var(--text-2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;color:var(--text);
+  padding:12px;font-size:14px;font-family:var(--sans);outline:none;min-height:46px}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text-3)}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:11px;color:var(--text-2);margin-bottom:6px}
+.field .hint{font-size:10px;color:var(--text-3);margin-top:5px;line-height:1.5}
+/* 帮助说明弹层 */
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border-2);
+  border-radius:18px 18px 0 0;padding:18px 16px 22px;z-index:30;transform:translateY(105%);transition:transform .22s ease;max-height:62%;overflow:auto}
+.sheet.on{transform:none}
+.sheet h3{font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:7px}
+.sheet p{font-size:12px;color:var(--text-2);line-height:1.75;margin-bottom:8px}
+.sheet p b{color:var(--text)}
+.sheet .close{position:absolute;right:14px;top:14px;background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer}
+/* 首启引导 */
+.guide{position:absolute;inset:0;background:rgba(4,5,8,.92);z-index:40;display:none;flex-direction:column;padding:40px 28px 36px}
+.guide.on{display:flex}
+.guide .steps{display:flex;gap:5px;margin-bottom:26px}
+.guide .steps i{flex:1;height:3px;border-radius:2px;background:var(--border-2)}
+.guide .steps i.on{background:var(--accent)}
+.guide .gicon{width:56px;height:56px;border-radius:16px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:18px}
+.guide h2{font-size:19px;margin-bottom:10px}
+.guide p{font-size:13px;color:var(--text-2);line-height:1.8;flex:1}
+.guide p b{color:var(--accent);font-weight:600}
+.guide .gbtns{display:flex;gap:10px;margin-top:16px}
+.guide .gbtns .btn{flex:1}
+/* ============ 各屏 ============ */
+/* 登录 */
+.authbox{padding:34px 8px 0}
+.authbox .logo-big{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#f7a600,#ff7a00);
+  display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#1a1200;margin:0 auto 16px}
+.authbox h2{text-align:center;font-size:20px;margin-bottom:4px}
+.authbox .slogan{text-align:center;font-size:12px;color:var(--text-3);margin-bottom:26px}
+.captcha-row{display:flex;gap:8px}
+.captcha-row .input{flex:1}
+.captcha-row canvas{width:110px;height:46px;border-radius:10px;border:1px solid var(--border);cursor:pointer;background:#1e222c;flex:none}
+.linkrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:14px 2px 0}
+.linkrow a{color:var(--accent);text-decoration:none;cursor:pointer}
+/* 行情 */
+.market-item{display:flex;align-items:center;gap:10px;padding:12px 10px;border-radius:10px;cursor:pointer}
+.market-item:hover{background:var(--surface)}
+.market-item .mk{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex:none}
+.market-item .nm{flex:1;min-width:0}
+.market-item .nm .t{font-size:13px;font-weight:600}
+.market-item .nm .s{font-size:10px;color:var(--text-3)}
+.market-item .pr{text-align:right;font-family:var(--mono);font-size:13px}
+.market-item .chg{width:64px;text-align:center;font-size:11px;font-weight:700;padding:4px 0;border-radius:6px;font-family:var(--mono)}
+.chg.up{background:var(--up-soft)} .chg.down{background:var(--down-soft)}
+/* 交易屏 */
+.sym-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sym-head .l{display:flex;align-items:center;gap:8px;cursor:pointer}
+.sym-head .l .n{font-size:17px;font-weight:700}
+.sym-head .l .sub{font-size:10px;color:var(--text-3)}
+.sym-head .r{text-align:right}
+.sym-head .r .p{font-size:18px;font-weight:700;font-family:var(--mono)}
+.sym-head .r .c{font-size:11px;font-family:var(--mono)}
+.tabbody{display:none} .tabbody.on{display:block}
+/* K线 */
+.chart{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px;margin-bottom:10px}
+.chart svg{display:block;width:100%;height:auto}
+.chart .cbar{display:flex;gap:14px;padding:6px 2px 0;font-size:10px;color:var(--text-3);font-family:var(--mono)}
+/* 盘口 */
+.orderbook .ob-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;
+  padding:4px 8px;position:relative;border-radius:4px}
+.orderbook .ob-item .depthbar{position:absolute;right:0;top:0;bottom:0;opacity:.12;border-radius:4px;pointer-events:none}
+.orderbook .mid{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--surface-2);
+  border-radius:8px;margin:6px 0;font-family:var(--mono)}
+.orderbook .mid .p{font-size:17px;font-weight:700}
+/* 下单票 */
+.ticket .dirrow{display:flex;gap:8px;margin-bottom:10px}
+.ticket .dirrow button{flex:1;padding:11px 0;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);
+  color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:46px}
+.ticket .dirrow button.on-buy{background:var(--up-soft);color:var(--up);border-color:var(--up)}
+.ticket .dirrow button.on-sell{background:var(--down-soft);color:var(--down);border-color:var(--down)}
+.ticket .trow{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ticket .trow .k{font-size:11px;color:var(--text-3)}
+.ticket .trow .v{font-size:12px;color:var(--text-2);font-family:var(--mono)}
+.ticket .amount-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}
+.ticket .amount-grid button{padding:8px 0;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-2);
+  font-size:12px;cursor:pointer;font-family:var(--mono)}
+.ticket .amount-grid button:hover{border-color:var(--accent);color:var(--accent)}
+.tpsl{display:flex;gap:8px}
+.tpsl .field{flex:1}
+/* 持仓 */
+.pos-card{border-left:3px solid transparent}
+.pos-card.long{border-left-color:var(--up)}
+.pos-card.short{border-left-color:var(--down)}
+.pos-card .phead{display:flex;justify-content:space-between;margin-bottom:8px}
+.pos-card .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.pos-card .grid3 .k{font-size:10px;color:var(--text-3);margin-bottom:3px}
+.pos-card .grid3 .v{font-size:13px;font-family:var(--mono)}
+/* 资产 */
+.equity{background:linear-gradient(150deg,#1c1e28,#15161d);border:1px solid var(--border-2);border-radius:16px;padding:18px;margin-bottom:12px}
+.equity .t{font-size:11px;color:var(--text-2);margin-bottom:6px}
+.equity .big{font-size:30px;font-weight:800;font-family:var(--mono);letter-spacing:-.02em}
+.equity .sub{font-size:11px;margin-top:6px;font-family:var(--mono)}
+.curve-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px}
+.curve-wrap svg{display:block;width:100%;height:auto}
+/* 我的 */
+.profile-head{display:flex;align-items:center;gap:12px;padding:16px 12px}
+.profile-head .avatar{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#f7a600,#ff7a00);
+  display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#1a1200;flex:none}
+.profile-head .nm{font-size:16px;font-weight:700}
+.profile-head .plan{margin-top:4px}
+.menulist{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px}
+.menulist .mi{display:flex;align-items:center;gap:12px;padding:14px 12px;border-bottom:1px solid var(--border);cursor:pointer;min-height:50px}
+.menulist .mi:last-child{border-bottom:none}
+.menulist .mi:hover{background:var(--surface-2)}
+.menulist .mi .ico{font-size:17px;width:22px;text-align:center}
+.menulist .mi .t{flex:1;font-size:13px}
+.menulist .mi .r{font-size:11px;color:var(--text-3)}
+.menulist .mi .chev{color:var(--text-3);font-size:11px}
+/* 密钥绑定 */
+.keycard .khead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.keycard .khead .t{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.pwdwrap{position:relative}
+.pwdwrap .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-3);font-size:13px;cursor:pointer;font-family:var(--sans)}
+.sectip{display:flex;gap:8px;padding:10px;border-radius:10px;background:var(--accent-soft);border:1px solid rgba(247,166,0,.25);margin-bottom:12px}
+.sectip .i{font-size:14px;flex:none;margin-top:1px}
+.sectip .t{font-size:11px;color:#e8c988;line-height:1.6}
+/* 管理后台 */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.stat .k{font-size:10px;color:var(--text-3);margin-bottom:5px}
+.stat .v{font-size:20px;font-weight:800;font-family:var(--mono)}
+.stat .d{font-size:10px;margin-top:4px;font-family:var(--mono)}
+.user-item{display:flex;align-items:center;gap:10px;padding:12px 10px;border-bottom:1px solid var(--border);cursor:pointer}
+.user-item:hover{background:var(--surface-2)}
+.user-item:last-child{border-bottom:none}
+.user-item .av{width:36px;height:36px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.user-item .u{flex:1;min-width:0}
+.user-item .u .n{font-size:13px;font-weight:600}
+.user-item .u .m{font-size:10px;color:var(--text-3);margin-top:2px}
+/* 提示条 toast */
+.toast{position:absolute;left:50%;top:86px;transform:translateX(-50%) translateY(-16px);background:#23262f;
+  border:1px solid var(--border-2);color:var(--text);font-size:12px;padding:10px 16px;border-radius:10px;
+  opacity:0;transition:.2s;z-index:50;pointer-events:none;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.toast.on{opacity:1;transform:translateX(-50%)}
+/* 遮罩 */
+.mask{position:absolute;inset:0;background:rgba(4,5,8,.6);z-index:25;display:none}
+.mask.on{display:block}
+</style>
+</head>
+<body>
+
+<!-- ================= 左侧演示控制面板 ================= -->
+<aside class="panel">
+  <h1>交易室 · 移动端原型</h1>
+  <div class="sub">Bybit 式深色交易所语汇 · 多用户商业版<br>9 屏 + 首启引导 + 每屏中文说明</div>
+  <div class="grp">核心流程</div>
+  <button class="nav on" data-s="guide" onclick="showGuide()">🚀 首启引导（5步）</button>
+  <button class="nav" data-s="login" onclick="go('login')">🔐 登录（账号+验证码）</button>
+  <button class="nav" data-s="register" onclick="go('register')">📝 注册（密码+验证码）</button>
+  <div class="grp">用户端</div>
+  <button class="nav" data-s="markets" onclick="go('markets')">📈 行情列表</button>
+  <button class="nav" data-s="trade" onclick="go('trade')">⚡ 交易主界面</button>
+  <button class="nav" data-s="assets" onclick="go('assets')">💰 资产总览</button>
+  <button class="nav" data-s="profile" onclick="go('profile')">👤 我的（用户中心）</button>
+  <button class="nav" data-s="keys" onclick="go('keys')">🔑 密钥绑定（实盘）</button>
+  <div class="grp">管理端</div>
+  <button class="nav" data-s="admin" onclick="go('admin')">🛡 总管理后台</button>
+  <div class="note">
+    <b>设计系统</b>：炭黑 #121318 · 品牌黄 #f7a600 · 多绿 #3ebd93 / 空红 #f6465d<br>
+    <b>交互说明</b>：手机底部导航可点击；每屏右上角「?」打开该屏中文白话引导；下单/测试连通/开关均可点击。<br>
+    <b>演示数据</b>：本原型所有行情与数字均为界面示意，非真实数据。
+  </div>
+</aside>
+
+<!-- ================= 手机 ================= -->
+<div class="stage">
+<div class="phone">
+  <div class="island"></div>
+  <div class="statusbar"><span class="time">21:43</span><span style="display:flex;gap:5px;align-items:center">📶 🔋 92%</span></div>
+
+  <!-- 应用头 -->
+  <div class="apphead">
+    <div class="title"><span class="logo">M</span><span id="head-title">交易室</span></div>
+    <div class="acts">
+      <button class="iconbtn" id="head-help" onclick="openSheet('help-'+curScreen)">?</button>
+    </div>
+  </div>
+
+  <!-- 内容 -->
+  <div class="body">
+
+    <!-- ===== 登录 ===== -->
+    <section class="screen" id="screen-login">
+      <div class="authbox">
+        <div class="logo-big">M</div>
+        <h2>欢迎回到交易室</h2>
+        <div class="slogan">中心行情数据 · 多用户对冲套利平台</div>
+        <div class="field"><label>账号 / 手机号</label><input class="input" placeholder="请输入账号" value="quant_user"></div>
+        <div class="field"><label>密码</label><input class="input" type="password" placeholder="请输入密码" value="••••••••"></div>
+        <div class="field"><label>图形验证码 <span class="xs muted">看不清点图片换一张</span></label>
+          <div class="captcha-row"><input class="input" placeholder="输入右侧字符" style="text-transform:uppercase"><canvas id="cap-canvas" width="110" height="46" onclick="drawCaptcha()"></canvas></div>
+        </div>
+        <button class="btn accent" onclick="toast('登录成功（演示）');go('markets')">登 录</button>
+        <div class="linkrow"><a onclick="toast('演示：验证码已发送至邮箱')">忘记密码？</a><a onclick="go('register')">注册新账号 →</a></div>
+      </div>
+    </section>
+
+    <!-- ===== 注册 ===== -->
+    <section class="screen" id="screen-register">
+      <div class="authbox">
+        <div class="logo-big">M</div>
+        <h2>创建你的账户</h2>
+        <div class="slogan">注册即可获得 $100 模拟资金</div>
+        <div class="field"><label>账号（4-20位字母/数字）</label><input class="input" placeholder="设置登录账号"></div>
+        <div class="field"><label>邮箱（用于找回密码）</label><input class="input" placeholder="name@example.com"></div>
+        <div class="field"><label>密码（至少8位，含字母+数字）</label><input class="input" type="password" placeholder="设置密码"></div>
+        <div class="field"><label>确认密码</label><input class="input" type="password" placeholder="再次输入密码"></div>
+        <div class="field"><label>图形验证码</label>
+          <div class="captcha-row"><input class="input" placeholder="输入右侧字符" style="text-transform:uppercase"><canvas id="cap-canvas2" width="110" height="46" onclick="drawCaptcha2()"></canvas></div>
+          <div class="hint">验证码用于防止机器人批量注册，每次提交后自动刷新</div>
+        </div>
+        <label style="display:flex;gap:7px;align-items:flex-start;margin:6px 0 14px;cursor:pointer;font-size:11px;color:var(--text-2);line-height:1.6">
+          <input type="checkbox" checked style="margin-top:2px"> 我已阅读并同意《服务条款》与《风险披露声明》：数字资产对冲交易存在风险，实盘交易可能造成本金损失。
+        </label>
+        <button class="btn accent" onclick="toast('注册成功（演示）');go('markets')">注册并领取 $100</button>
+        <div class="linkrow" style="justify-content:center"><a onclick="go('login')">已有账号？直接登录</a></div>
+      </div>
+    </section>
+
+    <!-- ===== 行情 ===== -->
+    <section class="screen" id="screen-markets">
+      <div class="seg" style="margin-bottom:10px"><button class="on">自选</button><button>合约</button><button>现货</button></div>
+      <div class="card" style="padding:8px">
+        <div class="market-item" onclick="go('trade')">
+          <div class="mk" style="background:#f7931a22;color:#f7931a">₿</div>
+          <div class="nm"><div class="t">BTCUSDT <span class="xs muted">永续</span></div><div class="s">比特币 · 资金费率 +0.010%</div></div>
+          <div class="pr">86,432.5</div><div class="chg up">+2.34%</div>
+        </div>
+        <div class="market-item" onclick="go('trade')">
+          <div class="mk" style="background:#627eea22;color:#8ea5f8">Ξ</div>
+          <div class="nm"><div class="t">ETHUSDT <span class="xs muted">永续</span></div><div class="s">以太坊 · 资金费率 +0.008%</div></div>
+          <div class="pr">2,751.40</div><div class="chg down">-1.12%</div>
+        </div>
+        <div class="market-item">
+          <div class="mk" style="background:#f7a60022;color:#f7a600">S</div>
+          <div class="nm"><div class="t">SOLUSDT <span class="xs muted">永续</span></div><div class="s">Solana</div></div>
+          <div class="pr">148.22</div><div class="chg up">+0.87%</div>
+        </div>
+      </div>
+      <div class="sectip"><div class="i">💡</div><div class="t"><b>白话说明：</b>这里是行情列表，点任意币种进入交易界面。「永续」=没有到期日的合约，可做多（看涨）也可做空（看跌）。资金费率是多空双方每8小时互付的利息。</div></div>
+    </section>
+
+    <!-- ===== 交易主界面 ===== -->
+    <section class="screen" id="screen-trade">
+      <div class="sym-head">
+        <div class="l"><div class="n">BTCUSDT</div><span class="sub">永续 · 比特币</span><span class="badge yellow">托管模式</span></div>
+        <div class="r"><div class="p up">86,432.5</div><div class="c up">+1,976.5 (+2.34%)</div></div>
+      </div>
+      <div class="seg" style="margin-bottom:10px" id="trade-tabs">
+        <button class="on" data-t="chart" onclick="swTab(this)">K线</button>
+        <button data-t="ob" onclick="swTab(this)">盘口</button>
+        <button data-t="pos" onclick="swTab(this)">持仓(1)</button>
+      </div>
+      <div class="tabbody on" id="tab-chart">
+        <div class="chart">
+          <svg viewBox="0 0 340 150" preserveAspectRatio="none">
+            <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3ebd93" stop-opacity=".18"/><stop offset="1" stop-color="#3ebd93" stop-opacity="0"/></linearGradient></defs>
+            <path d="M0 120 L340 30 L340 150 L0 150 Z" fill="url(#g1)"/>
+            <polyline points="0,120 25,108 48,112 72,94 96,100 120,78 144,86 168,62 192,70 216,52 240,60 264,42 288,50 312,34 340,30" fill="none" stroke="#3ebd93" stroke-width="1.6"/>
+            <polyline points="0,96 48,110 96,88 144,104 192,74 240,90 288,64 340,70" fill="none" stroke="#f7a600" stroke-width="1.1" stroke-dasharray="3 3" opacity=".7"/>
+          </svg>
+          <div class="cbar"><span>15m</span><span>1h</span><span style="color:var(--accent)">4h</span><span>1d</span><span>1w</span></div>
+        </div>
+        <div class="sectip"><div class="i">📊</div><div class="t"><b>白话说明：</b>绿色是价格走势；黄色虚线是「资金费率基准价」。下方可直接切换时间周期。看涨点下面「开多」，看跌点「开空」。</div></div>
+        <!-- 下单票 -->
+        <div class="card ticket">
+          <div class="dirrow">
+            <button id="dir-buy" class="on-buy" onclick="setDir('buy')">开多（看涨）</button>
+            <button id="dir-sell" onclick="setDir('sell')">开空（看跌）</button>
+          </div>
+          <div class="trow"><span class="k">价格 (USDT)</span><span class="v">86,432.5</span></div>
+          <div class="trow"><span class="k">数量</span><span class="v">0.0100 BTC ≈ 864.33 USDT</span></div>
+          <div class="amount-grid">
+            <button onclick="toast('已填入 25%')">25%</button><button onclick="toast('已填入 50%')">50%</button>
+            <button onclick="toast('已填入 75%')">75%</button><button onclick="toast('已填入 100%')">100%</button>
+          </div>
+          <div class="tpsl">
+            <div class="field"><label>止盈</label><input class="input mono" value="87,800"></div>
+            <div class="field"><label>止损</label><input class="input mono" value="85,600"></div>
+          </div>
+          <button class="btn buy" id="order-btn" onclick="placeOrder()">买入 / 开多 · 保证金 $20</button>
+        </div>
+      </div>
+      <div class="tabbody" id="tab-ob">
+        <div class="card orderbook" style="padding:8px">
+          <div class="ct">盘口深度 <span class="xs muted">卖单在上 · 买单在下</span></div>
+          <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)">
+            <span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
+          <div class="ob-item"><span class="down">86,452.5</span><span style="text-align:right">1.24</span><span style="text-align:right">1.24</span><div class="depthbar" style="background:#f6465d;width:18%"></div></div>
+          <div class="ob-item"><span class="down">86,449.0</span><span style="text-align:right">3.02</span><span style="text-align:right">4.26</span><div class="depthbar" style="background:#f6465d;width:42%"></div></div>
+          <div class="ob-item"><span class="down">86,445.5</span><span style="text-align:right">6.80</span><span style="text-align:right">11.06</span><div class="depthbar" style="background:#f6465d;width:90%"></div></div>
+          <div class="ob-item"><span class="down">86,441.0</span><span style="text-align:right">2.15</span><span style="text-align:right">13.21</span><div class="depthbar" style="background:#f6465d;width:30%"></div></div>
+          <div class="mid"><span>86,432.5</span><span class="up xs">↕ 最新成交价</span></div>
+          <div class="ob-item"><span class="up">86,428.0</span><span style="text-align:right">4.50</span><span style="text-align:right">4.50</span><div class="depthbar" style="background:#3ebd93;width:60%"></div></div>
+          <div class="ob-item"><span class="up">86,424.5</span><span style="text-align:right">8.12</span><span style="text-align:right">12.62</span><div class="depthbar" style="background:#3ebd93;width:95%"></div></div>
+          <div class="ob-item"><span class="up">86,420.0</span><span style="text-align:right">2.88</span><span style="text-align:right">15.50</span><div class="depthbar" style="background:#3ebd93;width:38%"></div></div>
+          <div class="ob-item"><span class="up">86,415.5</span><span style="text-align:right">1.05</span><span style="text-align:right">16.55</span><div class="depthbar" style="background:#3ebd93;width:14%"></div></div>
+        </div>
+        <div class="sectip"><div class="i">📖</div><div class="t"><b>白话说明：</b>上面红色=卖单挂单（想卖的人），下面绿色=买单挂单（想买的人）。柱条越长说明这个价位挂单越多，是「墙」——价格到这里容易遇阻/受支撑。</div></div>
+      </div>
+      <div class="tabbody" id="tab-pos">
+        <div class="card pos-card long">
+          <div class="phead"><div><span class="badge green">做多</span> <b style="font-size:13px">BTCUSDT 永续</b><div class="xs muted" style="margin-top:3px">套利策略 · 托管模式</div></div>
+            <div style="text-align:right"><div class="mono" style="font-size:16px;font-weight:700" id="pos-upnl">+2.86</div><div class="xs muted">未实现盈亏(USDT)</div></div></div>
+          <div class="grid3">
+            <div><div class="k">开仓均价</div><div class="v">85,900.0</div></div>
+            <div><div class="k">标记价格</div><div class="v">86,432.5</div></div>
+            <div><div class="k">数量</div><div class="v">0.01 BTC</div></div>
+          </div>
+          <div class="row">
+            <button class="btn outline" style="width:31%" onclick="toast('演示：止盈止损已修改')">止盈止损</button>
+            <button class="btn outline" style="width:31%" onclick="toast('演示：已切换手动模式')">切换手动</button>
+            <button class="btn sell" style="width:31%" onclick="closePos(this)">平仓</button>
+          </div>
+        </div>
+        <div class="sectip"><div class="i">🎯</div><div class="t"><b>白话说明：</b>「未实现盈亏」=现在平仓能赚/亏多少（还没落袋）。托管模式=策略自动开平仓；切换手动后由你自己操作。平仓前会二次确认，防止误触。</div></div>
+      </div>
+    </section>
+
+    <!-- ===== 资产 ===== -->
+    <section class="screen" id="screen-assets">
+      <div class="equity">
+        <div class="t">账户总资产 (USDT) · 模拟账户</div>
+        <div class="big">102.86</div>
+        <div class="sub"><span class="up">今日 +2.86 (+2.86%)</span> · 可用保证金 82.35</div>
+      </div>
+      <div class="curve-wrap">
+        <div class="ct">今日盈亏曲线 <span class="xs muted">(演示数据)</span></div>
+        <svg viewBox="0 0 340 110" preserveAspectRatio="none">
+          <polyline points="0,90 30,84 60,88 90,70 120,76 150,58 180,64 210,44 240,52 270,36 300,42 340,22" fill="none" stroke="#3ebd93" stroke-width="2"/>
+          <polyline points="0,90 340,22" stroke="rgba(236,238,243,.12)" stroke-dasharray="4 4"/>
+        </svg>
+      </div>
+      <div class="card">
+        <div class="ct">资产分布</div>
+        <div class="row" style="padding:6px 0"><span class="dim">BTCUSDT 套利持仓</span><span class="mono">+864.33</span></div>
+        <div class="row" style="padding:6px 0"><span class="dim">循环策略（关闭）</span><span class="mono muted">0.00</span></div>
+        <div class="row" style="padding:6px 0"><span class="dim">可用保证金</span><span class="mono">82.35</span></div>
+      </div>
+      <div class="sectip"><div class="i">💰</div><div class="t"><b>白话说明：</b>总资产=所有持仓市值+可用资金。模拟账户初始资金 $100，与真实资金完全隔离，放心练习。</div></div>
+    </section>
+
+    <!-- ===== 我的 ===== -->
+    <section class="screen" id="screen-profile">
+      <div class="profile-head">
+        <div class="avatar">Q</div>
+        <div style="flex:1"><div class="nm">quant_user</div><div style="margin-top:4px"><span class="badge yellow">专业版 · 2026-10-22 到期</span></div></div>
+      </div>
+      <div class="menulist">
+        <div class="mi" onclick="go('keys')"><span class="ico">🔑</span><span class="t">API 密钥绑定<span class="xs muted"> · 实盘交易</span></span><span class="badge gray">未绑定</span><span class="chev">›</span></div>
+        <div class="mi" onclick="toast('演示：进入实盘设置')"><span class="ico">⚡</span><span class="t">实盘模式设置</span><span class="r">风控限额 / 白名单</span><span class="chev">›</span></div>
+        <div class="mi" onclick="toast('演示：订阅页')"><span class="ico">💳</span><span class="t">订阅与套餐</span><span class="r">专业版</span><span class="chev">›</span></div>
+        <div class="mi" onclick="toast('演示：安全设置')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 2FA</span><span class="chev">›</span></div>
+        <div class="mi" onclick="toast('演示：帮助中心')"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
+        <div class="mi" onclick="toast('演示：退出登录')"><span class="ico">🚪</span><span class="t" style="color:var(--down)">退出登录</span><span class="chev">›</span></div>
+      </div>
+      <div class="menulist">
+        <div class="mi" onclick="go('admin')"><span class="ico">🛠️</span><span class="t">管理后台</span><span class="badge yellow">管理员</span><span class="chev">›</span></div>
+      </div>
+      <div class="sectip"><div class="i">👤</div><div class="t"><b>白话说明：</b>「API 密钥绑定」是开启实盘的前提：绑定你自己的 Bybit/Polymarket 密钥后，才能用真实资金按策略交易。密钥全程加密存储，平台不接触明文。</div></div>
+    </section>
+
+    <!-- ===== 密钥绑定 ===== -->
+    <section class="screen" id="screen-keys">
+      <div class="card keycard">
+        <div class="khead"><div class="t"><span style="font-size:16px">🟧</span> Bybit 密钥</div><span class="badge gray">未绑定</span></div>
+        <div class="field"><label>API Key</label>
+          <div class="pwdwrap"><input class="input mono" id="bybit-key" placeholder="从 Bybit 官网创建 API Key" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+        </div>
+        <div class="field"><label>API Secret</label>
+          <div class="pwdwrap"><input class="input mono" type="password" placeholder="仅用于服务端签名，不回传展示" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+          <div class="hint">Secret 提交后即 AES-256-GCM 加密存储，任何人（含管理员）都无法再次查看明文</div>
+        </div>
+        <button class="btn outline" onclick="testKey('Bybit')">🔌 连通性测试（余额/权限校验）</button>
+        <div id="key-test-result" style="display:none;margin-top:8px"></div>
+      </div>
+      <div class="card keycard">
+        <div class="khead"><div class="t"><span style="font-size:16px">🟦</span> Polymarket 钱包</div><span class="badge gray">未绑定</span></div>
+        <div class="field"><label>钱包私钥 / Relayer Key</label>
+          <div class="pwdwrap"><input class="input mono" type="password" placeholder="支持 CLOB 交易的钱包密钥" style="padding-right:40px"><button class="eye" onclick="toast('演示：切换明文/隐藏')">👁</button></div>
+          <div class="hint">PM 部分国家/地区受限，请确认所在地合规后再绑定</div>
+        </div>
+        <button class="btn outline" onclick="testKey('Polymarket')">🔌 连通性测试</button>
+      </div>
+      <div class="sectip"><div class="i">🔒</div><div class="t"><b>白话说明：</b>① 绑定后先做「连通性测试」——确认密钥有效、有余额、权限正确；② 实盘有独立风控：单笔上限、日亏熔断、交易对白名单；③ 建议先在 Bybit 开通「只交易」权限的子账户密钥。</div></div>
+    </section>
+
+    <!-- ===== 管理后台 ===== -->
+    <section class="screen" id="screen-admin">
+      <div class="row" style="margin-bottom:10px"><b style="font-size:15px">总管理后台</b><span class="badge yellow">管理员</span></div>
+      <div class="stat-grid">
+        <div class="stat"><div class="k">注册用户</div><div class="v">1,284</div><div class="d up">+36 今日</div></div>
+        <div class="stat"><div class="k">活跃用户</div><div class="v">312</div><div class="d dim">24.3% 活跃率</div></div>
+        <div class="stat"><div class="k">订阅收入</div><div class="v">$8,540</div><div class="d up">本月累计</div></div>
+        <div class="stat"><div class="k">实盘绑定</div><div class="v">87</div><div class="d dim">6.8% 转化率</div></div>
+      </div>
+      <div class="card" style="padding:8px">
+        <div class="ct" style="padding:4px 4px 8px">用户管理 <span class="xs muted">点用户进入详情</span></div>
+        <div class="user-item" onclick="toast('演示：进入用户详情页')">
+          <div class="av">A</div><div class="u"><div class="n">alice_trade</div><div class="m">注册 2026-09-20 · 专业版</div></div>
+          <span class="badge green">实盘已绑</span><span class="chev" style="color:var(--text-3)">›</span>
+        </div>
+        <div class="user-item" onclick="toast('演示：进入用户详情页')">
+          <div class="av">B</div><div class="u"><div class="n">bob_quant</div><div class="m">注册 2026-09-21 · 免费版</div></div>
+          <span class="badge gray">模拟</span><span class="chev" style="color:var(--text-3)">›</span>
+        </div>
+        <div class="user-item" onclick="toast('演示：进入用户详情页')">
+          <div class="av">C</div><div class="u"><div class="n">carol_hf</div><div class="m">注册 2026-09-22 · 实盘版</div></div>
+          <span class="badge red">风控冻结</span><span class="chev" style="color:var(--text-3)">›</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">用户限额配置（示例：alice_trade）</div>
+        <div class="trow" style="margin-bottom:8px"><span class="k xs muted">单笔最大名义</span><span class="v mono">$500</span></div>
+        <input type="range" min="50" max="2000" step="50" value="500" style="width:100%" oninput="this.nextElementSibling.textContent=this.value">
+        <div class="xs muted" style="text-align:right;font-family:var(--mono);margin-top:2px">500</div>
+        <div class="trow" style="margin:8px 0"><span class="k xs muted">日亏熔断线</span><span class="v mono">$50</span></div>
+        <div class="trow" style="margin:8px 0"><span class="k xs muted">允许交易对</span><span class="v mono">BTC/ETH 永续</span></div>
+        <div class="row" style="margin-top:10px;gap:8px">
+          <button class="btn outline" onclick="toast('演示：限额已保存+审计留痕')">保存限额</button>
+          <button class="btn outline" style="color:var(--down)" onclick="toast('演示：已禁用该用户')">禁用用户</button>
+        </div>
+      </div>
+      <div class="sectip"><div class="i">🛡️</div><div class="t"><b>白话说明：</b>管理员可管理用户、设置风控限额、绑定/解绑密钥、查看审计日志。用户密钥只显示「绑定状态」，永不明文展示。所有管理操作自动留审计痕（谁、何时、做了什么）。</div></div>
+    </section>
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="tabbar">
+    <button class="on" data-s="markets" onclick="go('markets')"><span class="ico">📈</span>行情</button>
+    <button data-s="trade" onclick="go('trade')"><span class="ico">⚡</span>交易</button>
+    <button data-s="assets" onclick="go('assets')"><span class="ico">💰</span>资产</button>
+    <button data-s="profile" onclick="go('profile')"><span class="ico">👤</span>我的</button>
+  </div>
+
+  <!-- 帮助说明弹层 -->
+  <div class="mask" id="mask" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet">
+    <button class="close" onclick="closeSheet()">✕</button>
+    <div id="sheet-body"></div>
+  </div>
+
+  <!-- 首启引导 -->
+  <div class="guide" id="guide">
+    <div class="steps"><i class="on" id="gs0"></i><i id="gs1"></i><i id="gs2"></i><i id="gs3"></i><i id="gs4"></i></div>
+    <div id="guide-body"></div>
+    <div class="gbtns">
+      <button class="btn ghost" id="g-skip" onclick="closeGuide()">跳过</button>
+      <button class="btn accent" id="g-next" onclick="guideNext()">下一步</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+</div>
+
+<script>
+/* ============ 屏幕路由 ============ */
+var curScreen = 'guide';
+var SCREENS = ['login','register','markets','trade','assets','profile','keys','admin'];
+var TITLES = {login:'交易室',register:'创建账户',markets:'行情',trade:'BTCUSDT',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台'};
+function go(s){
+  if(curScreen===s){return}
+  curScreen = s;
+  document.querySelectorAll('.screen').forEach(function(el){el.classList.remove('on')});
+  document.getElementById('screen-'+s).classList.add('on');
+  document.getElementById('head-title').textContent = TITLES[s];
+  document.querySelectorAll('.tabbar button').forEach(function(b){b.classList.toggle('on', b.dataset.s===s)});
+  document.querySelectorAll('.panel button.nav').forEach(function(b){b.classList.toggle('on', b.dataset.s===s)});
+  closeSheet();
+}
+/* ============ 底部导航高亮同步 ============ */
+function goTrade(){go('trade');}
+/* ============ 帮助说明 ============ */
+var HELPS = {
+  login:'<h3>💡 登录页怎么用</h3><p><b>账号+密码+图形验证码</b>三重验证。验证码看不清就点图片换一张。<br>连续输错 5 次账号会锁定 15 分钟（防暴力破解）。<br>「忘记密码」通过注册邮箱找回。还没有账号？点下方注册，<b>注册即送 $100 模拟资金</b>。</p>',
+  register:'<h3>💡 注册页怎么用</h3><p>① 设置账号和密码（8位以上、含字母+数字）<br>② 填邮箱用于找回密码<br>③ 输入图形验证码（防机器人）<br>④ 勾选同意服务条款与风险声明<br>完成后自动登录并发放 <b>$100 模拟资金</b>，先用模拟账户熟悉交易，再考虑实盘。</p>',
+  markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对的<b>最新价和 24h 涨跌幅</b>（绿涨红跌）。<br>点击任意币种进入交易界面。<br>「永续」= 没有到期日的合约，既可以<b>做多</b>（押涨）也可以<b>做空</b>（押跌）。<br>资金费率：多空双方每 8 小时互付一次利息，是本平台套利策略的核心收益来源。</p>',
+  trade:'<h3>💡 交易页怎么用</h3><p>顶部是<b>实时价格与涨跌幅</b>。<br><b>K线</b>看走势 · <b>盘口</b>看买卖挂单 · <b>持仓</b>看现有仓位。<br>下单区：先选「开多看涨」或「开空看跌」，设好止盈止损，点买入/卖出。<br>持仓卡可「止盈止损」「切换手动/托管」「平仓」（平仓有二次确认）。<br>⚠️ 手动模式由你自己决策；托管模式由策略自动开平仓。</p>',
+  assets:'<h3>💡 资产页怎么用</h3><p><b>总资产</b> = 持仓市值 + 可用资金。<br><b>今日盈亏曲线</b>看当天赚亏走势。<br><b>资产分布</b>列出各策略占用资金与可用保证金。<br>模拟账户资金与真实资金完全隔离，可放心练习。</p>',
+  profile:'<h3>💡 我的页怎么用</h3><p><b>API 密钥绑定</b>：开启实盘的入口（绑定你自己的 Bybit/Polymarket 密钥）。<br><b>实盘模式设置</b>：风控限额、交易对白名单。<br><b>订阅与套餐</b>：升级/续费。<br><b>新手教程</b>：3 分钟学会对冲套利。<br>管理员账号额外可见「管理后台」入口。</p>',
+  keys:'<h3>💡 密钥绑定怎么用</h3><p>① 到 Bybit 官网创建 API Key（建议开「只交易」权限的子账户密钥）<br>② 填入 Key 和 Secret → 点<b>连通性测试</b>：系统校验密钥有效、余额、权限<br>③ 测试通过后才可开启实盘<br>Secret 提交即加密存储（AES-256-GCM），<b>任何人包括管理员都无法再查看明文</b>。实盘有独立风控：单笔上限、日亏熔断、白名单。</p>',
+  admin:'<h3>💡 管理后台怎么用</h3><p><b>统计面板</b>：注册数/活跃/收入/实盘转化。<br><b>用户管理</b>：点击用户进入详情，可设风控限额、禁用/启用、重置密码。<br><b>密钥管理</b>：只显示绑定状态，支持强制解绑。<br><b>审计日志</b>：所有管理操作留痕（谁、何时、做了什么）。<br>平台运营要点：模拟免费获客 → 专业版订阅 → 实盘版变现。</p>'
+};
+function openSheet(k){
+  if(curScreen==='guide'){return}
+  document.getElementById('sheet-body').innerHTML = HELPS[curScreen] || '';
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('mask').classList.add('on');
+}
+function closeSheet(){
+  document.getElementById('sheet').classList.remove('on');
+  document.getElementById('mask').classList.remove('on');
+}
+/* ============ 首启引导 ============ */
+var G = [
+  {icon:'👋',t:'欢迎使用交易室',p:'这里是<b>多用户对冲套利平台</b>：中心实时行情 + 专业策略 + 模拟/实盘交易，手机随时操作。<br><br>首次使用，花 20 秒了解核心功能。'},
+  {icon:'📈',t:'中心行情 · 登录即用',p:'行情、盘口、微结构数据全部由平台 7×24 采集（<b>100ms 级实时推送</b>），你无需自建任何数据管道。<br><br>注册即送 <b>$100 模拟资金</b>，先用模拟账户练手。'},
+  {icon:'⚡',t:'三种策略 · 一键托管',p:'<b>现货×永续套利</b>：赚资金费率利息<br><b>预测市场对冲</b>：赚价格回归差价<br><b>循环恢复策略</b>：波段量能小单循环<br><br>每套策略都有「托管/手动」双模式：托管=策略自动交易，手动=你自己决策。'},
+  {icon:'🛡️',t:'风控内置 · 亏损有底',p:'所有仓位强制<b>止盈止损</b>；每日亏损熔断；单笔上限；交易对白名单。<br><br>托管模式亏损到线自动停手——先活下来，再谈盈利。'},
+  {icon:'🔑',t:'实盘交易 · 你的密钥你做主',p:'模拟交易免费。想用真实资金？<b>绑定你自己的 Bybit / Polymarket 密钥</b>即可，密钥 AES-256 加密存储，平台不接触明文。<br><br>一切就绪，开始吧！'}
+];
+var gi = 0;
+function renderGuide(){
+  document.getElementById('guide-body').innerHTML =
+    '<div class="gicon">'+G[gi].icon+'</div><h2>'+G[gi].t+'</h2><p>'+G[gi].p+'</p>';
+  for(var i=0;i<5;i++){document.getElementById('gs'+i).className = i===gi?'on':''}
+  document.getElementById('g-next').textContent = gi===4?'开始交易':'下一步';
+  document.getElementById('g-skip').style.display = gi===4?'none':'block';
+}
+function guideNext(){
+  if(gi<4){gi++;renderGuide()}
+  else{closeGuide();go('login')}
+}
+function showGuide(){gi=0;renderGuide();document.getElementById('guide').classList.add('on')}
+function closeGuide(){document.getElementById('guide').classList.remove('on')}
+/* ============ 验证码 ============ */
+function drawCaptcha(){
+  var c=document.getElementById('cap-canvas'),x=c.getContext('2d');
+  var s='23456789ABCDEFGHJKMNPQRSTUVWXYZ',v='';
+  x.fillStyle='#1e222c';x.fillRect(0,0,110,46);
+  for(var i=0;i<4;i++){
+    v+=s[Math.floor(Math.random()*s.length)];
+    x.font='bold 22px monospace';x.fillStyle=['#f7a600','#3ebd93','#eaecef','#f6465d'][i%4];
+    x.save();x.translate(12+i*23,30);x.rotate((Math.random()-.5)*.5);x.fillText(v[i],0,0);x.restore();
+  }
+  for(var j=0;j<6;j++){x.strokeStyle='rgba(154,163,178,.4)';x.beginPath();x.moveTo(Math.random()*110,Math.random()*46);x.lineTo(Math.random()*110,Math.random()*46);x.stroke()}
+  c.dataset.v=v;
+}
+function drawCaptcha2(){var c2=document.getElementById('cap-canvas2');drawCaptcha();var c=document.getElementById('cap-canvas'),x=c.getContext('2d');c2.getContext('2d').drawImage(c,0,0)}
+/* ============ 交易交互 ============ */
+var side='buy';
+function setDir(d){
+  side=d;
+  document.getElementById('dir-buy').className=d==='buy'?'on-buy':'';
+  document.getElementById('dir-sell').className=d==='sell'?'on-sell':'';
+  var b=document.getElementById('order-btn');
+  if(d==='buy'){b.className='btn buy';b.textContent='买入 / 开多 · 保证金 $20'}
+  else{b.className='btn sell';b.textContent='卖出 / 开空 · 保证金 $20'}
+}
+function swTab(b){
+  document.querySelectorAll('#trade-tabs button').forEach(function(x){x.classList.remove('on')});
+  b.classList.add('on');
+  document.querySelectorAll('.tabbody').forEach(function(x){x.classList.remove('on')});
+  document.getElementById('tab-'+b.dataset.t).classList.add('on');
+}
+function placeOrder(){
+  toast(side==='buy'?'开多委托已成交（演示）':'开空委托已成交（演示）');
+  swTab(document.querySelector('#trade-tabs button[data-t=pos]'));
+}
+function closePos(btn){
+  if(!btn.dataset.confirm){btn.dataset.confirm='1';btn.textContent='确认平仓?';btn.style.background='#8a1c2c';return}
+  delete btn.dataset.confirm;btn.textContent='平仓';btn.style.background='';
+  document.getElementById('pos-upnl').textContent='+0.00';
+  toast('已平仓，盈亏已计入账户（演示）');
+}
+function testKey(v){
+  var r=document.getElementById('key-test-result');
+  r.style.display='block';
+  r.innerHTML='<div class="sectip"><div class="i">⏳</div><div class="t">正在校验 '+v+' 密钥…（余额/权限/签名测试）</div></div>';
+  setTimeout(function(){
+    r.innerHTML='<div class="sectip"><div class="i">✅</div><div class="t"><b>连通性测试通过</b>：密钥有效 · 账户余额充足 · 交易权限正常。可开启实盘模式。</div></div>';
+    toast(v+' 密钥绑定成功（演示）');
+  },900);
+}
+/* ============ Toast ============ */
+var tt;
+function toast(m){
+  var t=document.getElementById('toast');t.textContent=m;t.classList.add('on');
+  clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('on')},1800);
+}
+/* ============ 初始化 ============ */
+document.getElementById('head-help').onclick=function(){openSheet('help-'+curScreen)};
+showGuide();
+drawCaptcha();
+</script>
+</body>
+</html>
