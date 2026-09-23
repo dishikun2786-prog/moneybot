@@ -625,8 +625,9 @@ select.input{appearance:none}
       <div class="stat-grid" id="admin-stats"></div>
       <div class="sub-tabs" id="adm-tabs">
         <button class="on" data-a="users" onclick="admTab('users')">用户</button>
+        <button data-a="audit" onclick="admTab('audit')">审计</button>
         <button data-a="ann" onclick="admTab('ann')">公告</button>
-        <button data-a="funds" onclick="admTab('funds')">资金审核</button>
+        <button data-a="funds" onclick="admTab('funds')">资金</button>
         <button data-a="pm" onclick="admTab('pm')">标的管理</button>
       </div>
       <div id="adm-pane-users">
@@ -646,6 +647,29 @@ select.input{appearance:none}
         <div class="card">
           <div class="ct">提现审核 <span class="xs muted">审批后自动 Bybit 打款</span><span id="admf-n" class="xs"></span></div>
           <div id="adm-funds"></div>
+        </div>
+        <div class="card">
+          <div class="ct">充值待认领池 <span class="xs muted">金额匹配失败的充值</span></div>
+          <div id="adm-fuc"></div>
+        </div>
+        <div class="card">
+          <div class="ct">套餐管理 <span class="xs muted">价格/说明/启停</span></div>
+          <div id="adm-fpl"></div>
+        </div>
+        <div class="card">
+          <div class="ct">提现/充值参数 <span class="xs muted">手续费与限额</span></div>
+          <div class="trow gaprow" style="margin-bottom:6px"><span class="k" style="width:86px">提现手续费</span><input class="input" id="fs-fee" style="flex:1;min-width:0"></div>
+          <div class="trow gaprow" style="margin-bottom:6px"><span class="k" style="width:86px">单笔上限</span><input class="input" id="fs-max" style="flex:1;min-width:0"></div>
+          <div class="trow gaprow" style="margin-bottom:6px"><span class="k" style="width:86px">单笔下限</span><input class="input" id="fs-min" style="flex:1;min-width:0"></div>
+          <div class="trow gaprow" style="margin-bottom:6px"><span class="k" style="width:86px">充值下限</span><input class="input" id="fs-dmin" style="flex:1;min-width:0"></div>
+          <div class="trow gaprow"><span class="k" style="width:86px">充值上限</span><input class="input" id="fs-dmax" style="flex:1;min-width:0"></div>
+          <button class="btn accent" style="width:100%;margin-top:8px" onclick="admFsetSave()">保存参数</button>
+        </div>
+      </div>
+      <div id="adm-pane-audit" style="display:none">
+        <div class="card">
+          <div class="ct">审计流水 <span class="xs muted">管理操作留痕</span><span id="adma-n" class="xs"></span></div>
+          <div id="adm-audit"></div>
         </div>
       </div>
       <div id="adm-pane-pm" style="display:none">
@@ -2098,6 +2122,7 @@ function admTab(a){
   ['users','ann','funds','pm'].forEach(function(k){
     var p=id('adm-pane-'+k);if(p)p.style.display=k===a?'':'none';
   });
+  if(a==='audit')loadAdmAudit(0);
   if(a==='funds')loadAdmFunds();
   if(a==='pm')loadAdmPm(0);
 }
@@ -2166,6 +2191,69 @@ async function loadAdmFunds(){
       +'<div class="ops"><button class="bad ok" onclick="admfReview('+w.id+',1)">通过</button><button class="bad" onclick="admfReview('+w.id+',0)">拒绝</button></div></div>';
   }
   id('adm-funds').innerHTML=html||'<div class="dim small" style="padding:8px">无待审提现</div>';
+  // 待认领
+  var ucs=r.data.unclaimed||[];
+  var uh='';
+  for(var j=0;j<ucs.length;j++){
+    var u=ucs[j];
+    uh+='<div class="adm-item"><div class="t"><div class="n">#<span id="fuc-id-'+u.id+'">'+u.id+'</span> · <b>$'+num(u.amount_unique,4)+'</b> USDT</div>'
+      +'<div class="m">'+esc(u.txid||'').slice(0,16)+'… · '+esc(u.matched_ts||'')+'</div></div>'
+      +'<div class="ops"><input id="fuc-uid-'+u.id+'" placeholder="UID" style="width:56px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:12px"><button class="bad ok" onclick="admFuc('+u.id+')">认领</button></div></div>';
+  }
+  id('adm-fuc').innerHTML=uh||'<div class="dim small" style="padding:8px">无待认领充值</div>';
+  // 套餐
+  var plans=r.data.plans||[];
+  var ph='';
+  for(var k=0;k<plans.length;k++){
+    var p=plans[k];
+    ph+='<div class="adm-item"><div class="t"><div class="n"><b>'+esc(p.code)+'</b> · '+esc(p.name)+' · <b class="accent">$'+num(p.price,2)+'</b>/月 '+(p.active?'<span class="badge green">启用</span>':'<span class="badge red">停用</span>')+'</div>'
+      +'<div class="m">'+esc(p.features||'')+'</div></div>'
+      +'<div class="ops"><button class="bad" onclick="admFplToggle(\''+p.code+'\','+(p.active?0:1)+')">'+(p.active?'停用':'启用')+'</button></div></div>';
+  }
+  id('adm-fpl').innerHTML=ph||'<div class="dim small" style="padding:8px">无套餐</div>';
+  // 参数
+  var st=r.data.settings||{};
+  id('fs-fee').value=st.withdraw_fee||'';
+  id('fs-max').value=st.max_withdraw||'';
+  id('fs-min').value=st.min_withdraw||'';
+  id('fs-dmin').value=st.deposit_min||'';
+  id('fs-dmax').value=st.deposit_max||'';
+}
+async function admFuc(id){
+  var uid=Number(id('fuc-uid-'+id).value)||0;
+  if(!uid){toast('请输入归属用户UID');return}
+  var r=await api('/api/admin/funds/claim',{method:'POST',body:JSON.stringify({id:id,uid:uid})});
+  if(r.data&&r.data.ok){toast('✅ 已认领给 UID '+uid);loadAdmFunds()}else{toast('❌ '+apiErr(r))}
+}
+async function admFplToggle(code,active){
+  var r=await api('/api/admin/funds/plan',{method:'POST',body:JSON.stringify({code:code,active:!!active})});
+  if(r.data&&r.data.ok){toast('✅ 套餐已'+(active?'启用':'停用'));loadAdmFunds()}else{toast('❌ '+apiErr(r))}
+}
+async function admFsetSave(){
+  var r=await api('/api/admin/funds/settings',{method:'POST',body:JSON.stringify({
+    withdraw_fee:Number(id('fs-fee').value)||0,
+    max_withdraw:Number(id('fs-max').value)||0,
+    min_withdraw:Number(id('fs-min').value)||0,
+    deposit_min:Number(id('fs-dmin').value)||0,
+    deposit_max:Number(id('fs-dmax').value)||0
+  })});
+  if(r.data&&r.data.ok){toast('✅ 参数已保存');loadAdmFunds()}else{toast('❌ '+apiErr(r))}
+}
+var ADMA={offset:0,rows:[]};
+async function loadAdmAudit(offset){
+  if(offset===0){ADMA.offset=0;ADMA.rows=[];}
+  var r=await api('/api/admin/audit?offset='+ADMA.offset+'&limit=30');
+  if(!r.data||!r.data.ok){id('adm-audit').innerHTML='<div class="dim small">加载失败</div>';return}
+  ADMA.rows=ADMA.rows.concat(r.data.rows||[]);
+  id('adma-n').textContent='共 '+r.data.total+' 条';
+  var html='';
+  for(var i=0;i<ADMA.rows.length;i++){
+    var a=ADMA.rows[i];
+    html+='<div class="adm-item"><div class="t"><div class="n">'+esc(a.action||a.op||'')+' '+(a.target?'· '+esc(a.target):'')+'</div>'
+      +'<div class="m">'+(a.ts?new Date(a.ts*1000).toLocaleString('zh-CN',{hour12:false}):'')+' · UID '+a.uid+(a.detail?' · '+esc(String(a.detail).slice(0,40)):'')+'</div></div></div>';
+  }
+  if(ADMA.rows.length<(r.data.total||0))html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadAdmAudit(ADMA.rows.length)">加载更多</button>';
+  id('adm-audit').innerHTML=html||'<div class="dim small" style="padding:8px">暂无审计</div>';
 }
 async function admfReview(wid,ok){
   var r=await api('/api/admin/funds/withdraw/review',{method:'POST',body:JSON.stringify({id:wid,approve:!!ok,note:ok?'':'管理员拒绝'})});
