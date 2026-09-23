@@ -332,6 +332,11 @@ select.input{appearance:none}
       </div>
 
       <div class="tabbody" id="tab-ticket">
+        <div class="tabs" style="margin-top:0">
+          <button id="tick-mode-arb" class="on" onclick="setTicketMode('arb')">套利模式</button>
+          <button id="tick-mode-native" onclick="setTicketMode('native')">原生交易</button>
+        </div>
+        <div id="ticket-arb">
         <div class="card ticket">
           <div class="ct">快速交易 · 一键对冲 <span class="xs muted">实时价双腿开仓</span></div>
           <div class="trow gaprow">
@@ -351,6 +356,26 @@ select.input{appearance:none}
           <button class="btn ghost" onclick="openNakedConfirm()">开裸腿仓</button>
         </div>
         <div class="sectip"><div class="i">⚡</div><div class="t"><b>白话：</b>一键对冲=现货与合约同时反向开仓，锁定价差赚资金费率。裸腿=单方向押涨跌（风险高，必设止盈止损）。</div></div>
+        </div>
+        <div id="ticket-native" style="display:none">
+        <div class="card ticket">
+          <div class="ct">原生单边交易 <span class="xs muted">像 Bybit 一样直接做多/做空</span></div>
+          <div class="trow gaprow">
+            <input id="nt-sym" value="BTCUSDT" placeholder="合约代码 (如 SOLUSDT)" style="flex:1;text-transform:uppercase">
+            <button class="mini" onclick="id('nt-sym').value=tradeSym;renderNativeTicket()">当前</button>
+            <button class="mini" onclick="openSymSearch('native')">🔍</button>
+          </div>
+          <div class="dirrow">
+            <button id="nt-long" class="on-buy" onclick="setNativeSide('long')">做多 📈</button>
+            <button id="nt-short" onclick="setNativeSide('short')">做空 📉</button>
+          </div>
+          <div class="trow"><span class="k">名义金额 ($)</span><input type="number" id="nt-notional" value="10" min="1" max="200" step="1" style="width:90px"></div>
+          <div class="dim xs" id="nt-hint" style="margin-bottom:6px"></div>
+          <button class="btn buy" id="nt-open-btn" onclick="confirmNativeOpen()">开仓</button>
+          <div id="nt-pos" style="margin-top:8px"></div>
+        </div>
+        <div class="sectip"><div class="i">🎯</div><div class="t"><b>白话：</b>原生交易=像交易所 APP 一样直接押涨跌（做多看涨、做空看跌），不套利不对冲，盈亏=方向对不对。仅开放成交额前50名+流动性达标的标的，防小币滑点。纸面模式免费练手。</div></div>
+        </div>
       </div>
     </section>
 
@@ -732,6 +757,45 @@ function setPmSide(s){
   b.textContent=s==='BUY'?'买入开仓':'卖出开仓';
   updPmHint();
 }
+/* P4: PM 实时行情 (CLOB WS → SSE diff) */
+var PM_PX={};
+var PM_TOKENS=[];
+function startPmStream(){
+  try{
+    var es=new EventSource('/api/stream/pm');
+    es.onmessage=function(ev){
+      try{
+        var d=JSON.parse(ev.data);
+        if(d&&d.prices){
+          if(d.full){PM_PX=d.prices}
+          else{for(var k in d.prices){PM_PX[k]=d.prices[k]}}
+          if(curScreen==='pm')updPmHint();
+        }
+      }catch(e){}
+    };
+    es.onerror=function(){};
+  }catch(e){}
+}
+async function loadPmTokens(){
+  try{
+    var r=await api('/api/pm/tokens');
+    if(r.data&&r.data.tokens)PM_TOKENS=r.data.tokens;
+  }catch(e){}
+}
+function pmRt(key){
+  var out=null;
+  for(var i=0;i<PM_TOKENS.length;i++){
+    var t=PM_TOKENS[i];
+    if(t.key===key){
+      var p=PM_PX[t.token];
+      if(p&&p.bid!=null&&p.ask!=null){
+        if(!out)out={bid:p.bid,ask:p.ask,last:p.last,token:t.token};
+        else{out.bid=Math.min(out.bid,p.bid);out.ask=Math.max(out.ask,p.ask)}
+      }
+    }
+  }
+  return out;
+}
 async function loadPmScreen(){
   if(!PM_ROWS.length){var r=await api('/api/markets?sort=edge');if(r.data&&r.data.rows)PM_ROWS=r.data.rows}
   var sel=id('pm-key');
@@ -745,11 +809,14 @@ function updPmHint(){
   var sel=id('pm-key');if(!sel)return;
   var m=PM_ROWS.find(function(x){return (x.event+'|'+x.market)===sel.value});
   if(!m){return}
-  var px=pmSide==='BUY'?Number(m.best_ask||0):Number(m.best_bid||0);
+  var rt=pmRt(sel.value);
+  var px=pmSide==='BUY'?(rt?rt.ask:Number(m.best_ask||0)):(rt?rt.bid:Number(m.best_bid||0));
   var sz=Number(id('pm-size').value)||0;
   id('pm-px').textContent=px?px.toFixed(3)+'¢':'—';
   id('pm-cost').textContent=px?'$'+(px*sz).toFixed(2):'—';
-  id('pm-hint').innerHTML='模型价 <b class="accent">'+num(m.model_p,3)+'</b> · 买一 '+num(m.best_bid,3)+' / 卖一 '+num(m.best_ask,3)+'¢ · 价差 买'+num(m.edge_buy_c,1)+'¢/卖'+num(m.edge_sell_c,1)+'¢';
+  var rtBadge=rt?'<span class="badge green">实时</span> ':'<span class="badge gray">分钟快照</span> ';
+  id('pm-hint').innerHTML=rtBadge+'买一 '+num(rt?rt.bid:m.best_bid,3)+' / 卖一 '+num(rt?rt.ask:m.best_ask,3)
+    +'¢ · 模型价 <b class="accent">'+num(m.model_p,3)+'</b> · 价差 买'+num(m.edge_buy_c,1)+'¢/卖'+num(m.edge_sell_c,1)+'¢';
 }
 function confirmPmOpen(){
   var sel=id('pm-key');
@@ -757,13 +824,21 @@ function confirmPmOpen(){
   if(pmSide!=='BUY'){toast('卖出需先持有该市场仓位（平仓请点持仓卡片按钮）');return}
   var sz=Number(id('pm-size').value)||0;
   if(sz<1||sz>50){toast('金额 1-50$');return}
-  openSheet('<h3>🔮 确认 PM 开仓</h3><p>市场：<b>'+esc(sel.value.split('|')[0])+'</b><br>方向：<b>买入</b> · 名义 <b>$'+sz+'</b>（按盘口价成交）<br>纸面交易，确认执行？</p>'
+  var live=LIVE.on;
+  var rt=pmRt(sel.value);
+  var pxTxt=rt?('实时 '+(pmSide==='BUY'?rt.ask:rt.bid).toFixed(3)+'¢'):'盘口价';
+  openSheet('<h3>🔮 '+(live?'🔴 实盘':'纸面')+' PM 原生买入</h3><p>市场：<b>'+esc(sel.value.split('|')[0])+'</b><br>方向：<b>买入</b> · 名义 <b>$'+sz+'</b>（'+pxTxt+(live?' 市价吃单 FOK':'')+'）<br>'+(live?'将真实下单到 Polymarket CLOB！':'模拟资金，无真实风险')+'</p>'
     +'<button class="btn buy" id="cf-yes" onclick="pmOpenGo()">确认开仓</button>');
 }
 async function pmOpenGo(){
   closeSheet();
   var key=id('pm-key').value,sz=Number(id('pm-size').value)||5;
-  var r=await api('/api/manual/trade',{method:'POST',body:JSON.stringify({action:'open_pm',key:key,side:'BUY',size_usd:sz})});
+  var r;
+  if(LIVE.on){
+    r=await api('/api/pm/order/market',{method:'POST',body:JSON.stringify({key:key,side:'BUY',amount_usd:sz})});
+  }else{
+    r=await api('/api/manual/trade',{method:'POST',body:JSON.stringify({action:'open_pm',key:key,side:'BUY',size_usd:sz})});
+  }
   if(r.data&&r.data.ok){toast('✅ PM 开仓成功');loadPmPositions()}else{toast('❌ '+apiErr(r))}
 }
 async function loadPmPositions(){
@@ -813,6 +888,97 @@ function swTab(b){
   for(var j=0;j<tb.length;j++)tb[j].classList.remove('on');
   id('tab-'+b.dataset.t).classList.add('on');
   if(b.dataset.t==='pos')loadPositions();
+  if(b.dataset.t==='ticket'){renderNativeTicket();loadNativePositions()}
+}
+/* ============ 原生交易 (P3) ============ */
+var NT_SIDE='long';
+function setTicketMode(m){
+  id('tick-mode-arb').className=m==='arb'?'on':'';
+  id('tick-mode-native').className=m==='native'?'on':'';
+  id('ticket-arb').style.display=m==='arb'?'':'none';
+  id('ticket-native').style.display=m==='native'?'':'none';
+  if(m==='native'){renderNativeTicket();loadNativePositions()}
+}
+function setNativeSide(s){
+  NT_SIDE=s;
+  id('nt-long').className=s==='long'?'on-buy':'';
+  id('nt-short').className=s==='short'?'on-sell':'';
+  var b=id('nt-open-btn');
+  b.className='btn '+(s==='long'?'buy':'sell');
+  b.textContent=s==='long'?'做多开仓':'做空开仓';
+  renderNativeTicket();
+}
+function renderNativeTicket(){
+  var sym=(id('nt-sym').value||'').toUpperCase();
+  var p=priceOf(sym);
+  var inWl=true;
+  if(INSTR.linear.length){
+    var f=null;
+    for(var i=0;i<INSTR.linear.length;i++){if(INSTR.linear[i].symbol===sym){f=INSTR.linear[i];break}}
+    inWl=!!f||sym==='BTCUSDT'||sym==='ETHUSDT';
+  }
+  id('nt-hint').textContent=p.last?('现价 '+fmtPx(p.last)+(p.spot?' · 现货 '+fmtPx(p.spot):'')+(inWl?'':' · ⚠️ 不在交易白名单')):'(无行情)';
+}
+function openSymSearch(from){
+  var html='<h3>选择交易标的</h3><div style="max-height:46vh;overflow-y:auto">';
+  var rows=INSTR.linear.slice(0,80);
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    html+='<div class="market-item" onclick="pickNativeSym(\''+r.symbol+'\')">'
+      +'<div class="nm"><div class="t">'+r.symbol+'</div><div class="s">'+esc(r.name||'')+'</div></div>'
+      +'<div class="pr">'+(priceOf(r.symbol).last?fmtPx(priceOf(r.symbol).last):'—')+'</div></div>';
+  }
+  html+='</div>';
+  openSheet(html);
+}
+function pickNativeSym(sym){
+  closeSheet();
+  id('nt-sym').value=sym;
+  renderNativeTicket();
+}
+function confirmNativeOpen(){
+  var sym=(id('nt-sym').value||'').toUpperCase();
+  var notional=id('nt-notional').value;
+  if(!sym){toast('请输入合约代码');return}
+  var live=LIVE.on;
+  var dirZh=NT_SIDE==='long'?'做多(看涨)':'做空(看跌)';
+  openSheet('<h3>'+(live?'🔴 实盘':'纸面')+'原生开仓确认</h3><p>'+dirZh+' <b>'+sym+'</b> · 名义 '+notional+'$<br>'+(live?'将真实下单到 Bybit 永续市场！':'模拟资金，无真实风险')+'</p>'
+    +'<button class="btn '+(NT_SIDE==='long'?'buy':'sell')+'" onclick="nativeGo(\''+sym+'\',\''+NT_SIDE+'\','+notional+','+live+')">确认开仓</button>');
+}
+async function nativeGo(sym,side,notional,live){
+  closeSheet();
+  var r=await api('/api/native/open',{method:'POST',body:JSON.stringify({symbol:sym,side:side,notional:Number(notional),live:!!live})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
+  else{toast('❌ '+apiErr(r))}
+}
+function confirmNativeClose(sym){
+  var live=LIVE.on;
+  openSheet('<h3>'+(live?'🔴 实盘':'纸面')+'平仓确认</h3><p>按市价平掉 <b>'+sym+'</b> 原生仓位。</p>'
+    +'<button class="btn sell" onclick="nativeCloseGo(\''+sym+'\','+live+')">确认平仓</button>');
+}
+async function nativeCloseGo(sym,live){
+  closeSheet();
+  var r=await api('/api/native/close',{method:'POST',body:JSON.stringify({symbol:sym,live:!!live})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
+  else{toast('❌ '+apiErr(r))}
+}
+async function loadNativePositions(){
+  var r=await api('/api/native/positions');
+  var ps=(r.data&&r.data.positions)||[];
+  var el=id('nt-pos');
+  if(!el)return;
+  if(!ps.length){el.innerHTML='<div class="dim xs" style="padding:6px 2px">当前无原生持仓</div>';return}
+  var html='';
+  for(var i=0;i<ps.length;i++){
+    var p=ps[i];
+    var up=(p.pnl||0)>=0;
+    html+='<div class="pos-card card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div><b style="font-size:13px">'+esc(p.symbol)+'</b> <span class="badge '+(p.side==='long'?'green':'red')+'">'+(p.side==='long'?'多':'空')+'</span>'
+      +'<div class="xs muted">入场 '+fmtPx(p.entry)+' · 名义 '+num(p.notional,0)+'$</div></div>'
+      +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
+      +'<div><button class="abtn bad" onclick="confirmNativeClose(\''+esc(p.symbol)+'\')">平仓</button></div></div></div></div>';
+  }
+  el.innerHTML=html;
 }
 /* K线 */
 async function loadKline(){
@@ -855,12 +1021,20 @@ function startDepth(){
     es.onerror=function(){};
   }catch(e){}
 }
+var WATCH_TS={};
+function watchDepth(sym){
+  var now=Date.now();
+  if(WATCH_TS[sym]&&now-WATCH_TS[sym]<5000)return;
+  WATCH_TS[sym]=now;
+  api('/api/depth/watch',{method:'POST',body:JSON.stringify({symbol:sym})}).catch(function(){});
+}
 function renderOb(){
   if(curScreen!=='trade')return;
   var book=(DEPTH[tradeSym]||{});
   var bids=(book.bids||[]).slice(0,8),asks=(book.asks||[]).slice(0,8);
   if(!bids.length&&!asks.length){
-    id('ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">该标的实时盘口即将上线（按需订阅开发中）<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>';
+    watchDepth(tradeSym);  // P2: 自动请求按需订阅
+    id('ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">正在订阅 '+tradeSym+' 实时盘口（约 2 秒）…<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>';
     id('ob-bids').innerHTML='';
     id('ob-mid').textContent=priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—';
     return;
@@ -1271,6 +1445,8 @@ loadCaptcha('reg');
   }
 })();
 startPrices();
+startPmStream();
+loadPmTokens();
 startDepth();
 </script>
 </body>

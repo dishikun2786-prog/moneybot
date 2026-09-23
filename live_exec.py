@@ -115,6 +115,61 @@ def _gate(uid, venue, notional):
     return True, "ok"
 
 
+# ---------- Bybit 原生单边 (P3) ----------
+
+def _native_whitelist_ok(sym):
+    """复用 paper_ops 白名单 (BTC/ETH + 成交额Top50)"""
+    from paper_ops import _native_allowed
+    return _native_allowed(sym)
+
+
+def bybit_open_native(uid, body):
+    """原生做多/做空: 永续市价单 (side=long→Buy, short→Sell), 精度按 qtyStep 取整"""
+    sym = str(body.get("symbol", "")).upper()
+    side = body.get("side", "long")
+    if side not in ("long", "short"):
+        return {"ok": False, "error": "方向须 long/short"}
+    notional = float(body.get("notional") or 0)
+    ok, err = _gate(uid, "bybit", notional)
+    if not ok:
+        return {"ok": False, "error": err}
+    if not _native_whitelist_ok(sym):
+        return {"ok": False, "error": f"{sym} 不在原生交易白名单"}
+    s = keys.get_secrets(uid, "bybit")
+    d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
+    if d.get("retCode") == 0:
+        for p in d["result"]["list"]:
+            if float(p.get("size") or 0) != 0:
+                return {"ok": False, "error": f"{sym} 已有实盘持仓, 先平仓再开新仓"}
+    px = _last_price(sym)
+    if not px:
+        return {"ok": False, "error": "价格快照不可用"}
+    from paper_ops import _native_qty
+    qty = _native_qty(sym, notional, px)
+    if qty <= 0:
+        return {"ok": False, "error": "数量过小(精度不足)"}
+    by_side = "Buy" if side == "long" else "Sell"
+    r = _bybit_order(uid, s, "linear", sym, by_side, qty)
+    return _finish_bybit(uid, r, f"native_open_{side}", sym, by_side, qty, notional, body)
+
+
+def bybit_close_native(uid, body):
+    """原生平仓: 查持仓 → 反向 reduce_only 全平"""
+    sym = str(body.get("symbol", "")).upper()
+    s = keys.get_secrets(uid, "bybit")
+    d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
+    if d.get("retCode") != 0:
+        return {"ok": False, "error": "持仓查询失败: " + str(d.get("retMsg"))[:80]}
+    pos = next((p for p in d["result"]["list"] if float(p.get("size") or 0) != 0), None)
+    if not pos:
+        return {"ok": False, "error": f"{sym} 无实盘持仓"}
+    qty = abs(float(pos["size"]))
+    side = "Buy" if pos["side"] == "Sell" else "Sell"
+    r = _bybit_order(uid, s, "linear", sym, side, qty, reduce_only=True)
+    return _finish_bybit(uid, r, "native_close", sym, side, qty,
+                         float(pos.get("positionValue") or 0), body)
+
+
 # ---------- Bybit 动作 ----------
 
 def _bybit_order(uid, s, category, symbol, side, qty, price=None, reduce_only=False):
@@ -285,6 +340,83 @@ def _spot_balance(s, coin):
 
 
 # ---------- PM 动作 ----------
+
+def _pm_rt_quote(token_id):
+    """CLOB WS 实时 quote: {bid, ask} 或 None (读 pm_prices.json)"""
+    try:
+        with open(os.path.join(BASE, "logs", "pm_prices.json"), encoding="utf-8") as f:
+            px = json.load(f).get("prices", {}).get(token_id)
+        if px and px.get("bid") is not None and px.get("ask") is not None:
+            return px
+    except Exception:
+        pass
+    return None
+
+
+def _pm_resolve_token(body):
+    """token_id 直接给; 或 key(event|market)+outcome 从 pm_tokens.json 映射"""
+    tok = str(body.get("token_id", "")).strip()
+    if tok:
+        return tok
+    key = str(body.get("key", "")).strip()
+    outcome = str(body.get("outcome", "")).strip()
+    try:
+        with open(os.path.join(BASE, "logs", "pm_tokens.json"), encoding="utf-8") as f:
+            toks = json.load(f)
+        for t in toks:
+            if t.get("key") == key:
+                if not outcome or str(t.get("outcome", "")).lower() == outcome.lower():
+                    return t["token"]
+    except Exception:
+        pass
+    return ""
+
+
+def pm_market_order(uid, body):
+    """P4 PM 原生市价吃单: {token_id 或 key, side(BUY/SELL), amount_usd}
+    实时 best_ask/best_bid 限价即时成交 (FOK); 兜底按金额/0.5 中间价估算"""
+    side = str(body.get("side", "")).upper()
+    if side not in ("BUY", "SELL"):
+        return {"ok": False, "error": "方向须 BUY/SELL"}
+    try:
+        amount = float(body.get("amount_usd") or 0)
+    except Exception:
+        return {"ok": False, "error": "金额非法"}
+    if amount < MIN_ORDER_USDT:
+        return {"ok": False, "error": f"金额须 ≥ ${MIN_ORDER_USDT}"}
+    tok = _pm_resolve_token(body)
+    if not tok:
+        return {"ok": False, "error": "无法解析 token (市场不在实时目录, 用完整 token_id 下单)"}
+    q = _pm_rt_quote(tok)
+    if not q:
+        return {"ok": False, "error": "无实时盘口价 (pm-clob 桥未就绪), 稍后再试"}
+    price = float(q["ask"] if side == "BUY" else q["bid"])
+    if not (0.001 <= price <= 0.999):
+        return {"ok": False, "error": "实时价异常: " + str(price)}
+    size = round(amount / price, 2)
+    if size < 1:
+        return {"ok": False, "error": "金额过小 (股数<1)"}
+    ok, err = _gate(uid, "pm", amount)
+    if not ok:
+        return {"ok": False, "error": err}
+    s = keys.get_secrets(uid, "pm")
+    extra = json.loads(s["extra"] or "{}")
+    creds = {"apiKey": s["key"], "secret": s["secret"], "passphrase": extra.get("passphrase", "")}
+    st, d = pm_live.place_order(creds, extra.get("wallet", ""), tok, price, side, size, "FOK")
+    if st not in (200, 201):
+        users.audit_log(uid, "live_order_fail",
+                        f"PM市场单 {side} {tok[:16]} {size}@{price}: {str(d)[:100]}")
+        return {"ok": False, "error": f"下单失败: {str(d)[:150]}"}
+    oid = d.get("orderID") or d.get("id")
+    _append(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "venue": "pm", "action": f"market_{side}", "token_id": tok, "price": price,
+                  "size": size, "notional": amount, "order_id": oid, "order_type": "FOK"})
+    users.audit_log(uid, "live_order", f"PM市场单 {side} {tok[:16]} {size}@{price} → {oid}")
+    return {"ok": True, "msg": f"已市价{('买入' if side == 'BUY' else '卖出')} {size}股 @{price}¢ → {oid}",
+            "order_id": oid, "price": price, "size": size}
+
+
+
 
 def pm_order(uid, body):
     """PM CLOB 下单: {token_id, side(BUY/SELL), price(美分), size(股数), order_type}"""

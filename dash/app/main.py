@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import json
 import time
 import base64
@@ -352,6 +353,48 @@ async def ai_approve(request: Request, su=Depends(require_session_user)):
         return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
 
 
+@app.post("/api/native/open")
+async def native_open(request: Request, su=Depends(require_session_user)):
+    """P3 原生交易开仓: 纸面(默认)或实盘(live=1), side=long/short, 任意白名单标的"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    sym = str(body.get("symbol", "")).upper()
+    side = body.get("side", "long")
+    notional = float(body.get("notional") or 0)
+    live = bool(body.get("live"))
+    if live:
+        with tenants.tenant(su["u"]):
+            return live_exec.bybit_open_native(su["u"], {"symbol": sym, "side": side,
+                                                         "notional": notional})
+    with tenants.tenant(su["u"]):
+        return paper_ops.open_native(sym, side, notional)
+
+
+@app.post("/api/native/close")
+async def native_close(request: Request, su=Depends(require_session_user)):
+    """P3 原生交易平仓: 纸面(默认)或实盘(live=1)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    sym = str(body.get("symbol", "")).upper()
+    live = bool(body.get("live"))
+    if live:
+        with tenants.tenant(su["u"]):
+            return live_exec.bybit_close_native(su["u"], {"symbol": sym})
+    with tenants.tenant(su["u"]):
+        return paper_ops.close_native(sym)
+
+
+@app.get("/api/native/positions")
+def native_positions(su=Depends(require_session_user)):
+    """P3 原生纸面持仓 + MTM"""
+    with tenants.tenant(su["u"]):
+        return {"ok": True, "positions": paper_ops.native_positions()}
+
+
 @app.post("/api/manual/trade")
 async def manual_trade(request: Request, su=Depends(require_session_user)):
     """手动纸面交易: open_hedge/close_perp_leg/close_both/close_spot_to_naked/close_naked/edit_naked_tpsl/close_pm (租户隔离)"""
@@ -465,6 +508,101 @@ def api_instruments(__=Depends(require_session)):
                 "ts": d.get("ts")}
     except Exception:
         return {"ok": True, "linear": [], "spot": [], "ts": None}
+
+
+@app.post("/api/depth/watch")
+def api_depth_watch(body: dict, __=Depends(require_session)):
+    """P2 按需盘口: 前端请求标的 → 写 depth_watch.json → 桥2s内订阅 orderbook.200 (LRU 20)"""
+    sym = str(body.get("symbol", "")).upper()
+    if not sym or not re.fullmatch(r"[A-Z0-9]{3,20}", sym):
+        return JSONResponse({"ok": False, "error": "symbol 非法"}, status_code=400)
+    path = os.path.expanduser("~/polymarket/logs/depth_watch.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            reqs = json.load(f)
+    except Exception:
+        reqs = {}
+    reqs[sym] = time.time()
+    # 只保留最近 40 个请求标的
+    reqs = dict(sorted(reqs.items(), key=lambda kv: -kv[1])[:40])
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(reqs, f)
+    os.replace(tmp, path)
+    return {"ok": True, "symbol": sym, "watching": list(reqs)}
+
+
+@app.post("/api/pm/order/market")
+async def pm_market_order(request: Request, su=Depends(require_session_user)):
+    """P4 PM 原生市价吃单 (实盘): {token_id 或 key, side: BUY/SELL, amount_usd}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    with tenants.tenant(su["u"]):
+        return live_exec.pm_market_order(su["u"], body)
+
+
+@app.get("/api/pm/prices")
+def api_pm_prices(__=Depends(require_session)):
+    """P4 PM 实时价 (pm_clob_ws 桥快照): {n, ts, prices: {token: {bid, ask, last, ts}}}"""
+    try:
+        with open(os.path.expanduser("~/polymarket/logs/pm_prices.json"),
+                  encoding="utf-8") as f:
+            d = json.load(f)
+        return {"ok": True, "n": d.get("n", 0), "ts": d.get("ts"),
+                "prices": d.get("prices", {})}
+    except Exception:
+        return {"ok": True, "n": 0, "ts": None, "prices": {}}
+
+
+@app.get("/api/pm/tokens")
+def api_pm_tokens(__=Depends(require_session)):
+    """P4 token→市场 映射: [{token, key(event|market), title, question, outcome}]"""
+    try:
+        with open(os.path.expanduser("~/polymarket/logs/pm_tokens.json"),
+                  encoding="utf-8") as f:
+            return {"ok": True, "tokens": json.load(f)}
+    except Exception:
+        return {"ok": True, "tokens": []}
+
+
+@app.get("/api/stream/pm")
+async def stream_pm(request: Request, __=Depends(require_session)):
+    """P4 SSE: PM 实时价 (diff 增量, 首帧 full; 数据源 pm_prices.json)"""
+    import asyncio
+    SNAP = os.path.expanduser("~/polymarket/logs/pm_prices.json")
+
+    async def gen():
+        seen = {}
+        sent_full = False
+        last_send = time.time()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                with open(SNAP, encoding="utf-8") as f:
+                    data = json.loads(f.read())
+                prices = data.get("prices") or {}
+                if not sent_full:
+                    seen = {s: (v.get("ts") or 0) for s, v in prices.items()}
+                    sent_full = True
+                    yield f"data: {json.dumps({'ts': data.get('ts'), 'prices': prices, 'full': True}, ensure_ascii=False)}\n\n"
+                    last_send = time.time()
+                else:
+                    delta = _price_delta(prices, seen)
+                    if delta:
+                        yield f"data: {json.dumps({'ts': data.get('ts'), 'prices': delta, 'delta': True}, ensure_ascii=False)}\n\n"
+                        last_send = time.time()
+            except Exception:
+                pass
+            if time.time() - last_send > 15:
+                last_send = time.time()
+                yield ": ping\n\n"
+            await asyncio.sleep(0.4)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/stream/depth")

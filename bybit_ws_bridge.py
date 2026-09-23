@@ -76,6 +76,9 @@ TEST_DONE = threading.Event()
 WS_REF = {"ws": None}
 # ---- 盘口/成交量状态 (M1) ----
 BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "gaps": n}}
+WATCH_FILE = f"{BASE}/logs/depth_watch.json"   # P2 按需盘口: {sym: req_ts}
+WATCH_MAX = 20      # 动态盘口标的 LRU 上限 (不含 DEPTH_SYMS)
+WATCH_SUB = {s: time.time() for s in DEPTH_SYMS}  # {sym: 订阅时间}
 TRADES = {s: deque(maxlen=30) for s in DEPTH_SYMS}   # 最近30笔逐笔
 AGGS = {s: deque(maxlen=60000) for s in DEPTH_SYMS}  # (T_ms, side, v, p) 滚动窗口原始流
 BIG = deque(maxlen=12)                            # 大单事件
@@ -226,12 +229,13 @@ def depth_loop():
         ts_s = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         with LOCK:
             books_out, trades_out, aggs_out, big_out = {}, {}, {}, list(BIG)
-            for sym in DEPTH_SYMS:
+            for sym in list(WATCH_SUB):          # P2: 盘口输出 = 动态订阅集合
                 b = BOOKS.get(sym)
                 if b and b["snap"]:
                     books_out[sym] = {
                         "bids": [[p, s] for p, s in sorted(b["bids"].items(), key=lambda x: -float(x[0]))[:200]],
                         "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
+            for sym in DEPTH_SYMS:
                 trades_out[sym] = list(TRADES[sym])
             walls_out = {}
             for sym in DEPTH_SYMS:
@@ -416,6 +420,36 @@ def persist_loop():
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def watch_loop():
+    """P2 按需盘口: 轮询 depth_watch.json → 新标的订阅 orderbook.200; LRU 上限退订最旧非深度标的"""
+    while True:
+        time.sleep(2)
+        try:
+            with open(WATCH_FILE, encoding="utf-8") as f:
+                reqs = json.load(f)
+        except Exception:
+            reqs = {}
+        ws = WS_REF["ws"]
+        if not ws:
+            continue
+        for sym, ts in list(reqs.items())[:40]:
+            if sym in WATCH_SUB:
+                continue
+            ws.send(json.dumps({"op": "subscribe", "args": [f"orderbook.200.{sym}"]}))
+            WATCH_SUB[sym] = time.time()
+            BOOKS.pop(sym, None)  # 清旧残, 等新快照
+            print(f"[bridge] 按需订阅盘口: {sym} (动态#{len(WATCH_SUB) - len(DEPTH_SYMS)})", flush=True)
+        # LRU 退订: 超上限时退最旧的非 DEPTH_SYMS
+        dyn = {s: t for s, t in WATCH_SUB.items() if s not in DEPTH_SYMS}
+        while len(dyn) > WATCH_MAX:
+            oldest = min(dyn, key=dyn.get)
+            ws.send(json.dumps({"op": "unsubscribe", "args": [f"orderbook.200.{oldest}"]}))
+            WATCH_SUB.pop(oldest, None)
+            BOOKS.pop(oldest, None)
+            print(f"[bridge] LRU退订盘口: {oldest}", flush=True)
+            dyn = {s: t for s, t in WATCH_SUB.items() if s not in DEPTH_SYMS}
+
+
 def state_loop():
     """每5秒写健康状态 (看板可读)"""
     while True:
@@ -424,6 +458,7 @@ def state_loop():
             st = {"alive": N_TICKS["n"] > 0, "ticks": N_TICKS["n"], "lag_ms": SNAP["lag_ms"],
                   "symbols": sorted(PRICES), "n_symbols": len(PRICES),
                   "ticker_syms": len(TICKER_SYMS), "spot_syms": len(SPOT_TICKER_SYMS),
+                  "watch_syms": sorted(WATCH_SUB),
                   "snap_ts": SNAP["ts"],
                   "connected_at": SNAP.get("connected_at"), "now": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         tmp = STATE_FILE + ".tmp"
@@ -449,6 +484,7 @@ def main():
     threading.Thread(target=persist_loop, daemon=True).start()
     threading.Thread(target=state_loop, daemon=True).start()
     threading.Thread(target=snap_loop, daemon=True).start()
+    threading.Thread(target=watch_loop, daemon=True).start()
     threading.Thread(target=spot_loop, daemon=True).start()
     threading.Thread(target=depth_loop, daemon=True).start()
     if args.test:

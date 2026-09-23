@@ -33,6 +33,9 @@ _DYN = {
     "PAPER_TRADES": lambda: tenants.trades("paper"),
     "AUDIT": lambda: tenants.audit_manual(),
     "SNAP": lambda: tenants.shared_log("bybit_prices.json"),
+    "INSTR": lambda: tenants.shared_log("bybit_instruments.json"),
+    "PM_TOKENS": lambda: tenants.shared_log("pm_tokens.json"),
+    "PM_PX": lambda: tenants.shared_log("pm_prices.json"),
     "CARRY_LOG": lambda: tenants.shared_log("carry_1m.jsonl"),
     "LOCK_PATH": lambda: tenants.lock_path(),
 }
@@ -128,6 +131,146 @@ def _latest_carry_row(sym):
     except Exception:
         pass
     return None
+
+
+# ================= 原生单边交易 (P3: 像 Bybit APP 一样直接做多/做空) =================
+
+NATIVE_MAX_POS = 10          # 原生仓位上限(标的数)
+NATIVE_WHITELIST_RANK = int(os.environ.get("NATIVE_WHITELIST_RANK", "50"))  # 成交额 Top N 可交易
+NATIVE_MIN_TURNOVER = 5e6    # 24h 成交额下限 ($5M), 防低流动性滑点
+NATIVE_FEE = 0.0005          # 永续单边费率 5bp (taker 近似)
+
+
+def _instruments_linear():
+    """标的目录缓存 (symbol → {tickSize, qtyStep, turnover24h})"""
+    try:
+        with open(_resolve("INSTR"), encoding="utf-8") as f:
+            d = json.load(f)
+        return {r["symbol"]: r for r in d.get("linear", [])}
+    except Exception:
+        return {}
+
+
+def _native_allowed(sym):
+    """原生交易白名单: BTC/ETH 恒可 + 24h成交额 Top N 且 ≥ $5M"""
+    if sym in ("BTCUSDT", "ETHUSDT"):
+        return True
+    inst = _instruments_linear()
+    it = inst.get(sym)
+    if not it:
+        return False
+    if float(it.get("turnover24h") or 0) < NATIVE_MIN_TURNOVER:
+        return False
+    rank = 0
+    for r in sorted(inst.values(), key=lambda r: -float(r.get("turnover24h") or 0)):
+        rank += 1
+        if r["symbol"] == sym:
+            break
+        if rank > NATIVE_WHITELIST_RANK:
+            return False
+    return rank <= NATIVE_WHITELIST_RANK
+
+
+def _native_qty(sym, notional, px):
+    """按 qtyStep 取整数量"""
+    it = _instruments_linear().get(sym) or {}
+    step = float(it.get("qtyStep") or 0.0001)
+    qty = float(notional) / float(px)
+    return round(qty / step) * step
+
+
+def open_native(sym, side, notional):
+    """原生单边纸面开仓: side=long(做多)/short(做空), 市价近似"""
+    sym = (sym or "").upper()
+    if side not in ("long", "short"):
+        return {"ok": False, "error": "方向须 long/short"}
+    try:
+        notional = float(notional)
+    except Exception:
+        return {"ok": False, "error": "名义非法"}
+    if not (1 <= notional <= 200):
+        return {"ok": False, "error": "名义须1-200$"}
+    if not _native_allowed(sym):
+        return {"ok": False, "error": f"{sym} 不在原生交易白名单 (24h成交额 Top{NATIVE_WHITELIST_RANK} 或流动性不足)"}
+    px = _prices().get(sym)
+    if not px:
+        return {"ok": False, "error": f"{sym} 无实时价"}
+    entry = px["perp"]
+    qty = _native_qty(sym, notional, entry)
+    if qty <= 0:
+        return {"ok": False, "error": "数量过小(精度不足), 请加大名义"}
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
+            return {"ok": False, "error": f"{sym} 已有对冲/裸腿持仓, 请先平仓 (原生与套利仓位互斥)"}
+        nat = st.get("native", {})
+        if sym in nat:
+            return {"ok": False, "error": f"{sym} 已有原生持仓"}
+        if len(nat) >= NATIVE_MAX_POS:
+            return {"ok": False, "error": f"原生仓位已达上限{NATIVE_MAX_POS}"}
+        fees = NATIVE_FEE * notional
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
+        st.setdefault("native", {})[sym] = dict(side=side, entry=entry, notional=notional,
+                                                qty=qty, t0=time.time())
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="NATIVE_OPEN",
+                                      side=side, entry=entry, notional=notional, qty=qty))
+        _audit("open_native", sym, {"side": side, "entry": entry, "notional": notional})
+        return {"ok": True, "msg": f"已{'做多' if side == 'long' else '做空'} {sym} @{entry:.4f} "
+                                   f"(名义{notional}$, {qty}张)"}
+    finally:
+        _unlock(f)
+
+
+def close_native(sym):
+    """原生单边纸面平仓: 按当前价结算"""
+    sym = (sym or "").upper()
+    px = _prices().get(sym)
+    if not px:
+        return {"ok": False, "error": f"{sym} 无实时价"}
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        nat = (st.get("native") or {}).get(sym)
+        if not nat:
+            return {"ok": False, "error": f"{sym} 无原生持仓"}
+        entry, n, side = nat["entry"], nat.get("notional", 10.0), nat["side"]
+        pnl = ((px["perp"] - entry) if side == "long" else (entry - px["perp"])) / entry * n
+        fees = NATIVE_FEE * n
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
+        del st["native"][sym]
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="NATIVE_CLOSE",
+                                      side=side, entry=entry, exit=px["perp"],
+                                      pnl_usd=round(pnl, 4), fees=fees))
+        _audit("close_native", sym, {"exit": px["perp"], "pnl": round(pnl, 4)})
+        return {"ok": True, "msg": f"已平{'多' if side == 'long' else '空'}仓 {sym} @{px['perp']:.4f} "
+                                   f"(PnL {pnl:+.4f}$)"}
+    finally:
+        _unlock(f)
+
+
+def native_positions():
+    """原生纸面持仓 + 实时 MTM → [{symbol, side, entry, notional, qty, pnl}]"""
+    px_all = _prices()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+    except Exception:
+        st = {}
+    out = []
+    for sym, nat in (st.get("native") or {}).items():
+        px = px_all.get(sym, {})
+        cur = px.get("perp")
+        entry = nat.get("entry")
+        pnl = None
+        if cur and entry:
+            pnl = ((cur - entry) if nat["side"] == "long" else (entry - cur)) / entry * nat.get("notional", 10.0)
+            pnl = round(pnl - NATIVE_FEE * nat.get("notional", 10.0), 4)
+        out.append({"symbol": sym, "side": nat["side"], "entry": entry,
+                    "notional": nat.get("notional"), "qty": nat.get("qty"),
+                    "last": cur, "pnl": pnl, "t0": nat.get("t0")})
+    return out
 
 
 # ================= 执行动作 (每个动作: 锁→校验→执行→审计) =================
@@ -374,6 +517,31 @@ def edit_naked_tpsl(sym, tp, sl):
         _unlock(f)
 
 
+
+def _pm_rt_px(key):
+    """PM 实时价 (pm_clob_ws 桥): key=event|market → {bid, ask, last} 或 None
+    优先 CLOB WS 实时价, 兜底 parquet 快照"""
+    try:
+        with open(_resolve("PM_TOKENS"), encoding="utf-8") as f:
+            toks = json.load(f)
+        with open(_resolve("PM_PX"), encoding="utf-8") as f:
+            px = json.load(f).get("prices", {})
+        cand = []
+        for t in toks:
+            if t.get("key") == key:
+                p = px.get(t["token"])
+                if p:
+                    cand.append(p)
+        if cand:
+            bid = min(x["bid"] for x in cand if x.get("bid") is not None)
+            ask = max(x["ask"] for x in cand if x.get("ask") is not None)
+            last = next((x["last"] for x in cand if x.get("last") is not None), None)
+            return {"bid": bid, "ask": ask, "last": last}
+    except Exception:
+        pass
+    return None
+
+
 def open_pm(key, side, size_usd):
     """PM 手动开仓 (点击时刻盘口快照定价)"""
     try:
@@ -385,11 +553,17 @@ def open_pm(key, side, size_usd):
     if side not in ("BUY", "SELL"):
         return {"ok": False, "error": "方向须BUY/SELL"}
     from paper_engine import latest_snapshot, FEE_RATE
-    snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
-    snap = snaps.get(key)
-    if not snap:
-        return {"ok": False, "error": "该市场无盘口快照, 稍后再试"}
-    bid, ask = float(snap.get("pm_bid", 0) or 0), float(snap.get("pm_ask", 0) or 0)
+    rt = _pm_rt_px(key)
+    src_tag = "实时盘口"
+    if rt and rt.get("bid") is not None and rt.get("ask") is not None and rt["ask"] >= rt["bid"] > 0:
+        bid, ask = rt["bid"], rt["ask"]
+    else:
+        snaps = {f"{r['event']}|{r['market']}": r for r in latest_snapshot()}
+        snap = snaps.get(key)
+        if not snap:
+            return {"ok": False, "error": "该市场无盘口快照, 稍后再试"}
+        bid, ask = float(snap.get("pm_bid", 0) or 0), float(snap.get("pm_ask", 0) or 0)
+        src_tag = "分钟快照"
     px = ask if side == "BUY" else bid
     if px <= 0:
         return {"ok": False, "error": "盘口价格无效"}
@@ -406,8 +580,8 @@ def open_pm(key, side, size_usd):
         _write(_resolve("PAPER_STATE"), st)
         _log_trade(_resolve("PAPER_TRADES"), dict(key=key, side=side, action="MANUAL_OPEN_PM",
                                       entry=px, size_usd=size, entry_fee_c=FEE_RATE))
-        _audit("open_pm", key, {"side": side, "entry": px, "size": size})
-        return {"ok": True, "msg": f"已开PM仓位 {key[:28]}… "
+        _audit("open_pm", key, {"side": side, "entry": px, "size": size, "src": src_tag})
+        return {"ok": True, "msg": f"已开PM仓位 {key[:28]}… ({src_tag}) "
                                    f"{('买入' if side == 'BUY' else '卖出')}@{px:.4f} (名义{size}$)"}
     finally:
         _unlock(f)
@@ -500,6 +674,8 @@ DISPATCH = {
     "close_naked": lambda a: close_naked(a.get("symbol", "")),
     "edit_naked_tpsl": lambda a: edit_naked_tpsl(a.get("symbol", ""), a.get("tp"), a.get("sl")),
     "close_pm": lambda a: close_pm(a.get("key", "")),
+    "open_native": lambda a: open_native(a.get("symbol", ""), a.get("side", ""), a.get("notional", 10)),
+    "close_native": lambda a: close_native(a.get("symbol", "")),
 }
 
 
