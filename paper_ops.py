@@ -251,6 +251,157 @@ def close_native(sym):
         _unlock(f)
 
 
+# ============ R6 现货纸面交易 (buy 买入 / sell 卖出平仓) ============
+SPOT_WHITELIST_RANK = int(os.environ.get("SPOT_WHITELIST_RANK", "80"))
+SPOT_MIN_TURNOVER = 2e6    # 24h 成交额下限 ($2M)
+SPOT_FEE = 0.001           # 现货单边费率 10bp
+
+
+def _instruments_spot():
+    try:
+        with open(_resolve("INSTR"), encoding="utf-8") as f:
+            d = json.load(f)
+        return {r["symbol"]: r for r in d.get("spot", [])}
+    except Exception:
+        return {}
+
+
+def _spot_px(sym):
+    """现货实时价 (快照 spot 字段, 兜底 last)"""
+    try:
+        snap = json.load(open(_resolve("SNAP")))
+        p = snap.get("prices", {}).get(sym) or {}
+        v = p.get("spot") or p.get("last")
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
+def _spot_allowed(sym):
+    if sym in ("BTCUSDT", "ETHUSDT"):
+        return True
+    inst = _instruments_spot()
+    it = inst.get(sym)
+    if not it:
+        return False
+    if float(it.get("turnover24h") or 0) < SPOT_MIN_TURNOVER:
+        return False
+    rank = 0
+    for r in sorted(inst.values(), key=lambda r: -float(r.get("turnover24h") or 0)):
+        rank += 1
+        if r["symbol"] == sym:
+            break
+        if rank > SPOT_WHITELIST_RANK:
+            return False
+    return rank <= SPOT_WHITELIST_RANK
+
+
+def _spot_qty(sym, notional, px):
+    it = _instruments_spot().get(sym) or {}
+    step = float(it.get("qtyStep") or 0.0001)
+    qty = float(notional) / float(px)
+    return round(qty / step) * step
+
+
+def open_spot(sym, side, notional):
+    """现货纸面下单: side=buy(买入)/sell(卖出, 需持仓); 市价近似, 数量按 qtyStep 取整"""
+    sym = (sym or "").upper()
+    if side not in ("buy", "sell"):
+        return {"ok": False, "error": "方向须 buy/sell"}
+    try:
+        notional = float(notional)
+    except Exception:
+        return {"ok": False, "error": "名义非法"}
+    if not (1 <= notional <= 200):
+        return {"ok": False, "error": "名义须1-200$"}
+    if not _spot_allowed(sym):
+        return {"ok": False, "error": f"{sym} 不在现货交易白名单 (24h成交额 Top{SPOT_WHITELIST_RANK} 或流动性不足)"}
+    px = _spot_px(sym)
+    if not px:
+        return {"ok": False, "error": f"{sym} 无现货实时价"}
+    qty = _spot_qty(sym, notional, px)
+    if qty <= 0:
+        return {"ok": False, "error": "数量过小(精度不足), 请加大名义"}
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        spot = st.get("spot", {})
+        held = spot.get(sym, {}).get("qty", 0.0)
+        fees = SPOT_FEE * notional
+        if side == "sell":
+            if held < qty - 1e-9:
+                return {"ok": False, "error": f"现货持仓不足 (持有 {held} < 卖出 {qty})"}
+            avg = spot[sym]["avg_cost"]
+            pnl = (px - avg) * qty
+            new_qty = held - qty
+            st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
+            if new_qty <= 1e-9:
+                del spot[sym]
+            else:
+                spot[sym] = dict(qty=new_qty, avg_cost=avg, t0=spot[sym]["t0"])
+            _write(_resolve("CARRY_STATE"), st)
+            _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_SELL",
+                                          px=px, qty=qty, notional=notional, pnl_usd=round(pnl, 4)))
+            _audit("open_spot_sell", sym, {"px": px, "qty": qty, "pnl": round(pnl, 4)})
+            return {"ok": True, "msg": f"已卖出 {qty} {sym} @{px:.4f} (PnL {pnl:+.4f}$)"}
+        # buy: 累加持仓
+        old_qty, old_cost = held, spot.get(sym, {}).get("avg_cost", 0.0)
+        new_qty = old_qty + qty
+        avg = (old_cost * old_qty + px * qty) / new_qty if new_qty > 0 else px
+        spot[sym] = dict(qty=new_qty, avg_cost=avg, t0=time.time())
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
+        st["spot"] = spot
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_BUY",
+                                      px=px, qty=qty, notional=notional))
+        _audit("open_spot_buy", sym, {"px": px, "qty": qty, "notional": notional})
+        return {"ok": True, "msg": f"已买入 {qty} {sym} @{px:.4f} (名义{notional}$)"}
+    finally:
+        _unlock(f)
+
+
+def close_spot(sym):
+    """现货全平: 按当前价卖出全部持仓"""
+    sym = (sym or "").upper()
+    px = _spot_px(sym)
+    if not px:
+        return {"ok": False, "error": f"{sym} 无现货实时价"}
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        spot = (st.get("spot") or {}).get(sym)
+        if not spot:
+            return {"ok": False, "error": f"{sym} 无现货持仓"}
+        qty, avg = spot["qty"], spot["avg_cost"]
+        pnl = (px - avg) * qty
+        fees = SPOT_FEE * px * qty
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
+        del st["spot"][sym]
+        _write(_resolve("CARRY_STATE"), st)
+        _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_CLOSE",
+                                      px=px, qty=qty, pnl_usd=round(pnl, 4)))
+        _audit("close_spot", sym, {"px": px, "qty": qty, "pnl": round(pnl, 4)})
+        return {"ok": True, "msg": f"已平 {sym} 现货 {qty} @{px:.4f} (PnL {pnl:+.4f}$)"}
+    finally:
+        _unlock(f)
+
+
+def spot_positions():
+    """现货持仓 + MTM → [{symbol, qty, avg_cost, px, value, pnl}]"""
+    px_all = _prices()
+    st = _read(_resolve("CARRY_STATE"), {})
+    spot = st.get("spot", {})
+    out = []
+    for sym, p in spot.items():
+        px = _spot_px(sym)
+        if not px:
+            continue
+        pnl = (px - p["avg_cost"]) * p["qty"]
+        out.append(dict(symbol=sym, qty=p["qty"], avg_cost=round(p["avg_cost"], 6),
+                        px=px, value=round(px * p["qty"], 2), pnl=round(pnl, 4)))
+    return out
+
+
 def native_positions():
     """原生纸面持仓 + 实时 MTM → [{symbol, side, entry, notional, qty, pnl}]"""
     px_all = _prices()

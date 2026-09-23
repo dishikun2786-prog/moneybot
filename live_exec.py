@@ -184,6 +184,50 @@ def _bybit_order(uid, s, category, symbol, side, qty, price=None, reduce_only=Fa
     return r
 
 
+def _last_spot_price(sym):
+    """现货实时价 (快照 spot 字段, 兜底 last)"""
+    try:
+        with open(os.path.join(BASE, "logs", "bybit_prices.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        p = d.get("prices", d).get(sym, {})
+        v = p.get("spot") or p.get("last")
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
+def bybit_spot_order(uid, body):
+    """现货实盘市价单: side=buy/sell; qtyStep 取整; 卖出查现货余额"""
+    sym = str(body.get("symbol", "")).upper()
+    side = body.get("side", "buy")
+    if side not in ("buy", "sell"):
+        return {"ok": False, "error": "方向须 buy/sell"}
+    notional = float(body.get("notional") or 0)
+    ok, err = _gate(uid, "bybit", notional)
+    if not ok:
+        return {"ok": False, "error": err}
+    try:
+        from paper_ops import _spot_allowed, _spot_qty, SPOT_FEE
+    except Exception:
+        return {"ok": False, "error": "paper_ops 不可用"}
+    if not _spot_allowed(sym):
+        return {"ok": False, "error": f"{sym} 不在现货交易白名单"}
+    s = keys.get_secrets(uid, "bybit")
+    px = _last_spot_price(sym)
+    if not px:
+        return {"ok": False, "error": "现货价格快照不可用"}
+    qty = _spot_qty(sym, notional, px)
+    if qty <= 0:
+        return {"ok": False, "error": "数量过小(精度不足)"}
+    if side == "sell":
+        bal = _spot_balance(s, sym.split("USDT")[0].split("USDC")[0])
+        if bal < qty:
+            return {"ok": False, "error": f"现货余额不足 ({bal} < {qty} {sym.split('USDT')[0].split('USDC')[0]})"}
+    by_side = "Buy" if side == "buy" else "Sell"
+    r = _bybit_order(uid, s, "spot", sym, by_side, qty)
+    return _finish_bybit(uid, r, f"spot_{side}", sym, by_side, qty, notional, body)
+
+
 def bybit_open_naked(uid, body):
     """裸腿方向仓: 永续市价开单 (fwd=空, rev=多)"""
     sym = str(body.get("symbol", "")).upper()

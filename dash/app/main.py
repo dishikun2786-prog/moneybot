@@ -355,6 +355,43 @@ async def ai_approve(request: Request, su=Depends(require_session_user)):
         return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
 
 
+@app.post("/api/spot/open")
+async def spot_open(request: Request, su=Depends(require_session_user)):
+    """R6 现货下单: side=buy/sell; live=True 走 Bybit 实盘市价"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    sym = str(body.get("symbol") or "").upper()
+    side = str(body.get("side") or "buy")
+    live = bool(body.get("live"))
+    if not re.fullmatch(r"[A-Z0-9]{2,20}", sym):
+        return {"ok": False, "error": "symbol 非法"}
+    if live:
+        return live_exec.bybit_spot_order(su["u"], {"symbol": sym, "side": side,
+                                                    "notional": body.get("notional")})
+    return paper_ops.open_spot(sym, side, body.get("notional"))
+
+
+@app.post("/api/spot/close")
+async def spot_close(request: Request, su=Depends(require_session_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    sym = str(body.get("symbol") or "").upper()
+    live = bool(body.get("live"))
+    if live:
+        return live_exec.bybit_spot_order(su["u"], {"symbol": sym, "side": "sell",
+                                                    "notional": body.get("notional")})
+    return paper_ops.close_spot(sym)
+
+
+@app.get("/api/spot/positions")
+def spot_positions(su=Depends(require_session_user)):
+    return {"ok": True, "positions": paper_ops.spot_positions()}
+
+
 @app.post("/api/native/open")
 async def native_open(request: Request, su=Depends(require_session_user)):
     """P3 原生交易开仓: 纸面(默认)或实盘(live=1), side=long/short, 任意白名单标的"""
