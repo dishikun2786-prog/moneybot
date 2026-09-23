@@ -62,11 +62,15 @@ def user_stats(uid):
                 "realized_today": 0}
 
 
-def list_users_with_stats():
+def list_users_with_stats(offset=0, limit=0):
     rows = users.list_users()
     for r in rows:
         r["stats"] = user_stats(r["id"])
         r["plan_zh"] = PLANS.get(r.get("plan"), {}).get("name", r.get("plan"))
+    if limit and limit > 0:
+        return {"rows": rows[offset:offset + limit],
+                "total": len(rows),
+                "has_more": offset + limit < len(rows)}
     return rows
 
 

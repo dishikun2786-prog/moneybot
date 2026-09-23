@@ -200,9 +200,14 @@ async function loadStats(){
     <div class="card"><div class="l">用户模拟资金合计$</div><div class="n">${fmtNum(d.capital_total)}</div></div>
     <div class="card"><div class="l">套餐分布</div><div class="n" style="font-size:14px">免费${free} · 专业${pro} · 实盘${live}</div></div>`;
 }
-async function loadUsers(){
-  const {d}=await j('GET','/api/admin/users');
-  USERS=d.rows||[];renderUsers();
+let UOFF=0,UHAS_MORE=false;
+async function loadUsers(reset=true){
+  if(reset){UOFF=0;USERS=[]}
+  const {d}=await j('GET','/api/admin/users?offset='+UOFF+'&limit=50');
+  USERS=USERS.concat(d.rows||[]);
+  UHAS_MORE=!!d.has_more;
+  UOFF+=50;
+  renderUsers();
 }
 function renderUsers(){
   const q=$('#q').value.trim().toLowerCase();
@@ -225,6 +230,9 @@ function renderUsers(){
           ?`<button class="mini danger" onclick="userStatus(${u.id},'disabled')">禁用</button>`
           :`<button class="mini" onclick="userStatus(${u.id},'active')">启用</button>`}`:'—'}
       </td></tr>`}).join('')||'<tr><td colspan="11" class="dim" style="text-align:center;padding:30px">无用户</td></tr>';
+  if(UHAS_MORE){
+    $('#utbody').insertAdjacentHTML('beforeend',`<tr><td colspan="11" style="text-align:center;padding:10px"><button class="mini" onclick="loadUsers(false)">加载更多 (已载 ${USERS.length})</button></td></tr>`);
+  }
 }
 async function userStatus(uid,st){
   modal(`<h3>${st==='disabled'?'禁用':'启用'}用户 #${uid}?</h3>

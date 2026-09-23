@@ -483,6 +483,18 @@ async def api_mode_set(request: Request, su=Depends(require_session_user)):
         return engine_mode.set_mode(str(body.get("strategy", "")), str(body.get("mode", "")))
 
 
+@app.get("/api/prices")
+def api_prices_snapshot(__=Depends(require_session)):
+    """R13: 行情 REST 兜底快照 (SSE 断线时前端降级轮询)"""
+    try:
+        with open(os.path.join(config.BASE, "logs", "bybit_prices.json"),
+                  encoding="utf-8") as f:
+            d = json.load(f)
+        return {"ok": True, "prices": d.get("prices", {}), "ts": d.get("ts")}
+    except Exception:
+        return {"ok": False, "prices": {}}
+
+
 def _price_delta(prices, seen):
     """SSE diff 核心: 返回 {changed_sym: payload} 并更新 seen (每标的按 ts 去重)"""
     delta = {s: v for s, v in prices.items() if (v.get("ts") or 0) != seen.get(s)}
@@ -1021,12 +1033,23 @@ def admin_page(__=Depends(require_admin)):
 
 @app.get("/api/admin/stats")
 def api_admin_stats(__=Depends(require_admin)):
-    return admin.stats_overview()
+    return {**admin.stats_overview(), "ok": True}
 
 
 @app.get("/api/admin/users")
-def api_admin_users(__=Depends(require_admin)):
-    return {"rows": admin.list_users_with_stats()}
+def api_admin_users(request: Request, __=Depends(require_admin)):
+    """R13 P2: 支持 ?offset=&limit= 分页 (limit<=0 返回全量, 兼容旧调用)"""
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = int(request.query_params.get("limit") or 0)
+    except Exception:
+        limit = 0
+    if limit > 0:
+        return {**admin.list_users_with_stats(offset, limit), "ok": True}
+    return {"rows": admin.list_users_with_stats(), "ok": True}
 
 
 @app.post("/api/admin/user/{uid}/status")
@@ -1063,12 +1086,12 @@ async def api_admin_pw(uid: int, request: Request, su=Depends(require_admin)):
 def api_admin_audit(uid: int = 0, action: str = "", limit: int = 200,
                     offset: int = 0, __=Depends(require_admin)):
     total, rows = admin.audit_query(uid or None, action or None, min(limit, 500), offset)
-    return {"total": total, "rows": rows}
+    return {"total": total, "rows": rows, "ok": True}
 
 
 @app.get("/api/admin/announcements")
 def api_admin_ann_list(__=Depends(require_admin)):
-    return {"rows": admin.announce_list(all_=True)}
+    return {"rows": admin.announce_list(all_=True), "ok": True}
 
 
 @app.post("/api/admin/announcements")
