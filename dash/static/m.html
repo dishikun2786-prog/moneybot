@@ -309,6 +309,13 @@ select.input{appearance:none}
         <div class="ct">24小时数据</div>
         <div id="d-data"></div>
       </div>
+      <div class="card" style="padding:8px">
+        <div class="ct">盘口深度 <span class="xs muted">卖单在上 · 买单在下</span></div>
+        <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
+        <div id="d-ob-asks"></div>
+        <div class="mid"><span class="p" id="d-ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
+        <div id="d-ob-bids"></div>
+      </div>
       <div id="d-act"></div>
       <div class="card ticket" id="spot-order-card">
         <div class="ct">现货下单 <span class="xs muted" id="spot-sub">买入持有 · 卖出平仓</span></div>
@@ -874,11 +881,40 @@ async function spotCloseGo(live){
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard()}
   else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
 }
+/* R7 详情屏盘口 */
+function renderDetOb(){
+  if(curScreen!=='symbol')return;
+  var book=(DEPTH[DET_SYM]||{});
+  var bids=(book.bids||[]).slice(0,7),asks=(book.asks||[]).slice(0,7);
+  if(!bids.length&&!asks.length){
+    watchDepth(DET_SYM);
+    id('d-ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">正在订阅 '+DET_SYM+' 实时盘口（约2秒）…<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>';
+    id('d-ob-bids').innerHTML='';
+    id('d-ob-mid').textContent=priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—';
+    return;
+  }
+  var i,sumA=0,html='',maxA=0,maxB=0;
+  for(i=0;i<asks.length;i++)maxA=Math.max(maxA,Number(asks[i][1])||0);
+  for(i=0;i<bids.length;i++)maxB=Math.max(maxB,Number(bids[i][1])||0);
+  for(i=asks.length-1;i>=0;i--){
+    var a=asks[i],sz=Number(a[1])||0;sumA+=sz;
+    html+='<div class="ob-item"><span class="down">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
+  }
+  id('d-ob-asks').innerHTML=html;
+  id('d-ob-mid').textContent=(asks[asks.length-1]&&bids[0])?fmtPx((Number(asks[asks.length-1][0])+Number(bids[0][0]))/2):(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—');
+  html='';sumA=0;
+  for(i=0;i<bids.length;i++){
+    var b=bids[i];sz=Number(b[1])||0;sumA+=sz;
+    html+='<div class="ob-item"><span class="up">'+fmtPx(b[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#3ebd93;width:'+(maxB?Math.round(sz/maxB*100):0)+'%"></div></div>';
+  }
+  id('d-ob-bids').innerHTML=html;
+}
 function detStart(){
   if(DET_POLL)clearInterval(DET_POLL);
   try{api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV)})})}catch(e){}
   detLoad();
-  DET_POLL=setInterval(detLoad,15000);
+  renderDetOb();
+  DET_POLL=setInterval(function(){detLoad();renderDetOb()},3000);
 }
 async function detLoad(){
   var p=PRICES[DET_SYM]||{};
@@ -1269,11 +1305,9 @@ async function loadNativePositions(){
 /* K线 — R4 专业蜡烛图 (OHLC+量+实时末根) */
 var KL_POLL=null;
 function klIvf(iv){return { '5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D' }[iv]||'15m'}
-async function loadKline(){
-  var r=await api('/api/klines?symbol='+tradeSym+'&interval='+klIvf(KL_IV)+'&limit=60');
-  var bars=(r.data&&r.data.bars)||[];
+function renderKlineSVG(bars, iv, live, el){
   if(!bars.length){
-    id('kline-svg').innerHTML='<text x="120" y="60" font-size="11" fill="#5c6470">加载K线中…</text>';
+    el.innerHTML='<text x="120" y="60" font-size="11" fill="#5c6470">加载K线中…</text>';
     return;
   }
   var W=340,H=150,VH=36,pad=2, n=bars.length;
@@ -1307,8 +1341,8 @@ async function loadKline(){
   s+='<text x="'+(W-pad)+'" y="'+(yLp-2)+'" font-size="9" fill="'+ (last.c>=last.o?up:dn) +'" text-anchor="end">'+fmtPx(lp)+'</text>';
   var t0=new Date(bars[0].t),t1=new Date(last.t);
   function hm(d){return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
-  s+='<text x="'+pad+'" y="12" font-size="9" fill="#5c6470">'+KL_IV+' · '+hm(t0)+'—'+hm(t1)
-    +(r.data&&r.data.live?' · 实时':'')+' · 高 '+fmtPx(mx)+' 低 '+fmtPx(mn)+'</text>';
+  s+='<text x="'+pad+'" y="12" font-size="9" fill="#5c6470">'+iv+' · '+hm(t0)+'—'+hm(t1)
+    +(live?' · 实时':'')+' · 高 '+fmtPx(mx)+' 低 '+fmtPx(mn)+'</text>';
   el.innerHTML=s;
 }
 async function loadKline(){
