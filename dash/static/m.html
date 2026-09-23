@@ -191,6 +191,16 @@ select.input{appearance:none}
 .livebar.live{border-color:rgba(246,70,93,.5);background:var(--down-soft)}
 .livebar.live .dot{background:var(--down)}
 .livebar button{margin-left:auto;border:1px solid var(--border-2);background:none;color:var(--text-2);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;font-family:var(--sans)}
+/* R8 骨架屏 shimmer 动画 */
+@keyframes skelShimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+.skel{position:relative;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.05)}
+.skel::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent);background-size:200px 100%;animation:skelShimmer 1.15s infinite}
+.skel-row{display:grid;grid-template-columns:1fr 64px;gap:10px;padding:12px 8px}
+.skel-row .skel{height:13px}
+.skel-row .skel.sub{height:9px;margin-top:7px;width:60%}
+.skel-line{height:12px;margin:6px 0;border-radius:4px}
+@keyframes spinRot{to{transform:rotate(360deg)}}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.18);border-top-color:var(--accent);border-radius:50%;animation:spinRot .7s linear infinite;vertical-align:-2px;margin-right:5px}
 </style>
 </head>
 <body>
@@ -260,7 +270,7 @@ select.input{appearance:none}
           <button id="mk-sort-vol" class="mini" onclick="setMkSort('vol')">成交额</button>
           <span class="xs muted" id="mk-count" style="margin-left:auto"></span>
         </div>
-        <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="dim small" style="padding:8px">加载行情中…</div></div>
+        <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div></div>
       </div>
       <div class="card" style="padding:8px">
         <div class="ct" style="padding:4px 4px 8px">预测市场（Polymarket）<span class="xs muted">按模型价差排序</span></div>
@@ -274,9 +284,12 @@ select.input{appearance:none}
       <div class="row" style="margin-bottom:10px"><b style="font-size:15px">预测市场对冲</b><span class="badge gray">Polymarket CLOB</span></div>
       <div class="card">
         <div class="ct">市场浏览 <span class="xs muted" id="pm-mk-n"></span></div>
-        <input class="input" id="pm-q" placeholder="🔍 搜索事件 / 问题…" oninput="renderPmMkList()" style="margin-bottom:6px">
+        <input class="input" id="pm-q" placeholder="🔍 搜索事件 / 问题…" oninput="pmSearchKey()" style="margin-bottom:6px">
         <div class="cbar" id="pm-cats" style="flex-wrap:wrap;justify-content:flex-start"></div>
-        <div id="pm-mk-list" style="max-height:44vh;overflow-y:auto;margin-top:4px"></div>
+        <div id="pm-mk-list" style="max-height:44vh;overflow-y:auto;margin-top:4px" onscroll="pmScrollMore()">
+          <div class="skel-row" id="pm-skel" style="display:none"></div>
+        </div>
+        <div id="pm-load-hint" class="xs muted" style="display:none;padding:6px 2px">⏳ 加载市场中…</div>
       </div>
       <div class="card ticket">
         <div class="ct">下单 <span class="xs muted">模型价 vs 盘口价 · 自主判断</span></div>
@@ -752,7 +765,7 @@ var MKTAB='all',MKSORT='chg',MKQ='',MKCUR=0,MKPAGE=60;
 var MKFAV={};
 try{MKFAV=JSON.parse(localStorage.getItem('mb_favs')||'{}')}catch(e){MKFAV={}}
 function saveFav(){try{localStorage.setItem('mb_favs',JSON.stringify(MKFAV))}catch(e){}}
-function toggleFav(sym){MKFAV[sym]=!MKFAV[sym];saveFav();renderTickers()}
+function toggleFav(sym){MKFAV[sym]=!MKFAV[sym];saveFav();MKROWS_CACHE=null;renderTickers()}
 function setMkTab(t){MKTAB=t;MKCUR=0;
   var bs=document.querySelectorAll('#mk-tabs button');
   for(var i=0;i<bs.length;i++){bs[i].className=bs[i].getAttribute('data-tab')===t?'on':''}
@@ -763,7 +776,12 @@ function setMkSort(s){MKSORT=s;MKCUR=0;
   id('mk-sort-vol').className='mini'+(s==='vol'?' on':'');
   renderTickers();
 }
+var MKROWS_CACHE=null,MKROWS_KEY='',MKROWS_T=0;
 function mkRows(){
+  var chgSort=MKSORT==='chg';
+  var key=MKTAB+'|'+MKQ.trim().toUpperCase()+'|'+(chgSort?'chg':'turn');
+  var now=Date.now();
+  if(MKROWS_CACHE&&MKROWS_KEY===key&&(chgSort?now-MKROWS_T<3000:true))return MKROWS_CACHE;
   var rows=[],seen={};
   for(var i=0;i<INSTR.linear.length;i++){
     var it=INSTR.linear[i];
@@ -784,8 +802,9 @@ function mkRows(){
     if(q&&r.sym.indexOf(q)<0&&(r.name||'').toUpperCase().indexOf(q)<0)continue;
     out.push(r);
   }
-  if(MKSORT==='chg')out.sort(function(a,b){return Math.abs(priceOf(b.sym).chg)-Math.abs(priceOf(a.sym).chg)});
+  if(chgSort)out.sort(function(a,b){return Math.abs(priceOf(b.sym).chg)-Math.abs(priceOf(a.sym).chg)});
   else out.sort(function(a,b){return b.turn-a.turn});
+  MKROWS_KEY=key;MKROWS_T=now;MKROWS_CACHE=out;
   return out;
 }
 function mkTap(sym,cat){
@@ -912,6 +931,7 @@ function renderDetOb(){
 function detStart(){
   if(DET_POLL)clearInterval(DET_POLL);
   try{api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV)})})}catch(e){}
+  renderKlineSVG([],DET_IV,false,id('d-kline'));
   detLoad();
   renderDetOb();
   DET_POLL=setInterval(function(){detLoad();renderDetOb()},3000);
@@ -984,7 +1004,7 @@ async function loadMarkets(){
   renderTickers();
   try{
     var r=await api('/api/instruments');
-    if(r.data){INSTR={linear:r.data.linear||[],spot:r.data.spot||[]};buildInstrPx();renderTickers()}
+    if(r.data){INSTR={linear:r.data.linear||[],spot:r.data.spot||[]};MKROWS_CACHE=null;buildInstrPx();renderTickers()}
   }catch(e){}
   var m=await api('/api/markets?sort=edge');
   if(m.data&&m.data.rows){PM_ROWS=m.data.rows;renderTickers()}
@@ -1019,22 +1039,53 @@ function startPmStream(){
     es.onerror=function(){};
   }catch(e){}
 }
-async function loadPmTokens(){
+var PM_TOKENS=[];  // 已加载的 token 分页累积 (懒加载)
+var PM_TOKS_BYKEY={};  // key -> [token] 供 pmRt
+var PM_OFFSET=0,PM_HAS_MORE=true,PM_LOADING=false,PM_CATS_COUNT={};
+async function loadPmMks(reset){
+  if(PM_LOADING)return;
+  if(PM_HAS_MORE===false&&!reset)return;
+  PM_LOADING=true;
+  id('pm-load-hint').style.display='block';
+  if(id('pm-skel'))id('pm-skel').style.display=(PM_MKS.length?'none':'block');
+  var q=(id('pm-q').value||'').trim();
+  var url='/api/pm/tokens?limit=400&offset='+(reset?0:PM_OFFSET)
+    +(PM_CAT!=='all'?'&cat='+encodeURIComponent(PM_CAT):'')
+    +(q?'&q='+encodeURIComponent(q):'');
   try{
-    var r=await api('/api/pm/tokens');
-    if(r.data&&r.data.tokens)PM_TOKENS=r.data.tokens;
+    var r=await api(url);
+    var d=r.data||{};
+    var toks=d.tokens||[];
+    if(reset){PM_TOKENS=[];PM_TOKS_BYKEY={};PM_MKS=[];PM_MKS_BYKEY={};PM_OFFSET=0}
+    for(var i=0;i<toks.length;i++){
+      var t=toks[i];
+      PM_TOKENS.push(t);
+      if(!PM_TOKS_BYKEY[t.key])PM_TOKS_BYKEY[t.key]=[];
+      if(!PM_MKS_BYKEY[t.key]){
+        var mk={key:t.key,title:t.title,question:t.question,cat:t.cat||'other',ev_vol:t.ev_vol||0,mk_vol:t.mk_vol||0,mk_chg:t.mk_chg||0,toks:[]};
+        PM_MKS_BYKEY[t.key]=mk;PM_MKS.push(mk);
+      }else{PM_MKS_BYKEY[t.key].mk_vol=Math.max(PM_MKS_BYKEY[t.key].mk_vol,t.mk_vol||0)}
+      if(PM_TOKS_BYKEY[t.key].indexOf(t.token)<0)PM_TOKS_BYKEY[t.key].push(t.token);
+      if(PM_MKS_BYKEY[t.key].toks.indexOf(t.token)<0)PM_MKS_BYKEY[t.key].toks.push(t.token);
+    }
+    PM_OFFSET+=toks.length;
+    PM_HAS_MORE=!!d.has_more;
+    if(d.cats)PM_CATS_COUNT=d.cats;
+    renderPmCats();
+    renderPmMkList();
   }catch(e){}
+  PM_LOADING=false;
+  id('pm-load-hint').style.display='none';
+  if(id('pm-skel'))id('pm-skel').style.display='none';
 }
 function pmRt(key){
+  var ts=PM_TOKS_BYKEY[key]||[];
   var out=null;
-  for(var i=0;i<PM_TOKENS.length;i++){
-    var t=PM_TOKENS[i];
-    if(t.key===key){
-      var p=PM_PX[t.token];
-      if(p&&p.bid!=null&&p.ask!=null){
-        if(!out)out={bid:p.bid,ask:p.ask,last:p.last,token:t.token};
-        else{out.bid=Math.min(out.bid,p.bid);out.ask=Math.max(out.ask,p.ask)}
-      }
+  for(var i=0;i<ts.length;i++){
+    var p=PM_PX[ts[i]];
+    if(p&&p.bid!=null&&p.ask!=null){
+      if(!out)out={bid:p.bid,ask:p.ask,last:p.last,token:ts[i]};
+      else{out.bid=Math.min(out.bid,p.bid);out.ask=Math.max(out.ask,p.ask)}
     }
   }
   return out;
@@ -1044,17 +1095,9 @@ var PM_CAT='all',PM_CATS=[];
 var PM_CAT_ZH={crypto:'加密',cryptocurrency:'加密',sports:'体育',esports:'电竞',politics:'政治',culture:'文化',business:'商业',science:'科学',technology:'科技',economics:'经济',entertainment:'娱乐',weather:'天气',soccer:'足球',tennis:'网球',basketball:'篮球',football:'橄榄球',baseball:'棒球','united states':'美国政治',golf:'高尔夫',mma:'格斗',boxing:'拳击','crypto prices':'加密价格',other:'其他'};
 var PM_CAT_MAIN=['sports','esports','politics','crypto','weather','culture'];
 var PM_MKS=[];  // 聚合后的市场列表 {key,title,question,cat,ev_vol,mk_vol,mk_chg,tokens:[..]}
-function buildPmMks(){
-  var m={};
-  for(var i=0;i<PM_TOKENS.length;i++){
-    var t=PM_TOKENS[i];
-    if(!m[t.key])m[t.key]={key:t.key,title:t.title,question:t.question,cat:t.cat||'other',ev_vol:t.ev_vol||0,mk_vol:t.mk_vol||0,mk_chg:t.mk_chg||0,toks:[]};
-    m[t.key].toks.push(t.token);
-    m[t.key].mk_vol=Math.max(m[t.key].mk_vol,t.mk_vol||0);
-  }
-  PM_MKS=Object.keys(m).map(function(k){return m[k]});
-  var cats={};
-  for(var j=0;j<PM_MKS.length;j++){cats[PM_MKS[j].cat]=(cats[PM_MKS[j].cat]||0)+1}
+var PM_MKS=[],PM_MKS_BYKEY={};
+function renderPmCats(){
+  var cats=PM_CATS_COUNT;
   var catNames=Object.keys(cats).sort(function(a,b){return cats[b]-cats[a]});
   var mainCats=catNames.filter(function(c){return PM_CAT_MAIN.indexOf(c)>=0}).slice(0,6);
   var otherN=0;
@@ -1062,10 +1105,19 @@ function buildPmMks(){
   PM_CATS=mainCats.slice();
   if(otherN>0)PM_CATS.push('other');
   PM_CATS._other=otherN;
-  id('pm-cats').innerHTML='<span data-c="all" class="'+(PM_CAT==='all'?'on':'')+'" onclick="pmCat(\'all\')">全部 '+PM_MKS.length+'</span>'
+  var total=0;for(var c in cats)total+=cats[c];
+  id('pm-cats').innerHTML='<span data-c="all" class="'+(PM_CAT==='all'?'on':'')+'" onclick="pmCat(\'all\')">全部 '+total+'</span>'
     +PM_CATS.map(function(c){var n=c==='other'?PM_CATS._other:(cats[c]||0);return '<span data-c="'+c+'" class="'+(PM_CAT===c?'on':'')+'" onclick="pmCat(\''+c+'\')">'+(PM_CAT_ZH[c]||c)+' '+n+'</span>'}).join('');
 }
-function pmCat(c){PM_CAT=c;buildPmMks();renderPmMkList()}
+function pmCat(c){
+  if(c!==PM_CAT){PM_CAT=c;loadPmMks(true);return}
+  renderPmMkList();
+}
+var PM_SEARCH_T=null;
+function pmSearchKey(ev){
+  clearTimeout(PM_SEARCH_T);
+  PM_SEARCH_T=setTimeout(function(){loadPmMks(true)},350);
+}
 function pmMkPx(mk){
   var bid=null,last=null;
   for(var i=0;i<mk.toks.length;i++){
@@ -1074,20 +1126,17 @@ function pmMkPx(mk){
   }
   return {bid:bid,last:last};
 }
-function renderPmMkList(){
-  var q=(id('pm-q').value||'').trim().toLowerCase();
-  var out=[];
-  for(var i=0;i<PM_MKS.length;i++){
-    var m=PM_MKS[i];
-    if(PM_CAT!=='all'&&PM_CAT!=='other'&&m.cat!==PM_CAT)continue;
-    if(PM_CAT==='other'&&PM_CAT_MAIN.indexOf(m.cat)>=0)continue;
-    if(PM_CAT!=='all'&&PM_CAT_MAIN.indexOf(PM_CAT)<0&&m.cat!==PM_CAT)continue;
-    if(q&&(m.title||'').toLowerCase().indexOf(q)<0&&(m.question||'').toLowerCase().indexOf(q)<0)continue;
-    out.push(m);
+function pmScrollMore(){
+  var el=id('pm-mk-list');
+  if(el.scrollTop+el.clientHeight>el.scrollHeight-120&&PM_HAS_MORE&&!PM_LOADING){
+    loadPmMks(false);
   }
+}
+function renderPmMkList(){
+  var out=PM_MKS.slice();
   out.sort(function(a,b){return (b.ev_vol||0)-(a.ev_vol||0)});
   var shown=Math.min(out.length,60);
-  id('pm-mk-n').textContent=shown+'/'+PM_MKS.length+' 个市场';
+  id('pm-mk-n').textContent='已加载 '+PM_MKS.length+(PM_HAS_MORE?'+':'')+' 个市场 · 展示 '+shown;
   var html='';
   for(var j=0;j<shown;j++){
     var m=out[j],px=pmMkPx(m);
@@ -1125,7 +1174,7 @@ async function loadPmScreen(){
     updPmHint();
   }
   loadPmPositions();
-  loadPmTokens().then(function(){buildPmMks();renderPmMkList()});
+  if(!PM_MKS.length)loadPmMks(true);else renderPmMkList();
 }
 function updPmHint(){
   var sel=id('pm-key');if(!sel)return;
@@ -1307,7 +1356,10 @@ var KL_POLL=null;
 function klIvf(iv){return { '5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D' }[iv]||'15m'}
 function renderKlineSVG(bars, iv, live, el){
   if(!bars.length){
-    el.innerHTML='<text x="120" y="60" font-size="11" fill="#5c6470">加载K线中…</text>';
+    var sk='<g class="skel-wrap">';
+    for(var i=0;i<7;i++){sk+='<rect class="skel" x="'+(8+i*46)+'" y="'+(30+(i%3)*14)+'" width="34" height="86" rx="3" fill="rgba(255,255,255,.05)"/>'}
+    sk+='</g><text x="120" y="132" font-size="10" fill="#5c6470"><tspan class="spin" dy="0">&#8203;</tspan>K线数据加载中…</text>';
+    el.innerHTML=sk;
     return;
   }
   var W=340,H=150,VH=36,pad=2, n=bars.length;
@@ -1935,7 +1987,6 @@ loadCaptcha('reg');
 })();
 startPrices();
 startPmStream();
-loadPmTokens();
 startDepth();
 </script>
 </body>

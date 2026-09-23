@@ -500,7 +500,7 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300):
         iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
               "D": "D", "W": "W", "M": "M"}.get(interval, "15")
         url = (f"https://api.bybit.com/v5/market/kline?category=linear"
-               f"&symbol={symbol}&interval={iv}&limit=200")
+               f"&symbol={symbol}&interval={iv}&limit=120")
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
             d = json.loads(r.read().decode())

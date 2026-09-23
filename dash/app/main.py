@@ -514,8 +514,16 @@ async def stream_prices(request: Request, __=Depends(require_session)):
                     if not sent_full:
                         seen = {s: (v.get("ts") or 0) for s, v in prices.items()}
                         sent_full = True
-                        yield f"data: {json.dumps({'ts': snap_ts, 'prices': prices, 'full': True}, ensure_ascii=False)}\n\n"
+                        # R8 首帧分片: 高成交额 Top120 先推(首屏秒显), 其余 delta 合并
+                        items = sorted(prices.items(),
+                                       key=lambda kv: -(kv[1].get("vol") or 0))
+                        top = dict(items[:120])
+                        rest = dict(items[120:])
+                        yield f"data: {json.dumps({'ts': snap_ts, 'prices': top, 'full': True}, ensure_ascii=False)}\n\n"
                         last_send = time.time()
+                        if rest:
+                            await asyncio.sleep(0.15)
+                            yield f"data: {json.dumps({'ts': snap_ts, 'prices': rest, 'delta': True}, ensure_ascii=False)}\n\n"
                     else:
                         delta = _price_delta(prices, seen)
                         if delta:
@@ -543,8 +551,17 @@ def api_instruments(__=Depends(require_session)):
         with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),
                   encoding="utf-8") as f:
             d = json.load(f)
-        return {"ok": True, "linear": d.get("linear", []), "spot": d.get("spot", []),
-                "ts": d.get("ts")}
+        def _slim(lst):
+            out = []
+            for it in lst:
+                out.append({"symbol": it.get("symbol"), "name": it.get("name", ""),
+                            "base": it.get("base", ""), "quote": it.get("quote", "USDT"),
+                            "turnover24h": it.get("turnover24h", 0),
+                            "lastPrice": it.get("lastPrice"),
+                            "tickSize": it.get("tickSize"), "qtyStep": it.get("qtyStep")})
+            return out
+        return {"ok": True, "linear": _slim(d.get("linear", [])),
+                "spot": _slim(d.get("spot", [])), "ts": d.get("ts")}
     except Exception:
         return {"ok": True, "linear": [], "spot": [], "ts": None}
 
@@ -779,15 +796,53 @@ def api_pm_prices(__=Depends(require_session)):
         return {"ok": True, "n": 0, "ts": None, "prices": {}}
 
 
+_PM_TOK_CACHE = {"t": 0, "data": None}
+
+
 @app.get("/api/pm/tokens")
-def api_pm_tokens(__=Depends(require_session)):
-    """P4 token→市场 映射: [{token, key(event|market), title, question, outcome}]"""
+def api_pm_tokens(request: Request, __=Depends(require_session)):
+    """P4 token→市场 映射, R8 懒加载: ?cat=&q=&offset=&limit= 服务端过滤分页
+    默认只回第一页 (12596 条全量 5.8MB 压垮首载 → 按需加载)"""
     try:
-        with open(os.path.expanduser("~/polymarket/logs/pm_tokens.json"),
-                  encoding="utf-8") as f:
-            return {"ok": True, "tokens": json.load(f)}
+        now = time.time()
+        if _PM_TOK_CACHE["data"] is None or now - _PM_TOK_CACHE["t"] > 60:
+            with open(os.path.expanduser("~/polymarket/logs/pm_tokens.json"),
+                      encoding="utf-8") as f:
+                _PM_TOK_CACHE["data"] = json.load(f)
+            _PM_TOK_CACHE["t"] = now
+        toks = _PM_TOK_CACHE["data"] or []
     except Exception:
-        return {"ok": True, "tokens": []}
+        return {"ok": True, "tokens": [], "total": 0, "cats": {}}
+    cat = (request.query_params.get("cat") or "").strip().lower()
+    q = (request.query_params.get("q") or "").strip().lower()
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = max(10, min(int(request.query_params.get("limit") or 300), 500))
+    except Exception:
+        limit = 300
+    # 分类统计 (缓存期内每次循环 ~10ms, 可接受)
+    cats = {}
+    for t in toks:
+        c = t.get("cat") or "other"
+        cats[c] = cats.get(c, 0) + 1
+    if cat:
+        toks = [t for t in toks if (t.get("cat") or "other") == cat]
+    if q:
+        toks = [t for t in toks if q in (t.get("title") or "").lower()
+                or q in (t.get("question") or "").lower()
+                or q in (t.get("key") or "").lower()]
+    total = len(toks)
+    page = toks[offset:offset + limit]
+    # 精简字段 (降带宽)
+    slim = [{"token": t["token"], "key": t["key"], "title": t.get("title", ""),
+             "question": t.get("question", ""), "cat": t.get("cat", "other"),
+             "ev_vol": t.get("ev_vol", 0), "mk_chg": t.get("mk_chg", 0),
+             "mk_vol": t.get("mk_vol", 0)} for t in page]
+    return {"ok": True, "tokens": slim, "total": total, "cats": cats,
+            "has_more": offset + limit < total}
 
 
 @app.get("/api/stream/pm")
