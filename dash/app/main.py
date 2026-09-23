@@ -802,6 +802,21 @@ def api_pm_prices(__=Depends(require_session)):
 
 
 _PM_TOK_CACHE = {"t": 0, "data": None}
+_PM_ZH_CACHE = {"t": 0, "data": {"t": {}, "q": {}}}
+
+
+def _pm_zh():
+    """R11: 中文翻译表 {t:{title:zh}, q:{question:zh}} (DeepSeek 批量翻译, 60s 缓存)"""
+    now = time.time()
+    if now - _PM_ZH_CACHE["t"] > 60:
+        try:
+            with open(os.path.expanduser("~/polymarket/logs/pm_zh.json"),
+                      encoding="utf-8") as f:
+                _PM_ZH_CACHE["data"] = json.load(f)
+        except Exception:
+            _PM_ZH_CACHE["data"] = {"t": {}, "q": {}}
+        _PM_ZH_CACHE["t"] = now
+    return _PM_ZH_CACHE["data"]
 
 
 @app.get("/api/pm/tokens")
@@ -835,17 +850,37 @@ def api_pm_tokens(request: Request, __=Depends(require_session)):
         cats[c] = cats.get(c, 0) + 1
     if cat:
         toks = [t for t in toks if (t.get("cat") or "other") == cat]
+    zh = _pm_zh()  # 中文表始终加载 (60s 缓存, 开销小)
     if q:
-        toks = [t for t in toks if q in (t.get("title") or "").lower()
-                or q in (t.get("question") or "").lower()
-                or q in (t.get("key") or "").lower()]
+        ql = q.lower()
+        def _hit(t):
+            if ql in (t.get("title") or "").lower():
+                return True
+            if ql in (t.get("question") or "").lower():
+                return True
+            if ql in (t.get("key") or "").lower():
+                return True
+            # 中文匹配 (R11): 中文查询词命中翻译表
+            if zh:
+                zt = (zh["t"].get(t.get("title") or "") or "").lower()
+                zq = (zh["q"].get(t.get("question") or "") or "").lower()
+                if ql in zt or ql in zq:
+                    return True
+            return False
+        toks = [t for t in toks if _hit(t)]
     total = len(toks)
     page = toks[offset:offset + limit]
-    # 精简字段 (降带宽)
-    slim = [{"token": t["token"], "key": t["key"], "title": t.get("title", ""),
-             "question": t.get("question", ""), "cat": t.get("cat", "other"),
-             "ev_vol": t.get("ev_vol", 0), "mk_chg": t.get("mk_chg", 0),
-             "mk_vol": t.get("mk_vol", 0)} for t in page]
+    # 精简字段 (降带宽) + 中文 (R11)
+    slim = []
+    for t in page:
+        it = {"token": t["token"], "key": t["key"], "title": t.get("title", ""),
+              "question": t.get("question", ""), "cat": t.get("cat", "other"),
+              "ev_vol": t.get("ev_vol", 0), "mk_chg": t.get("mk_chg", 0),
+              "mk_vol": t.get("mk_vol", 0)}
+        if zh:
+            it["title_zh"] = zh["t"].get(t.get("title") or "") or ""
+            it["question_zh"] = zh["q"].get(t.get("question") or "") or ""
+        slim.append(it)
     return {"ok": True, "tokens": slim, "total": total, "cats": cats,
             "has_more": offset + limit < total}
 

@@ -11,6 +11,13 @@
   --up:#3ebd93;--up-soft:rgba(62,189,147,.14);--down:#f6465d;--down-soft:rgba(246,70,93,.14);
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  /* R11 P3-a 设计token: 圆角/阴影/动效 (8pt栅格基线) */
+  --r-s:6px;--r-m:10px;--r-l:14px;
+  --sh-1:0 1px 2px rgba(0,0,0,.24);
+  --sh-2:0 4px 14px rgba(0,0,0,.32);
+  --sh-3:0 10px 30px rgba(0,0,0,.44);
+  --t-fast:.12s;--t-mid:.2s;--t-slow:.3s;
+  --ease:cubic-bezier(.3,.7,.3,1);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -25,14 +32,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .iconbtn:hover{background:var(--surface);border-color:var(--border)}
 .body{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .body::-webkit-scrollbar{display:none}
-.screen{display:none;padding:10px 12px 90px;animation:fade .18s ease}
+.screen{display:none;padding:10px 12px 90px;animation:slideFade var(--t-mid) var(--ease)}
 .screen.on{display:block}
+@keyframes slideFade{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
 .tabbar{flex:none;height:60px;display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
-.tabbar button{flex:1;background:none;border:none;color:var(--text-3);font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--sans);min-height:48px}
-.tabbar button .ico{font-size:19px;line-height:1}
+.tabbar button{flex:1;background:none;border:none;color:var(--text-3);font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--sans);min-height:48px;position:relative;transition:color var(--t-fast) var(--ease)}
+.tabbar button .ico{font-size:19px;line-height:1;transition:transform var(--t-mid) var(--ease)}
 .tabbar button.on{color:var(--accent)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.tabbar button.on .ico{transform:translateY(-1px) scale(1.08)}
+.tabbar button::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%) scaleX(0);width:26px;height:2.5px;border-radius:2px;background:linear-gradient(90deg,var(--accent),#ffc94d);transition:transform var(--t-mid) var(--ease)}
+.tabbar button.on::after{transform:translateX(-50%) scaleX(1)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-l);padding:12px;margin-bottom:10px;box-shadow:var(--sh-1);transition:transform var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.card-in{transition:transform var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+.card-in:active{transform:scale(.985)}
+.pm-mk:active{background:var(--surface-2)}
+.market-item:active{background:var(--surface-2)}
 .card .ct{font-size:11px;color:var(--text-3);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -50,7 +65,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .btn.accent{background:var(--accent);color:#1a1200}.btn.ghost{background:var(--surface-2);color:var(--text)}
 .btn.outline{background:none;border:1px solid var(--border-2);color:var(--text-2)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:11px;font-size:14px;font-family:var(--sans);outline:none;min-height:44px}
+.btn:active{transform:scale(.975)}
+.btn{transition:transform var(--t-fast) var(--ease),filter var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}
+.btn.busy{pointer-events:none;opacity:.7}
+.btn.busy::before{content:'';width:14px;height:14px;border:2px solid rgba(0,0,0,.25);border-top-color:#000;border-radius:50%;animation:spinRot .6s linear infinite}
+.input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-m);color:var(--text);padding:11px;font-size:14px;font-family:var(--sans);outline:none;min-height:44px;transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .input:focus{border-color:var(--accent)}.input::placeholder{color:var(--text-3)}
 select.input{appearance:none}
 .field{margin-bottom:10px}
@@ -115,8 +135,10 @@ select.input{appearance:none}
 .sym-head .l .n{font-size:17px;font-weight:700}
 .sym-head .l .sub{font-size:10px;color:var(--text-3)}
 .sym-head .r{text-align:right}
-.sym-head .r .p{font-size:18px;font-weight:700;font-family:var(--mono)}
-.sym-head .r .c{font-size:11px;font-family:var(--mono)}
+.sym-head .r .p{font-size:22px;font-weight:800;font-family:var(--mono);letter-spacing:-.5px}
+.sym-head .r .c{font-size:11px;font-family:var(--mono);display:inline-block;padding:2px 8px;border-radius:99px;margin-top:2px}
+.sym-head .r .c.up{background:var(--up-soft);color:var(--up)}
+.sym-head .r .c.down{background:var(--down-soft);color:var(--down)}
 .tabbody{display:none}.tabbody.on{display:block}
 .chart{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px;margin-bottom:10px}
 .chart svg{display:block;width:100%;height:auto}
@@ -191,6 +213,16 @@ select.input{appearance:none}
 .livebar.live{border-color:rgba(246,70,93,.5);background:var(--down-soft)}
 .livebar.live .dot{background:var(--down)}
 .livebar button{margin-left:auto;border:1px solid var(--border-2);background:none;color:var(--text-2);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;font-family:var(--sans)}
+/* R11 P2: 搜索清除按钮 + 市场选择弹层 */
+.searchwrap{position:relative}
+.searchwrap .clearx{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;background:var(--surface-3);color:var(--text-2);border:none;font-size:11px;line-height:24px;text-align:center;padding:0;cursor:pointer}
+.pk-list{max-height:52vh;overflow-y:auto;margin-top:2px}
+.pk-item{padding:10px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.pk-item:active{background:var(--surface-2)}
+.pk-item.on{background:rgba(0,212,170,.08);border-color:var(--accent)}
+.pk-item+.pk-item{border-top:1px solid var(--border)}
+.selbtn{cursor:pointer}
+.selbtn:active{background:var(--surface-2)}
 /* R8 骨架屏 shimmer 动画 */
 @keyframes skelShimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
 .skel{position:relative;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.05)}
@@ -284,7 +316,10 @@ select.input{appearance:none}
       <div class="row" style="margin-bottom:10px"><b style="font-size:15px">预测市场对冲</b><span class="badge gray">Polymarket CLOB</span></div>
       <div class="card">
         <div class="ct">市场浏览 <span class="xs muted" id="pm-mk-n"></span></div>
-        <input class="input" id="pm-q" placeholder="🔍 搜索事件 / 问题…" oninput="pmSearchKey()" style="margin-bottom:6px">
+        <div class="searchwrap" style="margin-bottom:6px">
+          <input class="input" id="pm-q" placeholder="🔍 搜索事件 / 问题（支持中文）…" oninput="pmSearchKey()" style="margin:0;padding-right:34px">
+          <button class="clearx" id="pm-q-clear" onclick="pmClearSearch()" style="display:none">✕</button>
+        </div>
         <div class="cbar" id="pm-cats" style="flex-wrap:wrap;justify-content:flex-start"></div>
         <div id="pm-mk-list" style="max-height:44vh;overflow-y:auto;margin-top:4px" onscroll="pmScrollMore()">
           <div class="skel-row" id="pm-skel" style="display:none"></div>
@@ -293,7 +328,10 @@ select.input{appearance:none}
       </div>
       <div class="card ticket">
         <div class="ct">下单 <span class="xs muted">模型价 vs 盘口价 · 自主判断</span></div>
-        <div class="field"><label>市场</label><select class="input" id="pm-key" style="font-size:13px"></select></div>
+        <div class="field"><label>市场</label>
+          <select class="input" id="pm-key" style="display:none"></select>
+          <button class="input selbtn" id="pm-key-btn" onclick="openPmPicker()" style="width:100%;text-align:left;font-size:13px;min-height:38px">— 点击选择市场 —</button>
+        </div>
         <div class="dirrow">
           <button id="pm-buy" class="on-buy" onclick="setPmSide('BUY')">买入 YES/NO</button>
           <button id="pm-sell" onclick="setPmSide('SELL')">卖出</button>
@@ -317,7 +355,7 @@ select.input{appearance:none}
       <div class="card">
         <div class="cbar" id="dbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
         <svg id="d-kline" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-        <div class="ct" style="margin-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏联动</span></div>
+        <div class="ct" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏联动</span></div>
         <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
         <div id="d-ob-asks"></div>
         <div class="mid"><span class="p" id="d-ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
@@ -360,7 +398,7 @@ select.input{appearance:none}
         <div class="chart">
           <div class="cbar" id="kbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
           <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-          <div class="ct" style="margin-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏</span></div>
+          <div class="ct" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏</span></div>
           <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
           <div id="ob-asks"></div>
           <div class="mid"><span class="p" id="ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
@@ -1067,7 +1105,7 @@ async function loadPmMks(reset){
       PM_TOKENS.push(t);
       if(!PM_TOKS_BYKEY[t.key])PM_TOKS_BYKEY[t.key]=[];
       if(!PM_MKS_BYKEY[t.key]){
-        var mk={key:t.key,title:t.title,question:t.question,cat:t.cat||'other',ev_vol:t.ev_vol||0,mk_vol:t.mk_vol||0,mk_chg:t.mk_chg||0,toks:[]};
+        var mk={key:t.key,title:t.title,question:t.question,tzh:t.title_zh||'',qzh:t.question_zh||'',cat:t.cat||'other',ev_vol:t.ev_vol||0,mk_vol:t.mk_vol||0,mk_chg:t.mk_chg||0,toks:[]};
         PM_MKS_BYKEY[t.key]=mk;PM_MKS.push(mk);
       }else{PM_MKS_BYKEY[t.key].mk_vol=Math.max(PM_MKS_BYKEY[t.key].mk_vol,t.mk_vol||0)}
       if(PM_TOKS_BYKEY[t.key].indexOf(t.token)<0)PM_TOKS_BYKEY[t.key].push(t.token);
@@ -1120,8 +1158,40 @@ function pmCat(c){
 }
 var PM_SEARCH_T=null;
 function pmSearchKey(ev){
+  id('pm-q-clear').style.display=id('pm-q').value?'':'none';
   clearTimeout(PM_SEARCH_T);
   PM_SEARCH_T=setTimeout(function(){loadPmMks(true)},350);
+}
+function pmClearSearch(){
+  id('pm-q').value='';
+  id('pm-q-clear').style.display='none';
+  loadPmMks(true);   // 恢复全列表
+  try{id('pm-q').blur()}catch(e){}
+}
+var PM_KEY_VAL='';
+function openPmPicker(){
+  if(!PM_MKS.length)loadPmMks(true);
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 2px 8px">'
+    +'<b style="font-size:14px">选择预测市场</b><span class="xs muted">已加载 '+PM_MKS.length+' 个</span></div>'
+    +'<input class="input" id="pk-q" placeholder="🔍 中文/英文搜索…" oninput="pkFilter()" style="margin-bottom:8px">'
+    +'<div id="pk-list" class="pk-list"></div>';
+  openSheet(html);
+  pkFilter();
+}
+function pkFilter(){
+  var q=(id('pk-q').value||'').trim().toLowerCase();
+  var out=PM_MKS.slice().sort(function(a,b){return (b.ev_vol||0)-(a.ev_vol||0)});
+  if(q){
+    out=out.filter(function(m){
+      return ((m.tzh||'')+' '+(m.title||'')+' '+(m.question||'')).toLowerCase().indexOf(q)>=0;
+    });
+  }
+  var shown=out.slice(0,40);
+  id('pk-list').innerHTML=shown.map(function(m){
+    return '<div class="pk-item'+(PM_KEY_VAL===m.key?' on':'')+'" onclick="pmPickKey(\''+esc(m.key)+'\')">'
+      +'<div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.tzh||m.title||m.question)+'</div>'
+      +'<div class="xs muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.title||'')+'</div></div>';
+  }).join('')||'<div class="dim xs" style="padding:10px 4px">无匹配市场，试试其他关键词</div>';
 }
 function pmMkPx(mk){
   var bid=null,last=null;
@@ -1151,9 +1221,10 @@ function renderPmMkList(){
     var chgTxt='<span class="xs '+(chg>=0?'up':'down')+'">'+(chg>=0?'+':'')+num(chg,1)+'%</span>';
     html+='<div class="pm-mk card-in" onclick="pmPickKey(\''+esc(m.key)+'\')">'
       +'<div style="display:flex;justify-content:space-between;gap:6px">'
-      +'<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.title||m.question)+'</div>'
-      +'<div class="xs muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.question||'')+'</div></div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.tzh||m.title||m.question)+'</div>'
+      +'<div class="xs muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.qzh||m.question||'')+'</div></div>'
       +'<div style="text-align:right;white-space:nowrap"><b class="mono accent" style="font-size:13px">'+num(price*100,1)+'¢</b>'+chgTxt+'</div></div>'
+      +'<div class="xs" style="color:var(--text-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">'+esc(m.title||'')+'</div>'
       +'<div style="display:flex;align-items:center;gap:6px;margin-top:4px">'
       +'<div style="flex:1;height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:linear-gradient(90deg,var(--accent),#00d4aa)"></div></div>'
       +'<span class="xs muted" style="white-space:nowrap">'+(m.mk_vol>0?num(m.mk_vol/1000,0)+'k$':'')+' · '+(PM_CAT_ZH[m.cat]||m.cat)+'</span></div></div>';
@@ -1161,14 +1232,21 @@ function renderPmMkList(){
   id('pm-mk-list').innerHTML=html||'<div class="dim xs" style="padding:8px">无匹配市场</div>';
 }
 function pmPickKey(key){
-  var sel=id('pm-key');if(!sel)return;
-  // 该市场若不在下拉里, 动态加选项
-  if(!PM_ROWS.some(function(x){return (x.event+'|'+x.market)===key})){
-    PM_ROWS.unshift({event:key.split('|')[0],market:key.split('|')[1],market_zh:key.split('|')[1]});
-    sel.innerHTML=PM_ROWS.slice(0,12).map(function(m){return '<option value="'+esc(m.event+'|'+m.market)+'">'+esc(m.market_zh||m.market)+'</option>'}).join('');
+  var sel=id('pm-key');
+  PM_KEY_VAL=key;
+  if(sel){
+    // 该市场若不在下拉里, 动态加选项
+    if(!PM_ROWS.some(function(x){return (x.event+'|'+x.market)===key})){
+      PM_ROWS.unshift({event:key.split('|')[0],market:key.split('|')[1],market_zh:key.split('|')[1]});
+      sel.innerHTML=PM_ROWS.slice(0,12).map(function(m){return '<option value="'+esc(m.event+'|'+m.market)+'">'+esc(m.market_zh||m.market)+'</option>'}).join('');
+    }
+    sel.value=key;
   }
-  sel.value=key;
+  var mk=PM_MKS_BYKEY[key];
+  var btn=id('pm-key-btn');
+  if(btn)btn.innerHTML='✓ '+(mk&&mk.tzh?mk.tzh:(mk&&mk.title?mk.title:key.split('|')[1]));
   updPmHint();
+  closeSheet();
   document.querySelector('.ticket').scrollIntoView({behavior:'smooth',block:'start'});
 }
 async function loadPmScreen(){
@@ -1176,6 +1254,8 @@ async function loadPmScreen(){
   var sel=id('pm-key');
   if(sel&&PM_ROWS.length){
     sel.innerHTML=PM_ROWS.slice(0,12).map(function(m){return '<option value="'+esc(m.event+'|'+m.market)+'">'+esc(m.market_zh||m.market)+'</option>'}).join('');
+    if(!PM_KEY_VAL){PM_KEY_VAL=PM_ROWS[0].event+'|'+PM_ROWS[0].market;
+      var b0=id('pm-key-btn');if(b0)b0.innerHTML='✓ '+(PM_ROWS[0].market_zh||PM_ROWS[0].market);}
     updPmHint();
   }
   loadPmPositions();
