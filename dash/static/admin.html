@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>总管理后台 · moneybot</title>
+<style>
+:root{--bg:#121318;--card:#1a1b22;--bd:#2a2c36;--fg:#e8e9ee;--mut:#8b8e9c;--acc:#f7a600;--up:#3ebd93;--dn:#f6465d}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg);z-index:5}
+header h1{font-size:17px;font-weight:600;color:var(--acc)}
+header .dim{color:var(--mut);font-size:12px}
+header a{margin-left:auto;color:var(--acc);text-decoration:none;font-size:13px;border:1px solid var(--bd);padding:6px 12px;border-radius:6px}
+header a:hover{background:var(--card)}
+.wrap{max-width:1200px;margin:0 auto;padding:18px 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+.card .n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin:4px 0 2px}
+.card .l{color:var(--mut);font-size:12px}
+.card.acc .n{color:var(--acc)} .card.up .n{color:var(--up)}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tabs button{background:transparent;border:1px solid var(--bd);color:var(--mut);padding:8px 18px;border-radius:8px;cursor:pointer;font-size:13px}
+.tabs button.on{background:var(--acc);color:#121318;border-color:var(--acc);font-weight:600}
+.panel{display:none} .panel.on{display:block}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--bd);font-size:13px;white-space:nowrap}
+th{color:var(--mut);font-weight:500;background:#16171d}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1e2028}
+.num{font-variant-numeric:tabular-nums}
+.tag{padding:2px 8px;border-radius:10px;font-size:12px}
+.tag.free{background:#223047;color:#7fa8d8}.tag.pro{background:#2a2440;color:#b79ce0}.tag.live{background:#3a2a10;color:#f7a600}
+.tag.active{background:#123529;color:#3ebd93}.tag.disabled{background:#381f23;color:#f6465d}
+.tag.admin{background:#3a2a10;color:#f7a600}.tag.user{background:#223047;color:#7fa8d8}
+button.mini{background:transparent;border:1px solid var(--bd);color:var(--fg);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:5px}
+button.mini:hover{border-color:var(--acc);color:var(--acc)}
+button.mini.danger:hover{border-color:var(--dn);color:var(--dn)}
+input,select,textarea{background:#0f1015;border:1px solid var(--bd);color:var(--fg);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.ann-item{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.ann-item .txt{flex:1}
+.ann-item .lvl{font-size:12px;padding:2px 8px;border-radius:10px}
+.ann-item .lvl.info{background:#223047;color:#7fa8d8}.ann-item .lvl.warn{background:#3a2a10;color:#f7a600}
+.ann-item.off{opacity:.45}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+.modal-bg.on{display:flex}
+.modal{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:20px;width:380px;max-width:92vw}
+.modal h3{font-size:15px;margin-bottom:12px}
+.modal .row{margin-top:12px}
+.modal .row:last-child{margin-bottom:0}
+.btn{background:var(--acc);color:#121318;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px}
+.btn.danger{background:var(--dn);color:#fff}
+.btn.ghost{background:transparent;border:1px solid var(--bd);color:var(--mut)}
+#toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#1e2028;border:1px solid var(--bd);border-left:3px solid var(--acc);padding:10px 18px;border-radius:8px;display:none;z-index:99;font-size:13px}
+.pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px;color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>总管理后台</h1>
+  <span class="dim" id="who"></span>
+  <a href="/trade">← 返回交易室</a>
+  <a href="/system">系统状态</a>
+</header>
+<div class="wrap">
+  <div class="cards" id="cards"></div>
+  <div class="tabs">
+    <button class="on" data-t="users">用户管理</button>
+    <button data-t="audit">审计流水</button>
+    <button data-t="ann">公告管理</button>
+  </div>
+
+  <div class="panel on" id="p-users">
+    <div class="row">
+      <input id="q" placeholder="搜索账号/邮箱..." style="width:220px" oninput="renderUsers()">
+      <span class="dim" id="ucount"></span>
+    </div>
+    <table><thead><tr>
+      <th>ID</th><th>账号</th><th>邮箱</th><th>角色</th><th>状态</th><th>套餐</th>
+      <th>模拟资金$</th><th>持仓</th><th>注册</th><th>最近登录</th><th>操作</th>
+    </tr></thead><tbody id="utbody"></tbody></table>
+  </div>
+
+  <div class="panel" id="p-audit">
+    <div class="row">
+      <input id="a-uid" placeholder="用户ID" style="width:90px">
+      <input id="a-act" placeholder="动作关键字" style="width:160px">
+      <button class="btn" onclick="loadAudit(0)">查询</button>
+    </div>
+    <table><thead><tr><th>时间</th><th>UID</th><th>动作</th><th>详情</th><th>IP</th></tr></thead>
+    <tbody id="atbody"></tbody></table>
+    <div class="pager" id="apager"></div>
+  </div>
+
+  <div class="panel" id="p-ann">
+    <div class="row">
+      <input id="an-text" placeholder="公告内容 (交易室顶部横幅展示)" style="flex:1;min-width:280px">
+      <select id="an-level"><option value="info">普通</option><option value="warn">重要/风险提示</option></select>
+      <button class="btn" onclick="annAdd()">发布</button>
+    </div>
+    <div id="ann-list"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal"><div class="modal" id="mbox"></div></div>
+<div id="toast"></div>
+
+<script>
+let USERS = [], me = null;
+function $(s){return document.querySelector(s)}
+function toast(m, bad){const t=$('#toast');t.textContent=m;t.style.borderLeftColor=bad?'var(--dn)':'var(--acc)';t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',2600)}
+function fmtNum(n){return n==null?'—':Number(n).toFixed(2)}
+function fmtTs(ts){if(!ts)return'—';const d=new Date(ts*1000);return d.toLocaleString('zh-CN',{hour12:false})}
+async function j(method,url,body){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const d=await r.json().catch(()=>({}));return {s:r.status,d}}
+
+function modal(html){$('#mbox').innerHTML=html;$('#modal').classList.add('on')}
+function mclose(){$('#modal').classList.remove('on')}
+document.addEventListener('click',e=>{if(e.target.id==='modal')mclose()})
+
+// ---- tabs ----
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');$('#p-'+b.dataset.t).classList.add('on');
+  if(b.dataset.t==='audit')loadAudit(0);
+  if(b.dataset.t==='ann')loadAnn();
+});
+
+// ---- stats ----
+async function loadStats(){
+  const {d}=await j('GET','/api/admin/stats');
+  const p=d.plans||{};const free=p.free||0,pro=p.pro||0,live=p.live||0;
+  $('#cards').innerHTML=`
+    <div class="card acc"><div class="l">总用户</div><div class="n">${d.total}</div></div>
+    <div class="card up"><div class="l">活跃</div><div class="n">${d.active}</div></div>
+    <div class="card"><div class="l">今日新增</div><div class="n">${d.new_today}</div></div>
+    <div class="card"><div class="l">用户模拟资金合计$</div><div class="n">${fmtNum(d.capital_total)}</div></div>
+    <div class="card"><div class="l">套餐分布</div><div class="n" style="font-size:14px">免费${free} · 专业${pro} · 实盘${live}</div></div>`;
+}
+async function loadUsers(){
+  const {d}=await j('GET','/api/admin/users');
+  USERS=d.rows||[];renderUsers();
+}
+function renderUsers(){
+  const q=$('#q').value.trim().toLowerCase();
+  const rows=USERS.filter(u=>!q||u.username.toLowerCase().includes(q)||(u.email||'').toLowerCase().includes(q));
+  $('#ucount').textContent=`共 ${rows.length} 人`;
+  $('#utbody').innerHTML=rows.map(u=>{
+    const s=u.stats||{};
+    return `<tr>
+      <td class="num">${u.id}</td><td><b>${u.username}</b></td><td class="dim">${u.email||'—'}</td>
+      <td><span class="tag ${u.role}">${u.role==='admin'?'管理员':'用户'}</span></td>
+      <td><span class="tag ${u.status}">${u.status==='active'?'正常':'已禁用'}</span></td>
+      <td><span class="tag ${u.plan}">${u.plan_zh||u.plan}</span></td>
+      <td class="num">${fmtNum(s.capital)}</td><td class="num">${s.positions||0}</td>
+      <td class="dim">${fmtTs(u.created_at)}</td><td class="dim">${fmtTs(u.last_login_at)}</td>
+      <td>
+        ${u.role!=='admin'?`
+        <button class="mini" onclick="userPlan(${u.id},'${u.plan}')">套餐</button>
+        <button class="mini" onclick="userPw(${u.id})">重置密码</button>
+        ${u.status==='active'
+          ?`<button class="mini danger" onclick="userStatus(${u.id},'disabled')">禁用</button>`
+          :`<button class="mini" onclick="userStatus(${u.id},'active')">启用</button>`}`:'—'}
+      </td></tr>`}).join('')||'<tr><td colspan="11" class="dim" style="text-align:center;padding:30px">无用户</td></tr>';
+}
+async function userStatus(uid,st){
+  modal(`<h3>${st==='disabled'?'禁用':'启用'}用户 #${uid}?</h3>
+    <p class="dim" style="font-size:13px">${st==='disabled'?'禁用后该用户无法登录，数据保留。':'恢复后用户可正常登录。'}</p>
+    <div class="row"><button class="btn ${st==='disabled'?'danger':''}" onclick="mclose();doStatus(${uid},'${st}')">确认</button>
+    <button class="btn ghost" onclick="mclose()">取消</button></div>`);
+}
+async function doStatus(uid,st){const {d}=await j('POST',`/api/admin/user/${uid}/status`,{status:st});toast(d.ok?'已更新':'失败: '+(d.msg||d.error),!d.ok);loadUsers()}
+async function userPlan(uid,cur){
+  modal(`<h3>用户 #${uid} 套餐</h3>
+    <div class="row"><select id="np">
+      <option value="free" ${cur==='free'?'selected':''}>免费版 — 模拟交易全权限</option>
+      <option value="pro" ${cur==='pro'?'selected':''}>专业版 $19.9/月 — +AI高级+循环策略</option>
+      <option value="live" ${cur==='live'?'selected':''}>实盘版 $49.9/月 — +绑定密钥实盘</option>
+    </select></div>
+    <div class="row"><button class="btn" onclick="doPlan(${uid})">保存</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
+}
+async function doPlan(uid){const {d}=await j('POST',`/api/admin/user/${uid}/plan`,{plan:$('#np').value});toast(d.ok?'套餐已更新':'失败: '+(d.msg||d.error),!d.ok);mclose();loadUsers()}
+async function userPw(uid){
+  modal(`<h3>重置用户 #${uid} 密码</h3>
+    <div class="row"><input id="npw" type="text" placeholder="新密码(≥8位,含字母和数字)" style="width:100%"></div>
+    <div class="row"><button class="btn danger" onclick="doPw(${uid})">重置</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
+}
+async function doPw(uid){const {d}=await j('POST',`/api/admin/user/${uid}/password`,{password:$('#npw').value});toast(d.ok?'已重置':'失败: '+(d.msg||d.error),!d.ok);mclose()}
+
+// ---- audit ----
+let APAGE=0;
+async function loadAudit(page){APAGE=page||0;
+  const q=new URLSearchParams({uid:$('#a-uid').value||0,action:$('#a-act').value,limit:50,offset:APAGE*50});
+  const {d}=await j('GET','/api/admin/audit?'+q);
+  $('#atbody').innerHTML=(d.rows||[]).map(r=>`<tr>
+    <td class="dim">${fmtTs(r.ts)}</td><td class="num">${r.uid??'—'}</td>
+    <td><b>${r.action}</b></td><td class="dim">${(r.detail||'').slice(0,60)}</td>
+    <td class="dim">${r.ip||''}</td></tr>`).join('')||'<tr><td colspan="5" class="dim" style="text-align:center;padding:30px">无记录</td></tr>';
+  const total=d.total||0;
+  $('#apager').innerHTML=`<button class="mini" ${APAGE===0?'disabled':''} onclick="loadAudit(${APAGE-1})">上一页</button>
+    <span>第 ${APAGE+1} 页 / 共 ${Math.ceil(total/50)} 页 (${total} 条)</span>
+    <button class="mini" ${(APAGE+1)*50>=total?'disabled':''} onclick="loadAudit(${APAGE+1})">下一页</button>`;
+}
+
+// ---- announcements ----
+async function loadAnn(){
+  const {d}=await j('GET','/api/admin/announcements');
+  $('#ann-list').innerHTML=(d.rows||[]).map(a=>`<div class="ann-item ${a.active?'':'off'}">
+    <span class="lvl ${a.level}">${a.level==='warn'?'重要':'普通'}</span>
+    <div class="txt">${a.text}<div class="dim" style="font-size:11px;margin-top:2px">#${a.id} · ${fmtTs(a.ts)} ${a.active?'':'· 已停用'}</div></div>
+    <button class="mini ${a.active?'danger':''}" onclick="annToggle(${a.id},${a.active?0:1})">${a.active?'停用':'启用'}</button>
+  </div>`).join('')||'<div class="dim" style="padding:20px;text-align:center">暂无公告</div>';
+}
+async function annAdd(){
+  const text=$('#an-text').value.trim();
+  if(!text){toast('公告内容不能为空',true);return}
+  const {d}=await j('POST','/api/admin/announcements',{text,level:$('#an-level').value});
+  if(d.ok){$('#an-text').value='';loadAnn();toast('已发布')}else toast('失败: '+(d.msg||d.error),true);
+}
+async function annToggle(aid,active){const {d}=await j('POST',`/api/admin/announcements/${aid}/toggle`,{active:!!active});toast(d.ok?'已更新':'失败',!d.ok);loadAnn()}
+
+// ---- init ----
+(async function(){
+  try{const {d}=await j('GET','/api/auth/me');me=d.user;$('#who').textContent=`管理员: ${d.user.username}`}catch(e){}
+  loadStats();loadUsers();
+})();
+</script>
+</body>
+</html>

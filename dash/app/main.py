@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
-from . import auth, captcha, config, readers, users
+from . import auth, captcha, config, readers, users, admin
 
 sys.path.insert(0, os.path.expanduser("~/polymarket"))
 import ai_client  # noqa: E402
@@ -25,6 +25,7 @@ app = FastAPI(title="moneybot dash")
 def _startup():
     """启动即建用户表; 首次启动执行单用户→admin 迁移"""
     users.init_db()
+    admin.init_announce()
 
 
 @app.middleware("http")
@@ -466,3 +467,88 @@ def api_micro(__=Depends(require_session)):
 def api_system(su=Depends(require_session_user)):
     with tenants.tenant(su["u"]):
         return readers.system()
+
+
+# ---------- M3 总管理后台 (仅 admin) ----------
+
+@app.get("/admin")
+def admin_page(__=Depends(require_admin)):
+    return FileResponse(STATIC / "admin.html")
+
+
+@app.get("/api/admin/stats")
+def api_admin_stats(__=Depends(require_admin)):
+    return admin.stats_overview()
+
+
+@app.get("/api/admin/users")
+def api_admin_users(__=Depends(require_admin)):
+    return {"rows": admin.list_users_with_stats()}
+
+
+@app.post("/api/admin/user/{uid}/status")
+async def api_admin_status(uid: int, request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = users.set_status(uid, body.get("status", ""))
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/user/{uid}/plan")
+async def api_admin_plan(uid: int, request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = admin.set_plan(uid, body.get("plan", ""), su["u"])
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/user/{uid}/password")
+async def api_admin_pw(uid: int, request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = admin.reset_password(uid, body.get("password", ""), su["u"])
+    return {"ok": ok, "msg": msg}
+
+
+@app.get("/api/admin/audit")
+def api_admin_audit(uid: int = 0, action: str = "", limit: int = 200,
+                    offset: int = 0, __=Depends(require_admin)):
+    total, rows = admin.audit_query(uid or None, action or None, min(limit, 500), offset)
+    return {"total": total, "rows": rows}
+
+
+@app.get("/api/admin/announcements")
+def api_admin_ann_list(__=Depends(require_admin)):
+    return {"rows": admin.announce_list(all_=True)}
+
+
+@app.post("/api/admin/announcements")
+async def api_admin_ann_add(request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = admin.announce_add(body.get("text", ""), body.get("level", "info"), su["u"])
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/announcements/{aid}/toggle")
+async def api_admin_ann_toggle(aid: int, request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ok, msg = admin.announce_toggle(aid, bool(body.get("active", True)), su["u"])
+    return {"ok": ok, "msg": msg}
+
+
+@app.get("/api/announcements")
+def api_announcements(__=Depends(require_session)):
+    """登录用户读取生效公告 (交易室横幅数据源)"""
+    return {"rows": admin.announce_list(all_=False)}
