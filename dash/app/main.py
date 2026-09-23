@@ -19,6 +19,7 @@ import engine_mode  # noqa: E402
 import tenants  # noqa: E402
 import bybit_live  # noqa: E402
 import pm_live  # noqa: E402
+import live_exec  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -682,3 +683,40 @@ async def api_admin_limits(uid: int, request: Request, su=Depends(require_admin)
                               body.get("max_positions"), body.get("live_enabled"))
     users.audit_log(uid, "limits_change", f"风控限额更新: {body}", "", f"admin:{su['u']}")
     return {"ok": ok, "msg": msg}
+
+
+# ---------- M5 实盘引擎 (真实资金, 全链路风控+二次确认) ----------
+
+@app.get("/api/live/status")
+def api_live_status(su=Depends(require_session_user)):
+    try:
+        return {"ok": True, **live_exec.status(su["u"])}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+
+
+@app.post("/api/live/order")
+async def api_live_order(request: Request, su=Depends(require_session_user)):
+    """实盘下单: 必须 confirm=true (前端二次确认弹窗), 全链路风控闸"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    if not body.get("confirm"):
+        return JSONResponse({"ok": False, "error": "需在确认弹窗中二次确认 (confirm=true)"}, status_code=400)
+    action = str(body.get("action", ""))
+    bybit_map = {"open_naked": live_exec.bybit_open_naked,
+                 "close_naked": live_exec.bybit_close_naked,
+                 "open_hedge": live_exec.bybit_open_hedge,
+                 "close_perp_leg": live_exec.bybit_close_perp_leg,
+                 "close_both": live_exec.bybit_close_both}
+    try:
+        if action in bybit_map:
+            r = bybit_map[action](su["u"], body)
+        elif action == "pm_order":
+            r = live_exec.pm_order(su["u"], body)
+        else:
+            r = {"ok": False, "error": f"实盘不支持该动作: {action}"}
+    except Exception as e:
+        r = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+    return JSONResponse(r, status_code=200 if r.get("ok") else 400)

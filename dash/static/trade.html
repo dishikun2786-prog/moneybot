@@ -225,6 +225,7 @@ select{background:#1c2129;border:1px solid #2a313c;color:#e6edf3;border-radius:6
     <button data-tf="W">周</button><button data-tf="M">月</button>
   </div>
   <button id="conv" title="切换涨跌色惯例">红涨绿跌</button>
+  <button id="livebtn" title="模拟盘/实盘模式切换">⚪ 模拟盘</button>
   <button id="play" class="on" title="空格键暂停/恢复">▶ 实时</button>
   <button id="d-tgl" title="切换盘口量价视图(挂单+主动成交量)">📊 盘口</button>
   <span class="clock2 num" id="clk" style="font-size:11px;color:#8b98a5;text-align:right;line-height:1.5"></span>
@@ -729,9 +730,16 @@ function confirmTrade(action, symbol, extra){
     close_naked:'平裸腿合约仓', close_pm:'平预测市场仓位', open_pm:'PM手动开仓（盘口价成交）'};
   const detail = zh[action] || action;
   const ex = extra && extra.notional ? `名义: ${extra.notional}$` : '';
+  if(LIVE.on && !['open_hedge','close_perp_leg','close_both','close_naked'].includes(action)){
+    toast('❌ 实盘模式暂不支持该操作，请切回模拟盘'); return;
+  }
   pendingTrade = {action, symbol, extra: extra || {}};
-  document.getElementById('cfTitle').textContent = detail;
-  document.getElementById('cfBody').textContent = `标的: ${symbol}\n${ex}\n执行价格: 点击时刻实时价 (≤0.2s 新鲜)\n此为纸面交易，确认执行？`;
+  document.getElementById('cfTitle').textContent = LIVE.on ? '🔴 实盘·' + detail : detail;
+  const body = LIVE.on
+    ? `标的: ${symbol}\n${ex}\n⚠️ 这是【真实资金】交易, 将在 ${LIVE.venue==='pm'?'Polymarket':'Bybit'} 实盘下单!\n再次点击确认执行?`
+    : `标的: ${symbol}\n${ex}\n执行价格: 点击时刻实时价 (≤0.2s 新鲜)\n此为纸面交易，确认执行？`;
+  const bd = document.getElementById('cfBody');
+  bd.textContent = body; bd.style.color = LIVE.on ? '#f6465d' : '';
   openModal('confirmModal');
 }
 async function submitConfirm(){
@@ -759,9 +767,47 @@ async function submitConfirm(){
     return;
   }
   if(!pendingTrade) return;
+  if(LIVE.on){
+    // 实盘: 全链路风控 + 二次确认
+    const pt = pendingTrade;
+    try{
+      const r = await fetch('/api/live/order', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action: pt.action, symbol: pt.symbol, confirm: true,
+          notional: pt.extra && pt.extra.notional, dir: pt.extra && pt.extra.dir})});
+      const d = await r.json();
+      toast(d.ok ? '🔴 实盘下单成功: ' + d.msg : '❌ ' + (d.error || '失败'));
+      if(d.ok){ pendingTrade = null; loadPositions(); loadTape(); }
+    }catch(e){ toast('❌ ' + e); }
+    return;
+  }
   const d = await manualTrade(pendingTrade);
   if(d && d.ok) pendingTrade = null;
 }
+
+/* ===== 实盘模式 (M5) ===== */
+let LIVE = {on:false, plan:'', live_enabled:false, bybit_bound:false, pm_bound:false, venue:'bybit'};
+async function loadLiveStatus(){
+  try{
+    const r = await fetch('/api/live/status'); const d = await r.json();
+    if(!d.ok) return;
+    LIVE.plan = d.plan; LIVE.live_enabled = !!d.live_enabled;
+    LIVE.bybit_bound = !!d.bybit_bound; LIVE.pm_bound = !!d.pm_bound;
+    const b = document.getElementById('livebtn');
+    if(!LIVE.live_enabled){ LIVE.on = false; b.textContent = '⚪ 模拟盘'; b.title = '实盘未开通 (需实盘版套餐+管理员开启)'; return; }
+    b.textContent = LIVE.on ? '🔴 实盘模式' : '⚪ 模拟盘';
+    b.title = '点击切换模拟盘/实盘模式 (实盘=真实资金)';
+  }catch(e){}
+}
+document.getElementById('livebtn').addEventListener('click', function(){
+  if(!LIVE.live_enabled){ toast('实盘未开通: 需实盘版套餐 + 管理员开启风控限额', true); return; }
+  if(!LIVE.on){
+    if(!confirm('⚠️ 开启实盘模式后, 交易室的下单将路由到真实交易所, 使用真实资金!\n\n确认开启实盘模式?')) return;
+    LIVE.on = true;
+  } else {
+    LIVE.on = false;
+  }
+  loadLiveStatus();
+});
 
 /* ===== 模式切换 (托管/手动, 两策略独立) ===== */
 async function loadMode(){
@@ -1221,6 +1267,7 @@ async function approveAction(aid, ok, el){
 }
 // ---- M3: 公告横幅 + 管理员入口 ----
 (async function(){
+  loadLiveStatus(); setInterval(loadLiveStatus, 30000);
   try{
     const r = await fetch('/api/auth/me'); const d = await r.json();
     if(d.ok && d.user && d.user.role === 'admin'){ const l=id('adminlnk'); if(l) l.style.display=''; }
