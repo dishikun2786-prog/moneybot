@@ -448,9 +448,10 @@ def cycle():
 _KLINE_CACHE = {}  # REST回源缓存: {(symbol,interval): (ts, bars)}
 
 
-def klines(symbol="BTCUSDT", interval="15m", limit=300):
+def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
     """真实K线 → [{t,o,h,l,c,v}]
-    优先级: ①桥内实时订阅缓存 (kline.<iv>.<sym>, 末根实时) ②BTC/ETH 本地 parquet ③REST 回源"""
+    优先级: ①桥内实时订阅缓存 (kline.<iv>.<sym>, 末根实时) ②BTC/ETH 本地 parquet ③REST 回源
+    category: 'linear'/'spot' 指定分类; None=双分类自动重试 (R9: 现货标的在 linear 下返回空)"""
     symbol = (symbol or "").upper()
     if interval not in KLINE_IVS:
         interval = "15m"
@@ -499,16 +500,22 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300):
         import urllib.request
         iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
               "D": "D", "W": "W", "M": "M"}.get(interval, "15")
-        url = (f"https://api.bybit.com/v5/market/kline?category=linear"
-               f"&symbol={symbol}&interval={iv}&limit=120")
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            d = json.loads(r.read().decode())
-        lst = (d.get("result") or {}).get("list") or []
-        bars = [{"t": int(it[0]), "o": float(it[1]), "h": float(it[2]),
-                 "l": float(it[3]), "c": float(it[4]), "v": float(it[5])}
-                for it in lst]
-        bars.reverse()
+        # R9: 现货标的 (BTCUSDC/USDTTRY 等) 在 linear 分类下返回空 → 指定分类或双分类重试
+        bars = []
+        cats = (category,) if category else ("linear", "spot")
+        for cat in cats:
+            url = (f"https://api.bybit.com/v5/market/kline?category={cat}"
+                   f"&symbol={symbol}&interval={iv}&limit=120")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.loads(r.read().decode())
+            lst = (d.get("result") or {}).get("list") or []
+            bars = [{"t": int(it[0]), "o": float(it[1]), "h": float(it[2]),
+                     "l": float(it[3]), "c": float(it[4]), "v": float(it[5])}
+                    for it in lst]
+            bars.reverse()
+            if bars:
+                break
         # R4: 实时订阅缓存存在时, 用 REST 补齐历史段 + 实时末段 (订阅初期 bar 数少)
         if live_bars:
             live_min = live_bars[0]["t"]

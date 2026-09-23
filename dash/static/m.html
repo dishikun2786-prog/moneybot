@@ -947,7 +947,9 @@ async function detLoad(){
     +'<div><div class="xs muted">24h最高</div><b class="mono">'+(hi?fmtPx(hi):'—')+'</b></div>'
     +'<div><div class="xs muted">24h最低</div><b class="mono">'+(lo?fmtPx(lo):'—')+'</b></div>'
     +'<div><div class="xs muted">24h成交额</div><b class="mono">'+(v?num(v/1e6,1)+'M$':'—')+'</b></div></div>';
-  var r=await api('/api/klines?symbol='+DET_SYM+'&interval='+klIvf(DET_IV)+'&limit=60');
+  var detCat=(DET_CAT==='spot')?'spot':'linear';
+  api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV),category:detCat})}).catch(function(){});
+  var r=await api('/api/klines?symbol='+DET_SYM+'&interval='+klIvf(DET_IV)+'&limit=60&category='+detCat);
   var bars=(r.data&&r.data.bars)||[];
   renderKlineSVG(bars,DET_IV,!!(r.data&&r.data.live),id('d-kline'));
 }

@@ -232,8 +232,10 @@ def trade_page():
 
 @app.get("/api/klines")
 def api_klines(symbol: str = "BTCUSDT", interval: str = "15m",
-               limit: int = 300, __=Depends(require_session)):
-    return readers.klines(symbol, interval, min(limit, 1000))
+               limit: int = 300, category: str = "",
+               __=Depends(require_session)):
+    return readers.klines(symbol, interval, min(limit, 1000),
+                          category=category if category in ("linear", "spot") else None)
 
 
 @app.get("/api/tape")
@@ -575,6 +577,9 @@ async def kline_watch(request: Request, su=Depends(require_session_user)):
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     sym = str(body.get("symbol") or "").upper()
     iv = str(body.get("interval") or "15m")
+    cat = str(body.get("category") or "linear")
+    if cat not in ("linear", "spot"):
+        cat = "linear"
     if not re.fullmatch(r"[A-Z0-9]{2,20}", sym):
         return {"ok": False, "error": "symbol 非法"}
     if iv not in ("1m", "5m", "15m", "1h", "4h", "D", "W", "M"):
@@ -588,7 +593,7 @@ async def kline_watch(request: Request, su=Depends(require_session_user)):
                 reqs = json.loads(f.read_text(encoding="utf-8"))
             except Exception:
                 reqs = {}
-        reqs[sym] = iv
+        reqs[sym] = f"{iv}|{cat}"
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps(reqs), encoding="utf-8")
         tmp.replace(f)
