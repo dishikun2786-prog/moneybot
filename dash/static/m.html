@@ -640,11 +640,11 @@ select.input{appearance:none}
       <div class="row" style="margin-bottom:10px"><b style="font-size:15px">总管理后台</b><span class="badge yellow">管理员</span></div>
       <div class="stat-grid" id="admin-stats"></div>
       <div class="sub-tabs" id="adm-tabs">
-        <button class="on" data-a="users" onclick="admTab('users')">用户</button>
-        <button data-a="audit" onclick="admTab('audit')">审计</button>
-        <button data-a="ann" onclick="admTab('ann')">公告</button>
-        <button data-a="funds" onclick="admTab('funds')">资金</button>
-        <button data-a="pm" onclick="admTab('pm')">标的管理</button>
+        <button class="on" data-a="users" onclick="admTab('users')">👥 用户管理</button>
+        <button data-a="audit" onclick="admTab('audit')">📜 审计</button>
+        <button data-a="ann" onclick="admTab('ann')">📢 公告</button>
+        <button data-a="funds" onclick="admTab('funds')">💸 资金管理</button>
+        <button data-a="pm" onclick="admTab('pm')">🎲 PM标的管理</button>
       </div>
       <div id="adm-pane-users">
         <div class="card" style="padding:8px">
@@ -2193,7 +2193,8 @@ function admpRender(){
     html+='<label class="adm-item'+(off?' off':'')+'">'
       +'<input type="checkbox" '+(ADMP.checked[r.key]?'checked':'')+' onchange="admpCheck(\''+r.key.replace(/'/g,'')+'\',this.checked)">'
       +'<div class="t"><div class="n">'+esc(r.title_zh||r.title)+'</div>'
-      +'<div class="m">'+esc(r.cat||'other')+' · $'+num(r.ev_vol||0,0)+(off?' · <b class="red">已下线</b>':'')+'</div></div></label>';
+      +'<div class="m">'+esc(r.cat||'other')+' · $'+num(r.ev_vol||0,0)+(off?' · <b class="red">已下线</b>':'')+'</div></div>'
+      +'<button class="bad" onclick="admpOne(\''+r.key.replace(/'/g,'')+'\',\''+(off?'on':'off')+'\')">'+(off?'↻ 上线':'⛔ 下线')+'</button></label>';
   }
   if(ADMP.more)html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadAdmPm(ADMP.rows.length)">加载更多</button>';
   id('adm-pm-list').innerHTML=html;
@@ -2208,6 +2209,10 @@ function admpAll(inv){
     if(nv)ADMP.checked[r.key]=1;else delete ADMP.checked[r.key];
   });
   admpRender();
+}
+async function admpOne(key,state){
+  var r=await api('/api/admin/pm-markets/set',{method:'POST',body:JSON.stringify({keys:[key],state:state})});
+  if(r.data&&r.data.ok){toast('✅ '+(r.data.msg||'操作成功'));loadAdmPm(0)}else{toast('❌ '+apiErr(r))}
 }
 async function admpSet(state){
   var keys=Object.keys(ADMP.checked);

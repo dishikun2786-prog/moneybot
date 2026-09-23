@@ -19,7 +19,9 @@ header a:hover{background:var(--card)}
 .card .n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin:4px 0 2px}
 .card .l{color:var(--mut);font-size:12px}
 .card.acc .n{color:var(--acc)} .card.up .n{color:var(--up)}
-.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tabs button{font-size:14px;padding:9px 20px;transition:all .15s}
+.tabs button:hover{border-color:var(--acc);color:var(--acc)}
 .tabs button{background:transparent;border:1px solid var(--bd);color:var(--mut);padding:8px 18px;border-radius:8px;cursor:pointer;font-size:13px}
 .tabs button.on{background:var(--acc);color:#121318;border-color:var(--acc);font-weight:600}
 .panel{display:none} .panel.on{display:block}
@@ -69,11 +71,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 <div class="wrap">
   <div class="cards" id="cards"></div>
   <div class="tabs">
-    <button class="on" data-t="users">用户管理</button>
-    <button data-t="audit">审计流水</button>
-    <button data-t="ann">公告管理</button>
-    <button data-t="funds" style="color:#2dd4bf">资金管理</button>
-    <button data-t="pm" style="color:#a78bfa">PM 标的管理</button>
+    <button class="on" data-t="users">👥 用户管理</button>
+    <button data-t="audit">📜 审计流水</button>
+    <button data-t="ann">📢 公告管理</button>
+    <button data-t="funds" style="color:#2dd4bf">💸 资金管理</button>
+    <button data-t="pm" style="color:#a78bfa">🎲 PM 标的管理</button>
   </div>
 
   <div class="panel on" id="p-users">
@@ -401,7 +403,7 @@ function renderPmAdm(){
       <td style="max-width:420px"><b>${esc(r.title_zh||r.title)}</b><div class="dim" style="font-size:11px">${esc(r.title||'')}</div></td>
       <td>${esc(r.cat||'other')}</td>
       <td>${fmtNum(r.ev_vol||0)}</td>
-      <td>${r.state==='off'?'<span style="color:#f87171">⛔ 下线</span>':'<span style="color:#34d399">✅ 上线</span>'}</td>
+      <td>${r.state==='off'?'<span style="color:#f87171">⛔ 下线</span>':'<span style="color:#34d399">✅ 上线</span>'} <button class="mini" onclick="pmadmOne('${escAttr(r.key)}','${r.state==='off'?'on':'off'}')">${r.state==='off'?'↻ 上线':'⛔ 下线'}</button></td>
       </tr>`).join('')+'</tbody></table>';
   for(const k in PMADM.checked){const cb=document.querySelector(`input[data-pmkey="${CSS.escape(k)}"]`);if(cb)cb.checked=PMADM.checked[k]}
 }
@@ -412,6 +414,11 @@ function pmadmAll(){PMADM.rows.forEach(r=>PMADM.checked[r.key]=1);renderPmAdm()}
 function pmadmInvert(){PMADM.rows.forEach(r=>{PMADM.checked[r.key]=PMADM.checked[r.key]?0:1;if(!PMADM.checked[r.key])delete PMADM.checked[r.key]});renderPmAdm()}
 function pmadmCheckAll(){const v=$('#pmadm-checkall').checked;PMADM.rows.forEach(r=>{if(v)PMADM.checked[r.key]=1;else delete PMADM.checked[r.key]});renderPmAdm()}
 async function pmadmMore(){PMADM.offset=PMADM.rows.length;await loadPmAdmin()}
+async function pmadmOne(key,state){
+  if(!confirm(`确认${state==='on'?'上线':'下线'}该标的？`))return;
+  const {d}=await j('POST','/api/admin/pm-markets/set',{keys:[key],state});
+  if(d&&d.ok){loadPmAdmin(0)}else{alert((d&&d.error)||'操作失败')}
+}
 async function pmadmSet(state){
   const keys=Object.keys(PMADM.checked);
   if(!keys.length){alert('请先勾选标的');return}
