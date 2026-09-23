@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
-from . import auth, captcha, config, readers, users, admin
+from . import auth, captcha, config, readers, users, admin, keys
 
 sys.path.insert(0, os.path.expanduser("~/polymarket"))
 import ai_client  # noqa: E402
@@ -17,6 +17,8 @@ import ai_tools  # noqa: E402
 import paper_ops  # noqa: E402
 import engine_mode  # noqa: E402
 import tenants  # noqa: E402
+import bybit_live  # noqa: E402
+import pm_live  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
 
@@ -26,6 +28,7 @@ def _startup():
     """启动即建用户表; 首次启动执行单用户→admin 迁移"""
     users.init_db()
     admin.init_announce()
+    keys.init_db()
 
 
 @app.middleware("http")
@@ -552,3 +555,130 @@ async def api_admin_ann_toggle(aid: int, request: Request, su=Depends(require_ad
 def api_announcements(__=Depends(require_session)):
     """登录用户读取生效公告 (交易室横幅数据源)"""
     return {"rows": admin.announce_list(all_=False)}
+
+
+# ---------- M4 密钥托管 (用户自己的密钥, AES-GCM 加密存储) ----------
+
+@app.get("/keys")
+def keys_page(__=Depends(require_session)):
+    return FileResponse(STATIC / "keys.html")
+
+
+@app.get("/api/keys")
+def api_keys(su=Depends(require_session_user)):
+    return {"keys": keys.list_keys(su["u"]), "limits": keys.get_limits(su["u"])}
+
+
+@app.post("/api/keys/bybit/bind")
+async def api_keys_bybit_bind(request: Request, su=Depends(require_session_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    api_key = (body.get("key") or "").strip()
+    secret = (body.get("secret") or "").strip()
+    if not api_key or not secret:
+        return JSONResponse({"ok": False, "error": "密钥和 Secret 均不能为空"}, status_code=400)
+    ok, msg = keys.bind(su["u"], "bybit", api_key, secret)
+    if not ok:
+        return JSONResponse({"ok": False, "error": msg}, status_code=400)
+    users.audit_log(su["u"], "key_bind", "绑定 Bybit API 密钥")
+    # 绑定后立即连通测试 (不阻塞绑定结果)
+    try:
+        secs = keys.get_secrets(su["u"], "bybit")
+        ok_t, msg_t = bybit_live.test_bybit(secs["key"], secs["secret"])
+        keys.mark_test(su["u"], "bybit", ok_t, msg_t)
+        users.audit_log(su["u"], "key_test", f"Bybit 连通测试: {'通过' if ok_t else '失败: ' + msg_t[:80]}")
+        return {"ok": True, "msg": "已绑定" + (" (连通测试通过)" if ok_t else " (测试未通过, 见测试结果)"),
+                "test_ok": ok_t, "test_msg": msg_t}
+    except Exception as e:
+        return {"ok": True, "msg": "已绑定 (测试暂不可用)", "test_ok": None,
+                "test_msg": f"{type(e).__name__}: {e}"[:120]}
+
+
+@app.post("/api/keys/bybit/test")
+async def api_keys_bybit_test(su=Depends(require_session_user)):
+    secs = keys.get_secrets(su["u"], "bybit")
+    if not secs:
+        return JSONResponse({"ok": False, "error": "未绑定 Bybit 密钥"}, status_code=400)
+    try:
+        ok_t, msg_t = bybit_live.test_bybit(secs["key"], secs["secret"])
+    except Exception as e:
+        ok_t, msg_t = False, f"{type(e).__name__}: {e}"[:200]
+    keys.mark_test(su["u"], "bybit", ok_t, msg_t)
+    users.audit_log(su["u"], "key_test", f"Bybit 连通测试: {'通过' if ok_t else '失败: ' + msg_t[:80]}")
+    return {"ok": True, "test_ok": ok_t, "test_msg": msg_t}
+
+
+@app.post("/api/keys/bybit/unbind")
+async def api_keys_bybit_unbind(su=Depends(require_session_user)):
+    keys.unbind(su["u"], "bybit")
+    users.audit_log(su["u"], "key_unbind", "解绑 Bybit 密钥")
+    return {"ok": True, "msg": "已解绑"}
+
+
+@app.post("/api/keys/pm/bind")
+async def api_keys_pm_bind(request: Request, su=Depends(require_session_user)):
+    """PM 绑定(一次性): owner私钥 → SDK 派生 L2 凭证 → 私钥即弃, 只存派生凭证"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    private_key = (body.get("private_key") or "").strip()
+    wallet = (body.get("wallet") or "").strip() or None
+    relayer_key = (body.get("relayer_key") or "").strip() or None
+    relayer_address = (body.get("relayer_address") or "").strip() or None
+    if not private_key:
+        return JSONResponse({"ok": False, "error": "owner 私钥不能为空 (一次性导入, 派生凭证后立即丢弃)"}, status_code=400)
+    if relayer_key and not relayer_address:
+        return JSONResponse({"ok": False, "error": "Relayer 密钥需同时提供签名者地址"}, status_code=400)
+    try:
+        creds = pm_live.derive_credentials(private_key, wallet, relayer_key, relayer_address)
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"[:200]
+        users.audit_log(su["u"], "key_bind", "PM 绑定失败: " + msg)
+        return JSONResponse({"ok": False, "error": f"派生失败(私钥或钱包不匹配): {msg}"}, status_code=400)
+    extra = json.dumps({"passphrase": creds["passphrase"], "wallet": creds["wallet"],
+                        "relayer_key": relayer_key or "", "relayer_address": relayer_address or ""})
+    keys.bind(su["u"], "pm", creds["apiKey"], creds["secret"], extra=extra,
+              label=f"wallet {creds['wallet'][:10]}…")
+    keys.mark_test(su["u"], "pm", True, f"派生成功, 当前持仓 {creds['n_positions']} 个")
+    users.audit_log(su["u"], "key_bind", f"绑定 PM (钱包 {creds['wallet'][:12]}…, 私钥已即弃)")
+    return {"ok": True, "msg": f"绑定成功: 钱包 {creds['wallet'][:12]}… 持仓 {creds['n_positions']} 个",
+            "wallet": creds["wallet"]}
+
+
+@app.post("/api/keys/pm/test")
+async def api_keys_pm_test(su=Depends(require_session_user)):
+    secs = keys.get_secrets(su["u"], "pm")
+    if not secs:
+        return JSONResponse({"ok": False, "error": "未绑定 PM"}, status_code=400)
+    extra = json.loads(secs["extra"] or "{}")
+    creds = {"apiKey": secs["key"], "secret": secs["secret"],
+             "passphrase": extra.get("passphrase", "")}
+    wallet = extra.get("wallet", "")
+    try:
+        ok_t, msg_t = pm_live.test_credentials(creds, wallet)
+    except Exception as e:
+        ok_t, msg_t = False, f"{type(e).__name__}: {e}"[:200]
+    keys.mark_test(su["u"], "pm", ok_t, msg_t)
+    return {"ok": True, "test_ok": ok_t, "test_msg": msg_t}
+
+
+@app.post("/api/keys/pm/unbind")
+async def api_keys_pm_unbind(su=Depends(require_session_user)):
+    keys.unbind(su["u"], "pm")
+    users.audit_log(su["u"], "key_unbind", "解绑 PM 凭证")
+    return {"ok": True, "msg": "已解绑"}
+
+
+@app.post("/api/admin/limits/{uid}")
+async def api_admin_limits(uid: int, request: Request, su=Depends(require_admin)):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = keys.set_limits(uid, body.get("max_notional"), body.get("daily_loss_cap"),
+                              body.get("max_positions"), body.get("live_enabled"))
+    users.audit_log(uid, "limits_change", f"风控限额更新: {body}", "", f"admin:{su['u']}")
+    return {"ok": ok, "msg": msg}
