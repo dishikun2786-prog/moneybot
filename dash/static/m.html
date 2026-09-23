@@ -2243,7 +2243,7 @@ var ADMA={offset:0,rows:[]};
 async function loadAdmAudit(offset){
   if(offset===0){ADMA.offset=0;ADMA.rows=[];}
   var r=await api('/api/admin/audit?offset='+ADMA.offset+'&limit=30');
-  if(!r.data||!r.data.ok){id('adm-audit').innerHTML='<div class="dim small">加载失败</div>';return}
+  if(r.status!==200||!r.data){id('adm-audit').innerHTML='<div class="dim small">加载失败</div>';return}
   ADMA.rows=ADMA.rows.concat(r.data.rows||[]);
   id('adma-n').textContent='共 '+r.data.total+' 条';
   var html='';
@@ -2261,7 +2261,8 @@ async function admfReview(wid,ok){
 }
 async function loadAdmin(){
   var rs=await api('/api/admin/stats');
-  if(rs.status===403||(rs.data&&!rs.data.ok)){toast('仅管理员可访问');go('profile');return}
+  if(rs.status===403){toast('仅管理员可访问');go('profile');return}
+  if(!rs.data){toast('管理后台加载失败');return}
   var s=rs.data||{};
   var plans=s.plans||{};
   id('admin-stats').innerHTML='<div class="stat"><div class="k">注册用户</div><div class="v">'+s.total+'</div><div class="d up">今日 +'+(s.new_today||0)+'</div></div>'
