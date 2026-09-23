@@ -1,26 +1,201 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>登录 · Moneybot</title>
-<link rel="stylesheet" href="/static/style.css">
-</head><body>
-<div class="login-box">
-  <h1>💰 Moneybot</h1>
-  <p class="dim">对冲监控仪表盘 · 请输入访问密码</p>
-  <input type="password" id="pw" placeholder="密码" autofocus>
-  <div class="err" id="err"></div>
-  <button onclick="doLogin()" style="width:100%">登 录</button>
-</div>
-<script>
-async function doLogin(){
-  const pw = document.getElementById('pw').value;
-  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({password: pw})});
-  const d = await r.json().catch(()=>({}));
-  if(d.ok){ location.href='/'; }
-  else { document.getElementById('err').textContent = d.err || '登录失败';
-         document.getElementById('pw').value=''; }
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>登录 · 交易室</title>
+<style>
+:root{
+  --bg:#0a0b0e; --surface:#1a1c23; --surface-2:#22242e; --border:#262933; --border-2:#323648;
+  --text:#eceef3; --text-2:#9aa3b2; --text-3:#5c6470;
+  --accent:#f7a600; --accent-soft:rgba(247,166,0,.12); --up:#3ebd93; --down:#f6465d;
+  --radius:12px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:'Inter',system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
 }
-document.getElementById('pw').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.wrap{width:100%;max-width:400px}
+.logo-big{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#f7a600,#ff7a00);
+  display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#1a1200;margin:0 auto 14px}
+h1{text-align:center;font-size:20px;margin-bottom:4px}
+.slogan{text-align:center;font-size:12px;color:var(--text-3);margin-bottom:22px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.seg{display:flex;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px;margin-bottom:16px}
+.seg button{flex:1;border:none;background:none;color:var(--text-2);font-size:14px;padding:10px 0;
+  border-radius:8px;cursor:pointer;font-family:var(--sans);min-height:40px}
+.seg button.on{background:var(--bg);color:var(--text);font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:var(--text-2);margin-bottom:6px}
+.input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;
+  color:var(--text);padding:12px;font-size:14px;font-family:var(--sans);outline:none;min-height:44px}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text-3)}
+.captcha-row{display:flex;gap:8px}
+.captcha-row .input{flex:1}
+.captcha-row img{width:120px;height:44px;border-radius:10px;border:1px solid var(--border);cursor:pointer;flex:none;background:var(--surface-2)}
+.hint{font-size:10px;color:var(--text-3);margin-top:5px;line-height:1.5}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;border:none;border-radius:10px;
+  background:var(--accent);color:#1a1200;font-size:15px;font-weight:700;cursor:pointer;
+  font-family:var(--sans);min-height:48px;margin-top:4px}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.err{display:none;background:rgba(246,70,93,.1);border:1px solid rgba(246,70,93,.4);color:#ff8f9d;
+  font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:12px;line-height:1.5}
+.err.on{display:block}
+.ok-box{display:none;background:rgba(62,189,147,.1);border:1px solid rgba(62,189,147,.4);color:#7fe0bd;
+  font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:12px}
+.ok-box.on{display:block}
+.linkrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:14px}
+.linkrow a{color:var(--accent);text-decoration:none;cursor:pointer}
+.terms{display:flex;gap:7px;align-items:flex-start;margin:2px 0 12px;cursor:pointer;
+  font-size:11px;color:var(--text-2);line-height:1.6}
+.terms input{margin-top:3px}
+.foot{margin-top:18px;font-size:10px;color:var(--text-3);text-align:center;line-height:1.7}
+.guide{margin-top:18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px;font-size:11px;color:var(--text-2);line-height:1.8}
+.guide b{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo-big">M</div>
+  <h1>交易室 · 对冲套利平台</h1>
+  <div class="slogan">中心实时行情 · 多用户账户 · 模拟/实盘交易</div>
+  <div class="card">
+    <div class="seg">
+      <button id="tab-login" class="on" onclick="swTab('login')">登 录</button>
+      <button id="tab-register" onclick="swTab('register')">注 册</button>
+    </div>
+    <div class="err" id="err"></div>
+    <div class="ok-box" id="okbox"></div>
+
+    <!-- 登录 -->
+    <div id="form-login">
+      <div class="field"><label>账号</label><input class="input" id="l-user" placeholder="请输入账号" autocomplete="username"></div>
+      <div class="field"><label>密码</label><input class="input" id="l-pass" type="password" placeholder="请输入密码" autocomplete="current-password"></div>
+      <div class="field"><label>图形验证码 <span style="color:var(--text-3)">看不清点图换一张</span></label>
+        <div class="captcha-row"><input class="input" id="l-cap" placeholder="输入右侧4位字符" style="text-transform:uppercase" maxlength="4"><img id="cap-img" alt="验证码" onclick="loadCaptcha()"></div>
+      </div>
+      <button class="btn" id="btn-login" onclick="doLogin()">登 录</button>
+      <div class="linkrow"><a onclick="toast('请联系管理员重置密码')">忘记密码？</a><a onclick="swTab('register')">注册新账号 →</a></div>
+    </div>
+
+    <!-- 注册 -->
+    <div id="form-register" style="display:none">
+      <div class="field"><label>账号（4-20位字母/数字/下划线）</label><input class="input" id="r-user" placeholder="设置登录账号"></div>
+      <div class="field"><label>邮箱（用于找回密码）</label><input class="input" id="r-mail" placeholder="name@example.com" type="email"></div>
+      <div class="field"><label>密码（至少8位，含字母+数字）</label><input class="input" id="r-pass" type="password" placeholder="设置密码" autocomplete="new-password"></div>
+      <div class="field"><label>确认密码</label><input class="input" id="r-pass2" type="password" placeholder="再次输入密码" autocomplete="new-password"></div>
+      <div class="field"><label>图形验证码 <span style="color:var(--text-3)">防机器人注册</span></label>
+        <div class="captcha-row"><input class="input" id="r-cap" placeholder="输入右侧4位字符" style="text-transform:uppercase" maxlength="4"><img id="cap-img2" alt="验证码" onclick="loadCaptcha()"></div>
+        <div class="hint">验证码用于防止机器人批量注册，提交后自动刷新</div>
+      </div>
+      <label class="terms"><input type="checkbox" id="r-terms" checked> 我已阅读并同意《服务条款》与《风险披露声明》：数字资产对冲交易存在风险，实盘交易可能造成本金损失。</label>
+      <button class="btn" id="btn-register" onclick="doRegister()">注册并领取 $100 模拟资金</button>
+      <div class="linkrow" style="justify-content:center"><a onclick="swTab('login')">已有账号？直接登录</a></div>
+    </div>
+  </div>
+
+  <div class="guide">
+    <b>新手引导：</b><br>
+    ① <b>注册</b>即送 $100 模拟资金，先用模拟账户练习，与真实资金完全隔离<br>
+    ② 登录后进入<b>交易室</b>：行情/K线/盘口全实时，托管模式=策略自动交易，手动模式=你自己决策<br>
+    ③ 想用真实资金？在「我的 → API 密钥绑定」绑定你自己的 <b>Bybit / Polymarket</b> 密钥（加密存储）<br>
+    ④ 连续输错 5 次密码账号锁定 15 分钟（防暴力破解）
+  </div>
+  <div class="foot">本平台为量化交易工具，不构成投资建议<br>© 2026 交易室</div>
+</div>
+
+<script>
+var capId = null;
+var capId2 = null;
+var busy = false;
+
+function $(id){return document.getElementById(id)}
+
+function showErr(m){var e=$('err');e.textContent=m;e.classList.add('on');$('okbox').classList.remove('on')}
+function showOk(m){var o=$('okbox');o.textContent=m;o.classList.add('on');$('err').classList.remove('on')}
+
+function swTab(t){
+  $('tab-login').classList.toggle('on', t==='login');
+  $('tab-register').classList.toggle('on', t==='register');
+  $('form-login').style.display = t==='login'?'block':'none';
+  $('form-register').style.display = t==='register'?'block':'none';
+  $('err').classList.remove('on');$('okbox').classList.remove('on');
+}
+
+async function loadCaptcha(){
+  try{
+    var r = await fetch('/api/captcha');
+    var d = await r.json();
+    if(d.ok){
+      capId = d.captcha_id; capId2 = d.captcha_id;
+      $('cap-img').src = d.image; $('cap-img2').src = d.image;
+    }
+  }catch(e){ /* 网络异常时按钮提交会提示 */ }
+}
+
+async function post(path, body){
+  var r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  var d = await r.json().catch(function(){return {ok:false, err:'服务器响应异常'}});
+  return {status:r.status, data:d};
+}
+
+function lock(b){b.disabled=true}
+function unlock(b){b.disabled=false}
+
+async function doLogin(){
+  if(busy) return;
+  var b = $('btn-login');
+  var u = $('l-user').value.trim(), p = $('l-pass').value, c = $('l-cap').value.trim();
+  if(!u || !p){showErr('请填写账号和密码');return}
+  if(!c || !capId){showErr('请输入验证码（看不清可点图片换一张）');return}
+  busy = true; lock(b); b.textContent = '登录中…';
+  var r = await post('/api/login', {username:u, password:p, captcha_id:capId, captcha_code:c});
+  if(r.data.ok){
+    showOk('登录成功，正在进入交易室…');
+    setTimeout(function(){location.href='/trade'}, 600);
+    return;
+  }
+  busy = false; unlock(b); b.textContent = '登 录';
+  showErr(r.data.err || '登录失败');
+  loadCaptcha();
+}
+
+async function doRegister(){
+  if(busy) return;
+  var b = $('btn-register');
+  var u = $('r-user').value.trim(), m = $('r-mail').value.trim();
+  var p = $('r-pass').value, p2 = $('r-pass2').value, c = $('r-cap').value.trim();
+  if(!u || !m || !p){showErr('请完整填写注册信息');return}
+  if(p !== p2){showErr('两次输入的密码不一致');return}
+  if(!$('r-terms').checked){showErr('请先勾选同意服务条款与风险声明');return}
+  if(!c || !capId2){showErr('请输入验证码');return}
+  busy = true; lock(b); b.textContent = '注册中…';
+  var r = await post('/api/auth/register', {username:u, email:m, password:p, captcha_id:capId2, captcha_code:c});
+  if(r.data.ok){
+    showOk('注册成功！$100 模拟资金已到账，正在进入交易室…');
+    setTimeout(function(){location.href='/trade'}, 800);
+    return;
+  }
+  busy = false; unlock(b); b.textContent = '注册并领取 $100 模拟资金';
+  showErr(r.data.err || '注册失败');
+  loadCaptcha();
+}
+
+var _toastT;
+function toast(m){
+  var e = document.createElement('div');
+  e.textContent = m;
+  e.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#23262f;border:1px solid #323648;color:#eceef3;font-size:12px;padding:10px 16px;border-radius:10px;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.5)';
+  document.body.appendChild(e);
+  clearTimeout(_toastT);
+  _toastT = setTimeout(function(){e.remove()}, 1800);
+}
+
+loadCaptcha();
 </script>
-</body></html>
+</body>
+</html>

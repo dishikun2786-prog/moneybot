@@ -2,13 +2,14 @@ import sys
 import os
 import json
 import time
+import base64
 from collections import defaultdict, deque
 from pathlib import Path
 from fastapi import FastAPI, Request, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
-from . import auth, config, readers
+from . import auth, captcha, config, readers, users
 
 sys.path.insert(0, os.path.expanduser("~/polymarket"))
 import ai_client  # noqa: E402
@@ -17,6 +18,12 @@ import paper_ops  # noqa: E402
 import engine_mode  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
+
+
+@app.on_event("startup")
+def _startup():
+    """启动即建用户表; 首次启动执行单用户→admin 迁移"""
+    users.init_db()
 
 
 @app.middleware("http")
@@ -36,6 +43,21 @@ app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 def require_session(request: Request):
     if not auth.valid_session(request.cookies.get(config.COOKIE_NAME)):
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def require_session_user(request: Request) -> dict:
+    """返回会话用户 {'u': uid, 'r': role}"""
+    su = auth.session_user(request.cookies.get(config.COOKIE_NAME))
+    if not su:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return su
+
+
+def require_admin(request: Request) -> dict:
+    su = require_session_user(request)
+    if su["r"] != "admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    return su
 
 
 @app.get("/")
@@ -80,16 +102,74 @@ async def api_login(request: Request, response: Response):
     try:
         body = await request.json()
     except Exception:
-        return JSONResponse({"ok": False, "err": "bad request"}, status_code=400)
+        return JSONResponse({"ok": False, "err": "请求格式错误"}, status_code=400)
     if not auth.login_allowed():
         return JSONResponse({"ok": False, "err": "尝试过多, 1分钟后再试"}, status_code=429)
-    if auth.check_password(body.get("password") or ""):
-        resp = JSONResponse({"ok": True})
-        resp.set_cookie(config.COOKIE_NAME, auth.make_session(), httponly=True,
-                        samesite="lax", max_age=86400, secure=False, path="/")
-        return resp
-    auth.record_fail()
-    return JSONResponse({"ok": False, "err": "密码错误"}, status_code=401)
+    if not users.captcha_check(body.get("captcha_id"), body.get("captcha_code")):
+        return JSONResponse({"ok": False, "err": "验证码错误或已过期，请刷新重试"}, status_code=400)
+    ok, u = users.verify_login(body.get("username") or "", body.get("password") or "")
+    if not ok:
+        auth.record_fail()
+        return JSONResponse({"ok": False, "err": u}, status_code=401)
+    users.audit_log(u["id"], "login", "登录成功",
+                    request.client.host if request.client else "",
+                    request.headers.get("user-agent", "")[:160])
+    resp = JSONResponse({"ok": True,
+                         "user": {"uid": u["id"], "username": u["username"], "role": u["role"]}})
+    resp.set_cookie(config.COOKIE_NAME, auth.make_session(u["id"], u["role"]),
+                    httponly=True, samesite="lax", max_age=86400, secure=False, path="/")
+    return resp
+
+
+@app.get("/api/captcha")
+def api_captcha():
+    """图形验证码: 返回 {captcha_id, image(dataURI)}"""
+    code, img, mime = captcha.gen()
+    cid = users.captcha_new(code)
+    return {"ok": True, "captcha_id": cid,
+            "image": f"data:{mime};base64,{base64.b64encode(img).decode()}"}
+
+
+@app.post("/api/auth/register")
+async def api_register(request: Request, response: Response):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "err": "请求格式错误"}, status_code=400)
+    if not auth.login_allowed():
+        return JSONResponse({"ok": False, "err": "尝试过多, 1分钟后再试"}, status_code=429)
+    if not users.captcha_check(body.get("captcha_id"), body.get("captcha_code")):
+        return JSONResponse({"ok": False, "err": "验证码错误或已过期，请刷新重试"}, status_code=400)
+    ok, msg = users.create_user(body.get("username") or "", body.get("email") or "",
+                                body.get("password") or "")
+    if not ok:
+        return JSONResponse({"ok": False, "err": msg}, status_code=400)
+    u = users.get_by_username(body.get("username"))
+    users.audit_log(u["id"], "register", f"注册 {u['username']}",
+                    request.client.host if request.client else "",
+                    request.headers.get("user-agent", "")[:160])
+    resp = JSONResponse({"ok": True,
+                         "user": {"uid": u["id"], "username": u["username"], "role": u["role"]}})
+    resp.set_cookie(config.COOKIE_NAME, auth.make_session(u["id"], u["role"]),
+                    httponly=True, samesite="lax", max_age=86400, secure=False, path="/")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def api_logout(response: Response, __=Depends(require_session)):
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(config.COOKIE_NAME, path="/")
+    return resp
+
+
+@app.get("/api/auth/me")
+def api_me(su=Depends(require_session_user)):
+    u = users.get_user(su["u"])
+    if not u or u["status"] != "active":
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return {"ok": True,
+            "user": {"uid": u["id"], "username": u["username"], "email": u["email"],
+                     "role": u["role"], "plan": u["plan"], "status": u["status"]}}
 
 
 @app.get("/api/summary")
@@ -190,14 +270,14 @@ async def api_revoke(request: Request, __=Depends(require_session)):
 
 
 @app.post("/api/password/change")
-async def api_change_pw(request: Request, __=Depends(require_session)):
+async def api_change_pw(request: Request, su=Depends(require_session_user)):
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "err": "bad request"}, status_code=400)
     if not auth.login_allowed():
         return JSONResponse({"ok": False, "err": "尝试过多, 1分钟后再试"}, status_code=429)
-    ok, msg = auth.change_password(body.get("old_pw", ""), body.get("new_pw", ""))
+    ok, msg = auth.change_password(su["u"], body.get("old_pw", ""), body.get("new_pw", ""))
     if not ok:
         auth.record_fail()
         return JSONResponse({"ok": False, "err": msg}, status_code=400)
