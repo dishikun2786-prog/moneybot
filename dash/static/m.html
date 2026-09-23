@@ -191,6 +191,7 @@ select.input{appearance:none}
   <div class="apphead">
     <div class="title"><span class="logo">M</span><span id="head-title">交易室</span></div>
     <div class="acts">
+      <button class="iconbtn" id="head-back" style="display:none" title="返回">←</button>
       <span class="badge gray" id="livechip" style="display:none">⚪ 模拟盘</span>
       <button class="iconbtn" id="head-help">?</button>
     </div>
@@ -423,6 +424,7 @@ select.input{appearance:none}
   <!-- 底部导航 -->
   <div class="tabbar" id="tabbar">
     <button class="on" data-s="markets" onclick="go('markets')"><span class="ico">📈</span>行情</button>
+    <button data-s="pm" onclick="go('pm')"><span class="ico">🎲</span>预测</button>
     <button data-s="trade" onclick="go('trade')"><span class="ico">⚡</span>交易</button>
     <button data-s="assets" onclick="go('assets')"><span class="ico">💰</span>资产</button>
     <button data-s="profile" onclick="go('profile')"><span class="ico">👤</span>我的</button>
@@ -472,7 +474,8 @@ function apiErr(r){
 }
 /* ============ 屏幕路由 ============ */
 var curScreen='login';
-var TAB_SCREENS={markets:1,trade:1,assets:1,profile:1};
+var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,profile:1};
+var BACK_MAP={keys:'profile',admin:'profile'};
 var TITLES={login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'交易',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台'};
 function go(s){
   if(!id('screen-'+s))return;
@@ -483,6 +486,8 @@ function go(s){
   id('head-title').textContent=TITLES[s]||'交易室';
   var tb=id('tabbar');
   if(TAB_SCREENS[s]){tb.style.display='flex'}else{tb.style.display='none'}
+  var bb=id('head-back');
+  if(bb){bb.style.display=BACK_MAP[s]?'':'none';bb.onclick=function(){go(BACK_MAP[s]||'markets')}}
   var bt=tb.querySelectorAll('button');
   for(var j=0;j<bt.length;j++)bt[j].classList.toggle('on',bt[j].dataset.s===s);
   closeSheet();
