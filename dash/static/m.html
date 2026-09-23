@@ -317,17 +317,15 @@ select.input{appearance:none}
       <div class="card">
         <div class="cbar" id="dbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
         <svg id="d-kline" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-      </div>
-      <div class="card">
-        <div class="ct">24小时数据</div>
-        <div id="d-data"></div>
-      </div>
-      <div class="card" style="padding:8px">
-        <div class="ct">盘口深度 <span class="xs muted">卖单在上 · 买单在下</span></div>
+        <div class="ct" style="margin-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏联动</span></div>
         <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
         <div id="d-ob-asks"></div>
         <div class="mid"><span class="p" id="d-ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
         <div id="d-ob-bids"></div>
+      </div>
+      <div class="card">
+        <div class="ct">24小时数据</div>
+        <div id="d-data"></div>
       </div>
       <div id="d-act"></div>
       <div class="card ticket" id="spot-order-card">
@@ -353,8 +351,7 @@ select.input{appearance:none}
       </div>
       <div class="livebar" id="livebar"><span class="dot"></span><span id="live-txt">模拟盘 · 纸面交易</span><button id="live-btn" onclick="toggleLive()" style="display:none">切到实盘</button></div>
       <div class="seg" style="margin-bottom:10px" id="trade-tabs">
-        <button class="on" data-t="chart" onclick="swTab(this)">K线</button>
-        <button data-t="ob" onclick="swTab(this)">盘口</button>
+        <button class="on" data-t="chart" onclick="swTab(this)">行情</button>
         <button data-t="pos" onclick="swTab(this)">持仓</button>
         <button data-t="ticket" onclick="swTab(this)">下单</button>
       </div>
@@ -363,20 +360,16 @@ select.input{appearance:none}
         <div class="chart">
           <div class="cbar" id="kbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
           <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-        </div>
-        <div class="sectip"><div class="i">📊</div><div class="t"><b>白话：</b>绿=涨段，红=跌段（红涨绿跌可在桌面版切换）。看涨点「下单」开多，看跌开空。下方直接切时间周期。</div></div>
-      </div>
-
-      <div class="tabbody" id="tab-ob">
-        <div class="card orderbook" style="padding:8px">
-          <div class="ct">盘口深度 <span class="xs muted">卖单在上 · 买单在下</span></div>
+          <div class="ct" style="margin-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏</span></div>
           <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
           <div id="ob-asks"></div>
           <div class="mid"><span class="p" id="ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
           <div id="ob-bids"></div>
         </div>
-        <div class="sectip"><div class="i">📖</div><div class="t"><b>白话：</b>红色=卖单挂单（想卖的人），绿色=买单挂单（想买的人）。柱条越长=该价位挂单越多，是「墙」，价格到这里容易遇阻/受支撑。</div></div>
+        <div class="sectip"><div class="i">📊</div><div class="t"><b>白话：</b>上 K 线下盘口同屏联动。绿=涨段红=跌段；盘口红=卖单挂单、绿=买单挂单，柱越长=挂单越多（墙）。看涨点「下单」开多，看跌开空。</div></div>
       </div>
+
+
 
       <div class="tabbody" id="tab-pos">
         <div class="modebar">
@@ -904,10 +897,14 @@ async function spotCloseGo(live){
 function renderDetOb(){
   if(curScreen!=='symbol')return;
   var book=(DEPTH[DET_SYM]||{});
-  var bids=(book.bids||[]).slice(0,7),asks=(book.asks||[]).slice(0,7);
+  var bids=(book.bids||[]).slice(0,10),asks=(book.asks||[]).slice(0,10);
   if(!bids.length&&!asks.length){
     watchDepth(DET_SYM);
-    id('d-ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">正在订阅 '+DET_SYM+' 实时盘口（约2秒）…<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>';
+    var wt=(WATCH_TS[DET_SYM]||0);
+    var hint=wt&&(Date.now()-wt)>10000
+      ?'<div class="dim small" style="padding:10px 4px">⚠️ 该标的暂无深度推送<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>'
+      :'<div class="dim small" style="padding:10px 4px">正在订阅 '+DET_SYM+' 实时盘口（约2秒）…<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>';
+    id('d-ob-asks').innerHTML=hint;
     id('d-ob-bids').innerHTML='';
     id('d-ob-mid').textContent=priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—';
     return;
@@ -943,10 +940,16 @@ async function detLoad(){
   var chg=px.chg;
   id('d-chg').innerHTML='<span class="'+(chg>=0?'up':'down')+'">'+(chg>=0?'+':'')+num(chg,2)+'%</span>';
   var hi=p.high||0,lo=p.low||0,v=p.vol||0;
+  var pct=(p.change_pct!=null?p.change_pct:chg);
+  var prev=(pct!=null&&Math.abs(pct)<99)?((px.last||px.spot)/(1+pct/100)):0;
+  var amp=(hi&&lo&&prev)?((hi-lo)/prev*100):0;
   id('d-data').innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">'
     +'<div><div class="xs muted">24h最高</div><b class="mono">'+(hi?fmtPx(hi):'—')+'</b></div>'
     +'<div><div class="xs muted">24h最低</div><b class="mono">'+(lo?fmtPx(lo):'—')+'</b></div>'
-    +'<div><div class="xs muted">24h成交额</div><b class="mono">'+(v?num(v/1e6,1)+'M$':'—')+'</b></div></div>';
+    +'<div><div class="xs muted">24h成交额</div><b class="mono">'+(v?num(v/1e6,1)+'M$':'—')+'</b></div>'
+    +'<div><div class="xs muted">24h成交量</div><b class="mono">'+(p.qv?num(p.qv,2)+'枚':'—')+'</b></div>'
+    +'<div><div class="xs muted">振幅</div><b class="mono">'+(amp?num(amp,2)+'%':'—')+'</b></div>'
+    +'<div><div class="xs muted">24h涨跌</div><b class="mono">'+(chg!=null?(chg>=0?'+':'')+num(chg,2)+'%':'—')+'</b></div></div>';
   var detCat=(DET_CAT==='spot')?'spot':'linear';
   api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV),category:detCat})}).catch(function(){});
   var r=await api('/api/klines?symbol='+DET_SYM+'&interval='+klIvf(DET_IV)+'&limit=60&category='+detCat);
@@ -1448,10 +1451,14 @@ function watchDepth(sym){
 function renderOb(){
   if(curScreen!=='trade')return;
   var book=(DEPTH[tradeSym]||{});
-  var bids=(book.bids||[]).slice(0,8),asks=(book.asks||[]).slice(0,8);
+  var bids=(book.bids||[]).slice(0,10),asks=(book.asks||[]).slice(0,10);
   if(!bids.length&&!asks.length){
     watchDepth(tradeSym);  // P2: 自动请求按需订阅
-    id('ob-asks').innerHTML='<div class="dim small" style="padding:10px 4px">正在订阅 '+tradeSym+' 实时盘口（约 2 秒）…<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>';
+    var wt=(WATCH_TS[tradeSym]||0);
+    var hint=wt&&(Date.now()-wt)>10000
+      ?'<div class="dim small" style="padding:10px 4px">⚠️ 该标的暂无深度推送<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>'
+      :'<div class="dim small" style="padding:10px 4px">正在订阅 '+tradeSym+' 实时盘口（约 2 秒）…<br>当前报价：'+(priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—')+'</div>';
+    id('ob-asks').innerHTML=hint;
     id('ob-bids').innerHTML='';
     id('ob-mid').textContent=priceOf(tradeSym).last?fmtPx(priceOf(tradeSym).last):'—';
     return;

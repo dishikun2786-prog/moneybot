@@ -77,7 +77,7 @@ KLINES = {}
 SNAP = {"ts": 0, "lag_ms": None, "prices": {}}
 N_TICKS = {"n": 0}
 TEST_DONE = threading.Event()
-WS_REF = {"ws": None, "spot_kline_ws": None}
+WS_REF = {"ws": None, "spot_ws": None}
 # ---- 盘口/成交量状态 (M1) ----
 BOOKS = {}   # {sym: {"bids": {p:sz}, "asks": {p:sz}, "u": seq, "snap": bool, "gaps": n}}
 WATCH_FILE = f"{BASE}/logs/depth_watch.json"   # P2 按需盘口: {sym: req_ts}
@@ -99,34 +99,35 @@ MICRO_HIST = {s: deque(maxlen=120) for s in DEPTH_SYMS}   # 分钟级指标环 (
 MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in DEPTH_SYMS}  # 本分钟累计
 
 
-def on_spot_kline_msg(ws, m):
-    """现货 K线连接: 只处理 kline 消息 (spot WSS 端点)"""
+def on_spot_msg(ws, m):
+    """现货市场统一连接: 处理 kline + orderbook (R10: 现货盘口只在 spot 端点推)"""
     try:
         d = json.loads(m)
     except Exception:
         return
     topic = d.get("topic", "")
-    if not topic.startswith("kline."):
-        return
-    parts = topic.split(".")
-    if len(parts) < 3:
-        return
-    iv = parts[1]
-    sym = parts[2]
-    with LOCK:
-        KLINES.setdefault(sym, {})[iv] = {int(k["start"]): k for k in d.get("data", [])}
+    if topic.startswith("kline."):
+        parts = topic.split(".")
+        if len(parts) < 3:
+            return
+        iv = parts[1]
+        sym = parts[2]
+        with LOCK:
+            KLINES.setdefault(sym, {})[iv] = {int(k["start"]): k for k in d.get("data", [])}
+    elif topic.startswith("orderbook."):
+        _on_book(d)
 
 
-def spot_kline_loop():
-    """R9: 现货标的 K线独立连接 (Bybit 现货 kline 只在 spot WSS 端点推送)"""
+def spot_mkt_loop():
+    """R9/R10: 现货端点统一连接 (kline + orderbook 都只在 spot WSS 推送)"""
     while True:
-        ws = websocket.WebSocketApp(SPOT_WS, on_message=on_spot_kline_msg,
+        ws = websocket.WebSocketApp(SPOT_WS, on_message=on_spot_msg,
                                     on_open=lambda w: None)
-        WS_REF["spot_kline_ws"] = ws
+        WS_REF["spot_ws"] = ws
         try:
             ws.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
-            print(f"[bridge] spot-kline 异常: {e}", flush=True)
+            print(f"[bridge] spot-mkt 异常: {e}", flush=True)
         time.sleep(2)
 
 
@@ -157,6 +158,8 @@ def on_msg(ws, m):
                    "high": float(t.get("highPrice24h", 0) or 0),
                    "low": float(t.get("lowPrice24h", 0) or 0),
                    "vol": float(t.get("turnover24h", 0) or 0), "ts": int(d["ts"])}
+            if t.get("volume24h") is not None:
+                upd["qv"] = float(t["volume24h"])
             # OI 字段多数tick为null (Bybit仅周期性推送): 只在有值时更新, 保留最后已知值
             if t.get("openInterest"):
                 upd["oi"] = float(t["openInterest"])
@@ -520,15 +523,22 @@ def watch_loop():
         for sym, ts in list(reqs.items())[:40]:
             if sym in WATCH_SUB:
                 continue
-            ws.send(json.dumps({"op": "subscribe", "args": [f"orderbook.200.{sym}"]}))
+            is_spot = sym in SPOT_TICKER_SYMS and sym not in TICKER_SYMS
+            tgt = WS_REF.get("spot_ws") if is_spot else ws
+            if not tgt:
+                continue
+            tgt.send(json.dumps({"op": "subscribe", "args": [f"orderbook.200.{sym}"]}))
             WATCH_SUB[sym] = time.time()
             BOOKS.pop(sym, None)  # 清旧残, 等新快照
-            print(f"[bridge] 按需订阅盘口: {sym} (动态#{len(WATCH_SUB) - len(DEPTH_SYMS)})", flush=True)
-        # LRU 退订: 超上限时退最旧的非 DEPTH_SYMS
+            print(f"[bridge] 按需订阅盘口: {sym} ({'spot' if is_spot else 'linear'}#{len(WATCH_SUB) - len(DEPTH_SYMS)})", flush=True)
+        # LRU 退订: 超上限时退最旧的非 DEPTH_SYMS (按各自端点退订)
         dyn = {s: t for s, t in WATCH_SUB.items() if s not in DEPTH_SYMS}
         while len(dyn) > WATCH_MAX:
             oldest = min(dyn, key=dyn.get)
-            ws.send(json.dumps({"op": "unsubscribe", "args": [f"orderbook.200.{oldest}"]}))
+            is_spot_o = oldest in SPOT_TICKER_SYMS and oldest not in TICKER_SYMS
+            ows = WS_REF.get("spot_ws") if is_spot_o else ws
+            if ows:
+                ows.send(json.dumps({"op": "unsubscribe", "args": [f"orderbook.200.{oldest}"]}))
             WATCH_SUB.pop(oldest, None)
             BOOKS.pop(oldest, None)
             print(f"[bridge] LRU退订盘口: {oldest}", flush=True)
@@ -583,7 +593,7 @@ def watch_kline_loop():
                 iv = raw.get("iv", "15m")
                 cat = raw.get("cat", "linear")
             iv = iv if iv in KL_IV_NUM else "15m"
-            tgt = WS_REF.get("spot_kline_ws") if cat == "spot" else ws
+            tgt = WS_REF.get("spot_ws") if cat == "spot" else ws
             if not tgt:
                 continue
             cur = KL_WATCH_SUB.get(sym)
@@ -591,7 +601,7 @@ def watch_kline_loop():
                 continue
             tgt.send(json.dumps({"op": "subscribe", "args": [f"kline.{KL_IV_NUM[iv]}.{sym}"]}))
             if cur:  # 同标的换周期/换分类: 退旧订新
-                old_ws = WS_REF.get("spot_kline_ws") if cur[2] == "spot" else ws
+                old_ws = WS_REF.get("spot_ws") if cur[2] == "spot" else ws
                 if old_ws:
                     old_ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[cur[0]]}.{sym}"]}))
             KL_WATCH_SUB[sym] = (iv, time.time(), cat)
@@ -600,7 +610,7 @@ def watch_kline_loop():
         while len(KL_WATCH_SUB) > KL_WATCH_MAX:
             oldest = min(KL_WATCH_SUB, key=lambda s: KL_WATCH_SUB[s][1])
             oiv, ocat = KL_WATCH_SUB[oldest][0], KL_WATCH_SUB[oldest][2]
-            old_ws = WS_REF.get("spot_kline_ws") if ocat == "spot" else ws
+            old_ws = WS_REF.get("spot_ws") if ocat == "spot" else ws
             if old_ws:
                 old_ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[oiv]}.{oldest}"]}))
             KL_WATCH_SUB.pop(oldest, None)
@@ -617,7 +627,7 @@ def main():
     threading.Thread(target=snap_loop, daemon=True).start()
     threading.Thread(target=watch_loop, daemon=True).start()
     threading.Thread(target=watch_kline_loop, daemon=True).start()
-    threading.Thread(target=spot_kline_loop, daemon=True).start()
+    threading.Thread(target=spot_mkt_loop, daemon=True).start()
     # spot 多连接分片 (单连接全量订阅撞消息速率墙)
     SPOT_SHARDS = int(os.environ.get("SPOT_SHARDS", "3"))
     spot_topics = [f"tickers.{s}" for s in SPOT_TICKER_SYMS if s not in SPOT_PIN_SYMS]
