@@ -331,13 +331,14 @@ LAST_LAG = {"ms": None}
 
 
 def snap_loop():
-    """500ms 节流: 全量 PRICES → SNAP → 原子写快照 (1500标的每秒2次, 不再逐消息写)"""
+    """500ms 节流: 全量 PRICES → 快照文件 (拷贝在锁内, JSON序列化在锁外, 避免阻塞行情线程)"""
     while True:
         time.sleep(0.5)
         with LOCK:
-            SNAP.update(ts=int(time.time() * 1000), lag_ms=LAST_LAG["ms"],
-                        prices=dict(PRICES))
-            payload = json.dumps(SNAP, ensure_ascii=False)
+            snap = {"ts": int(time.time() * 1000), "lag_ms": LAST_LAG["ms"],
+                    "prices": dict(PRICES)}
+            SNAP.update(snap)
+        payload = json.dumps(snap, ensure_ascii=False)
         tmp = SNAP_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(payload)
