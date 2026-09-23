@@ -369,9 +369,6 @@ async function fSaveKey(){
   toast(d&&d.ok?'✅ 平台密钥已加密保存':(d&&d.error||'失败'),!d||!d.ok);
   $('#fpk-key').value='';$('#fpk-secret').value='';
 }
-</script>
-</body>
-</html>
 
 // ---- R12 P2 PM 标的管理 ----
 let PMADM={offset:0,q:'',state:'',rows:[],checked:{}};
@@ -414,4 +411,7 @@ async function pmadmSet(state){
   const {d}=await j('POST','/api/admin/pm-markets/set',{keys,state});
   if(d&&d.ok){alert(d.msg||'操作成功');PMADM.checked={};loadPmAdmin(0)}else{alert((d&&d.error)||'操作失败')}
 }
+</script>
+</body>
+</html>
 
