@@ -373,7 +373,8 @@ async def spot_open(request: Request, su=Depends(require_session_user)):
     if live:
         return live_exec.bybit_spot_order(su["u"], {"symbol": sym, "side": side,
                                                     "notional": body.get("notional")})
-    return paper_ops.open_spot(sym, side, body.get("notional"))
+    with tenants.tenant(su["u"]):  # R14-D1: 租户隔离 (修复越权: B用户曾写进admin状态)
+        return paper_ops.open_spot(sym, side, body.get("notional"))
 
 
 @app.post("/api/spot/close")
@@ -387,12 +388,14 @@ async def spot_close(request: Request, su=Depends(require_session_user)):
     if live:
         return live_exec.bybit_spot_order(su["u"], {"symbol": sym, "side": "sell",
                                                     "notional": body.get("notional")})
-    return paper_ops.close_spot(sym)
+    with tenants.tenant(su["u"]):  # R14-D1: 租户隔离 (修复越权: B用户曾平admin的仓)
+        return paper_ops.close_spot(sym)
 
 
 @app.get("/api/spot/positions")
 def spot_positions(su=Depends(require_session_user)):
-    return {"ok": True, "positions": paper_ops.spot_positions()}
+    with tenants.tenant(su["u"]):  # R14-D1: 租户隔离 (修复越权: B用户曾看到admin持仓)
+        return {"ok": True, "positions": paper_ops.spot_positions()}
 
 
 @app.post("/api/native/open")
