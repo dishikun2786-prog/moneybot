@@ -65,6 +65,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .kz{display:flex;gap:3px;flex:none}
 .kz button{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer}
 .kz button:active{border-color:var(--accent);color:var(--accent)}
+.catseg{padding:2px;background:var(--surface-2);border-radius:9px;display:inline-flex;gap:2px}
+.catseg button{border:none;background:transparent;color:var(--text-2);font-size:11px;padding:4px 14px;border-radius:7px;cursor:pointer}
+.catseg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.kline-live{font-size:9px;flex:none;padding:1px 7px;border-radius:8px;border:1px solid var(--border);letter-spacing:1px}
+.kline-live.green{color:#34d399;border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+.kline-live.green::after{content:'实时'}
+.kline-live.gray{color:var(--text-3)}
+.kline-live.gray::after{content:'延迟'}
 .kline-hud{display:flex;gap:10px;flex-wrap:wrap;padding:6px 8px;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:11px;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .kline-hud .up{color:var(--up)}.kline-hud .down{color:var(--down)}
 .kline-hud .lbl{color:var(--text-3)}
@@ -392,14 +400,12 @@ select.input{appearance:none}
         </div>
         <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div></div>
       </div>
-      <div class="card" style="padding:8px">
-        <div class="ct" style="padding:4px 4px 8px">预测市场（Polymarket）<span class="xs muted">按模型价差排序</span></div>
-        <div id="pm-top-list"></div>
-      </div>
+      <!-- PM-OFF-R13c: 预测市场卡片已移除 (R14: 全面清除PM展示残留) -->
       <div class="sectip"><div class="i">💡</div><div class="t"><b>白话：</b>点任意币种进入交易界面。「永续」=没有到期日的合约，可做多也可做空。资金费率=多空双方每8小时互付的利息，是套利策略的核心收益。</div></div>
     </section>
 
     <!-- ===== 预测市场 ===== -->
+<!-- PM-OFF-R13c: 预测市场对冲屏已下线 (R14 清除)
     <section class="screen" id="screen-pm">
       <div class="row" style="margin-bottom:10px"><b style="font-size:15px">预测市场对冲</b><span class="badge gray">Polymarket CLOB</span></div>
       <div class="card">
@@ -436,6 +442,7 @@ select.input{appearance:none}
       <div id="pm-pos-list"></div>
       <div class="sectip"><div class="i">🎲</div><div class="t"><b>白话：</b>对了结算 <b>$1</b>，错了 <b>$0</b>。价格即概率：YES 67¢=市场认为概率 67%。买 YES=押发生，买 NO=押不发生。与币圈仓位反向布局=对冲锁价差。</div></div>
     </section>
+-->
 
     <!-- ===== 标的详情 (R3: 现货/合约通用行情落地页) ===== -->
     <section class="screen" id="screen-symbol">
@@ -478,6 +485,10 @@ select.input{appearance:none}
         <div class="l"><div class="n" id="t-sym">BTCUSDT</div><span class="sub" id="t-sub">永续 · 比特币</span></div>
         <div class="r"><div class="p" id="t-px">—</div><div class="c" id="t-chg">—</div></div>
       </div>
+      <div class="seg catseg" id="t-catseg" style="margin:0 0 10px">
+        <button class="on" data-c="linear" onclick="setTradeCat('linear')">永续</button>
+        <button data-c="spot" onclick="setTradeCat('spot')">现货</button>
+      </div>
       <div class="livebar" id="livebar"><span class="dot"></span><span id="live-txt">模拟盘 · 纸面交易</span><button id="live-btn" onclick="toggleLive()" style="display:none">切到实盘</button></div>
       <div class="seg" style="margin-bottom:10px" id="trade-tabs">
         <button class="on" data-t="chart" onclick="swTab(this)">行情</button>
@@ -490,6 +501,7 @@ select.input{appearance:none}
           <div class="kline-toolbar">
             <div class="cbar" id="kbar" style="overflow-x:auto"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
             <div class="kz"><button onclick="klZoom(-1)" title="缩小">−</button><button onclick="klZoom(1)" title="放大">＋</button></div>
+            <span id="kline-live" class="kline-live gray" title="K线数据流状态">●</span>
           </div>
           <div id="kline-hud" class="kline-hud" style="display:none"></div>
           <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px;touch-action:none"></svg>
@@ -786,7 +798,7 @@ select.input{appearance:none}
 <div class="tabbar" id="tabbar">
     <button class="on" data-s="markets" onclick="go('markets')"><span class="ico">📈</span>行情</button>
     <!-- PM-OFF-R13c: PM 功能下线
-    <button data-s="pm" onclick="go('pm')"><span class="ico">🎲</span>预测</button>
+    <!-- PM-OFF-R13c: PM 功能下线, 预测按钮移除 <button data-s="pm" onclick="go('pm')"><span class="ico">🎲</span>预测</button> -->
     PM-OFF-END -->
     <button data-s="trade" onclick="go('trade')"><span class="ico">⚡</span>交易</button>
     <button data-s="assets" onclick="go('assets')"><span class="ico">💰</span>资产</button>
@@ -858,7 +870,7 @@ function go(s){
   for(var j=0;j<bt.length;j++)bt[j].classList.toggle('on',bt[j].dataset.s===s);
   closeSheet();
   if(s==='markets')loadMarkets();
-  if(s==='pm')loadPmScreen();
+  if(s==='pm'){toast('预测市场已下线');s='markets'}
   if(s==='trade'){loadKline();}
   if(s==='assets'){loadAssets();loadFunds()}
   if(s==='recharge')loadRecharge();
@@ -1245,9 +1257,7 @@ function renderTickers(){
       +'<div class="pr">'+(px?fmtPx(px):'—')+'</div><div class="chg '+(up?'up':'down')+'" style="width:64px">'+(up?'+':'')+num(chg,2)+'%</div></div>';
   }
   id('ticker-list').innerHTML=list;
-  // PM-OFF-R13c: PM 功能下线, 行情屏 PM 机会区关闭
-  var pml='';
-  id('pm-top-list').innerHTML='';
+  // PM-OFF-R13c: PM 机会区已随卡片移除 (R14)
 }
 async function loadMarkets(){
   renderTickers();
@@ -1590,20 +1600,41 @@ async function pmCloseGo(key){
 /* ============ 交易屏 ============ */
 var tradeSym='BTCUSDT';
 var KL_IV='15m';
+var TRADE_CAT='linear';  // R14: 交易屏通道 (linear=永续 / spot=现货)
+var SYM_HAS_SPOT={BTCUSDT:true,ETHUSDT:true};  // 双通道标的
 function setTradeSym(sym){
   tradeSym=sym;
+  TRADE_CAT=SYM_SPOT_ONLY[sym]?'spot':'linear';
   id('t-sym').textContent=(SYM_CN[sym]||'')+' '+sym;
-  if(SYM_SPOT_ONLY[sym]){id('t-sub').textContent='现货 · '+(SYM_UNIT[sym]||'美元/枚');}
   id('t-sub').textContent=(SYM_SPOT_ONLY[sym]?'现货 · ':'永续 · ')+(SYM_UNIT[sym]||'美元');
+  updCatSeg();
   go('trade');
   klStart();
+}
+function updCatSeg(){
+  var seg=id('t-catseg');
+  if(!seg)return;
+  if(SYM_SPOT_ONLY[tradeSym]){seg.style.display='none';return}  // 现货独占: 无切换
+  if(!SYM_HAS_SPOT[tradeSym]){seg.style.display='none';return}  // 合约独占: 无切换
+  seg.style.display='';
+  var bs=seg.querySelectorAll('button');
+  for(var i=0;i<bs.length;i++)bs[i].className=bs[i].dataset.c===TRADE_CAT?'on':'';
+}
+function setTradeCat(cat){
+  if(!SYM_HAS_SPOT[tradeSym])return;
+  TRADE_CAT=cat;
+  updCatSeg();
+  id('t-sub').textContent=(cat==='spot'?'现货 · ':'永续 · ')+(SYM_UNIT[tradeSym]||'美元');
+  klStart();  // K线重拉对应分类
+  renderOb();renderTrades();
 }
 function renderTradePx(){
   var p=priceOf(tradeSym);
   if(!p.last){return}
+  var px=TRADE_CAT==='spot'?(p.spot||p.last):p.last;  // R14: 现货模式显示现货价
   var up=p.chg>=0;
-  var el=id('t-px');el.textContent=fmtPx(p.last);el.className='p '+(up?'up':'down');
-  var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'%'+(p.spot?' · 现货 '+fmtPx(p.spot):'');c.className='c '+(up?'up':'down');
+  var el=id('t-px');el.textContent=fmtPx(px);el.className='p '+(up?'up':'down');
+  var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'%'+(TRADE_CAT==='spot'?' · 现货':' · 永续');c.className='c '+(up?'up':'down');
 }
 function swTab(b){
   var bt=document.querySelectorAll('#trade-tabs button');
@@ -1628,7 +1659,7 @@ function setObTab(t){
 }
 function renderTrades(){
   if(curScreen!=='trade'||OB_TAB!=='tr')return;
-  var list=DEPTH_TR[tradeSym]||[];
+  var list=(TRADE_CAT==='spot'?(DEPTH_TR_SPOT[tradeSym]||[]):(DEPTH_TR[tradeSym]||[]));  // R14: 现货成交分离
   var el=id('tr-list');
   if(!list.length){el.innerHTML='<div class="dim small" style="padding:10px 4px">暂无成交推送，等待实时成交…</div>';return}
   var html='';
@@ -1649,7 +1680,7 @@ function quickTrade(side,refPx){
   var sym=tradeSym;
   if(!sym||sym==='—'){toast('请先在上方选择标的');return}
   var live=LIVE.on;
-  var spotOnly=!!SYM_SPOT_ONLY[sym];  // R14: 黄金现货等现货独占标的走现货通道
+  var spotOnly=(TRADE_CAT==='spot'||!!SYM_SPOT_ONLY[sym]);  // R14: 现货通道(切换或现货独占)
   var dirZh=spotOnly?(side==='long'?'买入 现货':'卖出 现货'):(side==='long'?'买入 / 开多 (看涨)':'卖出 / 开空 (看跌)');
   var px=refPx||priceOf(sym).last;
   openSheet('<h3>'+(live?'🔴 实盘':'纸面')+' '+dirZh+'</h3>'
@@ -1693,7 +1724,7 @@ function qtUpd(sym,side){
 async function qtGo(sym,side){
   var notional=Number(id('qt-notional').value)||10;
   closeSheet();
-  var spotOnly=!!SYM_SPOT_ONLY[sym];
+  var spotOnly=(TRADE_CAT==='spot'||!!SYM_SPOT_ONLY[sym]);
   if(spotOnly){  // R14: 现货独占标的 → 现货下单 (buy/sell)
     var r=await api('/api/spot/open',{method:'POST',body:JSON.stringify({symbol:sym,side:side==='long'?'buy':'sell',notional:notional,live:!!LIVE.on})});
     if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotPos()}
@@ -1950,11 +1981,14 @@ function klPinchEnd(){KL_VIEW.pinchD=null}
 
 var KL_BARS=[];
 async function loadKline(){
-  var r=await api('/api/klines?symbol='+tradeSym+'&interval='+klIvf(KL_IV)+'&limit=300&category='+(SYM_SPOT_ONLY[tradeSym]?'spot':'linear'));
+  var r=await api('/api/klines?symbol='+tradeSym+'&interval='+klIvf(KL_IV)+'&limit=300&category='+TRADE_CAT);  // R14: 按通道分类
   var bars=(r.data&&r.data.bars)||[];
   KL_BARS=bars;
   if(KL_RESET_VIEW){KL_VIEW.off=0;KL_VIEW.zoom=1;KL_VIEW.hov=null;KL_RESET_VIEW=false}
-  renderKlineSVG(bars,KL_IV,!!(r.data&&r.data.live),id('kline-svg'));
+  var live=!!(r.data&&r.data.live);
+  var badge=id('kline-live');
+  if(badge){badge.className='kline-live '+(live?'green':'gray');badge.title=live?'K线实时推送中':'K线数据延迟/离线(历史回源)'}
+  renderKlineSVG(bars,KL_IV,live,id('kline-svg'));
 }
 var KL_RESET_VIEW=true;
 function klBindSvg(){
@@ -1973,7 +2007,7 @@ function klBindSvg(){
 async function klWatch(){
   try{
     await api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:tradeSym,interval:klIvf(KL_IV),
-      category:SYM_SPOT_ONLY[tradeSym]?'spot':'linear'})});  // R14: 现货K线走spot端点
+      category:TRADE_CAT})});  // R14: 按通道分类
   }catch(e){}
 }
 function klStart(){
@@ -1995,7 +2029,7 @@ id('kbar').addEventListener('click',function(e){
   loadKline();
 });
 /* 盘口 */
-var DEPTH={},DEPTH_TR={};
+var DEPTH={},DEPTH_TR={},DEPTH_SPOT={},DEPTH_TR_SPOT={};  // R14: 现货通道数据
 function startDepth(){
   try{
     var es=new EventSource('/api/stream/depth');
@@ -2004,8 +2038,15 @@ function startDepth(){
         var d=JSON.parse(ev.data);
         if(d&&d.books)DEPTH=d.books;
         if(d&&d.trades)DEPTH_TR=d.trades;
+        if(d&&d.books_spot)DEPTH_SPOT=d.books_spot;  // R14: 现货通道盘口
+        if(d&&d.trades_spot)DEPTH_TR_SPOT=d.trades_spot;  // R14: 现货通道成交
+        if(d&&d.px){  // R14: 现价并入depth流(与盘口/成交同帧, 告别价格SSE依赖)
+          for(var k in d.px){if(d.px[k]){PRICES[k]=PRICES[k]||{};PRICES[k].last=d.px[k]}}
+        }
+        if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}}
         // R13e: 盘口/成交渲染与 depth SSE 同源 (1s直驱, 不依赖价格SSE)
-        if(curScreen==='trade'){renderOb();renderTrades();}
+        if(curScreen==='trade'){renderOb();renderTrades();renderTradePx();}
+        if(curScreen==='markets'||curScreen==='assets'){renderTickers();}
       }catch(e){}
     };
     es.onerror=function(){};
@@ -2408,7 +2449,7 @@ async function loadKeys(){
   var html='';
   for(var i=0;i<ks.length;i++){
     var k=ks[i];
-    html+='<div class="card keycard"><div class="khead row"><div class="t" style="font-size:13px;font-weight:700">'+(k.venue==='pm'?'🟦 Polymarket':'🟧 Bybit')+'</div>'
+    html+='<div class="card keycard"><div class="khead row"><div class="t" style="font-size:13px;font-weight:700">🟧 Bybit</div>'
       +'<span class="badge '+(k.last_test_ok?'green':(k.last_test_at?'red':'gray'))+'">'+(k.last_test_ok?'测试通过':(k.last_test_at?'测试失败':'已绑定'))+'</span></div>'
       +'<div class="row" style="padding:5px 0"><span class="dim xs">凭证（掩码）</span><span class="mono xs">'+esc(k.key_masked||'—')+'</span></div>'
       +(k.last_test_at?'<div class="row" style="padding:5px 0"><span class="dim xs">上次测试</span><span class="xs">'+new Date(k.last_test_at*1000).toLocaleString('zh-CN')+'</span></div>':'')
@@ -2762,9 +2803,10 @@ document.addEventListener('touchend',function(){
 });
 /* ============ 初始化 ============ */
 id('head-help').onclick=openHelp;
+/* PM-OFF-R13c: PM屏元素已移除, 初始化绑定删除
 id('pm-key').addEventListener('change',updPmHint);
 id('pm-shares').addEventListener('input',updPmHint);
-setPmSide('BUY');
+setPmSide('BUY'); */
 tick();setInterval(tick,30000);
 setInterval(function(){if(curScreen==='trade'||curScreen==='assets'||curScreen==='symbol')loadPositions()},5000); /* R13: 盯盘5s */
 setInterval(function(){if(curScreen==='assets')loadAssets()},30000);

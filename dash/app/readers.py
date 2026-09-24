@@ -491,6 +491,15 @@ def _kline_gap_ms(interval):
             "4h": 14400000, "D": 86400000, "W": 604800000}.get(interval, 900000)
 
 
+def _kline_live(bars, iv_ms):
+    """R14: K线实时判定 — 末根未收完(仍在推送)或刚收完(<=1.5周期)即实时"""
+    if not bars:
+        return False
+    last_t = int(bars[-1].get("t", 0))
+    now = int(time.time() * 1000)
+    return (now - last_t) < iv_ms * 1.5
+
+
 def _kline_has_gap(bars, interval):
     """相邻根间隔 > 1.5x 期望间隔 → 存在停推缺口 (R14-B2)"""
     if len(bars) < 3:
@@ -552,6 +561,9 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
     if interval not in KLINE_IVS:
         interval = "15m"
     limit = max(1, min(int(limit), 500))
+    iv_ms = {"1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000,
+             "4h": 14400000, "D": 86400000, "W": 604800000,
+             "M": 2592000000}.get(interval, 900000)  # R14: 周期毫秒
     # ① 实时订阅缓存 (R4: 桥按需订阅 kline 通道, 500ms 落盘; 历史不足时 REST 补齐)
     live_bars = []
     try:
@@ -598,7 +610,8 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
     hit = _KLINE_CACHE.get(key)
     if hit and now - hit[0] < 60:
         return {"symbol": symbol, "interval": interval,
-                "bars": hit[1][-limit:], "cached": True}
+                "bars": hit[1][-limit:], "cached": True,
+                "live": _kline_live(hit[1], iv_ms)}  # R14: 缓存分支补 live 判定
     try:
         import urllib.request
         iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
@@ -629,12 +642,14 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
                 return {"symbol": symbol, "interval": interval,
                         "bars": hist[-limit:], "live": True}
         _KLINE_CACHE[key] = (now, bars)
-        return {"symbol": symbol, "interval": interval, "bars": bars[-limit:]}
+        return {"symbol": symbol, "interval": interval, "bars": bars[-limit:],
+                "live": _kline_live(bars[-limit:], iv_ms)}  # R14: REST回源补 live
     except Exception as e:
         # 回源失败: 用旧缓存兜底
         if hit:
             return {"symbol": symbol, "interval": interval,
-                    "bars": hit[1][-limit:], "cached": True}
+                    "bars": hit[1][-limit:], "cached": True,
+                    "live": _kline_live(hit[1], iv_ms)}  # R14: REST回源缓存补 live
         return {"symbol": symbol, "interval": interval, "bars": [], "error": str(e)[:80]}
 
 

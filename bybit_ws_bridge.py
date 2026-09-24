@@ -21,6 +21,7 @@ SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
 DEPTH_SYMS = list(SYM_WHITELIST)
 SPOT_ONLY_SYMS = [s for s in SYM_WHITELIST if s in ("XAUTUSDT",)]  # R14: 现货独占标的
 LINEAR_SYMS = [s for s in DEPTH_SYMS if s not in SPOT_ONLY_SYMS]    # 主连接(linear)只订合约标的
+SPOT_CH_SYMS = ["XAUTUSDT", "BTCUSDT", "ETHUSDT"]  # R14: 现货通道盘口/成交标的 (双通道标的现货盘口独立于合约)
 KLINE_TOPICS = [f"kline.1.{s}" for s in LINEAR_SYMS]
 BOOK_TOPICS = [f"orderbook.200.{s}" for s in LINEAR_SYMS]
 TRADE_TOPICS = [f"publicTrade.{s}" for s in LINEAR_SYMS]
@@ -110,12 +111,47 @@ MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in DEPTH_SYMS}  #
 
 
 SPOT_ONLY_TOPICS = ([f"kline.1.{s}" for s in SPOT_ONLY_SYMS]
-                    + [f"orderbook.200.{s}" for s in SPOT_ONLY_SYMS]
-                    + [f"publicTrade.{s}" for s in SPOT_ONLY_SYMS])
+                    + [f"orderbook.200.{s}" for s in SPOT_CH_SYMS]
+                    + [f"publicTrade.{s}" for s in SPOT_CH_SYMS])  # R14: 现货通道盘口/成交(含BTC/ETH现货)
+
+
+BOOKS_SPOT = {}   # R14: 现货通道盘口 (与合约盘口分离, 双通道标的独立价)
+TRADES_SPOT = {}  # R14: 现货通道成交
+
+
+def _on_book_spot(d):
+    """现货端点盘口重组 (与合约盘口分离存储)"""
+    sym = d["topic"].split(".")[2]
+    data = d.get("data", {})
+    ty = d.get("type")
+    with LOCK:
+        b = BOOKS_SPOT.setdefault(sym, {"bids": {}, "asks": {}, "u": 0, "snap": False, "gaps": 0})
+        if ty == "snapshot":
+            b["bids"] = {str(p): float(s) for p, s in data.get("b", []) if float(s) > 0}
+            b["asks"] = {str(p): float(s) for p, s in data.get("a", []) if float(s) > 0}
+            b["u"] = int(data.get("u", 0))
+            b["snap"] = True
+        elif ty == "delta" and b["snap"]:
+            u = int(data.get("u", 0))
+            if u != b["u"] + 1:
+                b["gaps"] += 1
+                b["snap"] = False
+                return
+            b["u"] = u
+            for p, s in data.get("b", []):
+                if float(s) == 0:
+                    b["bids"].pop(str(p), None)
+                else:
+                    b["bids"][str(p)] = float(s)
+            for p, s in data.get("a", []):
+                if float(s) == 0:
+                    b["asks"].pop(str(p), None)
+                else:
+                    b["asks"][str(p)] = float(s)
 
 
 def on_spot_msg(ws, m):
-    """现货市场统一连接: 处理 kline + orderbook + publicTrade (现货独占标的只在 spot 端点推)"""
+    """现货市场统一连接: 处理 kline + orderbook + publicTrade (现货盘口/成交独立于合约)"""
     try:
         d = json.loads(m)
     except Exception:
@@ -130,9 +166,17 @@ def on_spot_msg(ws, m):
         with LOCK:
             KLINES.setdefault(sym, {})[iv] = {int(k["start"]): k for k in d.get("data", [])}
     elif topic.startswith("orderbook."):
-        _on_book(d)
+        _on_book_spot(d)  # R14: 现货盘口分离
     elif topic.startswith("publicTrade."):
-        _on_trade(d)  # R14: 现货成交逐笔
+        sym = topic.split(".")[1]
+        if sym not in TRADES_SPOT:
+            TRADES_SPOT[sym] = []
+        with LOCK:
+            TRADES_SPOT[sym].extend([{"p": float(t.get("p", 0)), "s": float(t.get("v", 0)),
+                                      "ts": int(t.get("T", 0)),
+                                      "side": ("S" if t.get("S") == "Sell" else "B")}
+                                     for t in d.get("data", [])])
+            TRADES_SPOT[sym] = TRADES_SPOT[sym][-50:]  # R14: 现货成交留30-50条
 
 
 def spot_mkt_loop():
@@ -303,6 +347,14 @@ def depth_loop():
 
             for sym in DEPTH_SYMS:
                 trades_out[sym] = list(TRADES[sym])
+            books_spot_out, trades_spot_out = {}, {}
+            for sym in SPOT_CH_SYMS:
+                bs = BOOKS_SPOT.get(sym)
+                if bs and bs["snap"]:
+                    books_spot_out[sym] = {
+                        "bids": [[p, s] for p, s in sorted(bs["bids"].items(), key=lambda x: -float(x[0]))[:200]],
+                        "asks": [[p, s] for p, s in sorted(bs["asks"].items(), key=lambda x: float(x[0]))[:200]]}
+                trades_spot_out[sym] = list(TRADES_SPOT.get(sym, []))  # R14: 现货通道输出
             walls_out = {}
             for sym in DEPTH_SYMS:
                 b = BOOKS.get(sym)
@@ -379,6 +431,9 @@ def depth_loop():
         for rec in big_pend:
             _append_log(BIG_LOG, rec)
         snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out,
+                "books_spot": books_spot_out, "trades_spot": trades_spot_out,  # R14: 现货通道盘口/成交
+                "px": {s: PRICES.get(s, {}).get("last") for s in DEPTH_SYMS},      # R14: 现价并入depth流(与成交同源同帧)
+                "px_spot": {s: PRICES.get(s, {}).get("spot") for s in SPOT_CH_SYMS},
                 "big": big_out, "walls": walls_out, "micro": micro_out}
         tmp = DEPTH_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -627,9 +682,12 @@ def watch_kline_loop():
                     old_ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[cur[0]]}.{sym}"]}))
             KL_WATCH_SUB[sym] = (iv, time.time(), cat)
             print(f"[bridge] 按需订阅K线: {sym} {iv}/{cat} (共{len(KL_WATCH_SUB)})", flush=True)
-        # LRU 退订
+        # LRU 退订: 只退非白名单标的 (R14: 核心4标的K线恒驻, 不再被历史垃圾订阅挤掉)
         while len(KL_WATCH_SUB) > KL_WATCH_MAX:
-            oldest = min(KL_WATCH_SUB, key=lambda s: KL_WATCH_SUB[s][1])
+            evictable = [s for s in KL_WATCH_SUB if s not in SYM_WHITELIST]
+            if not evictable:
+                break
+            oldest = min(evictable, key=lambda s: KL_WATCH_SUB[s][1])
             oiv, ocat = KL_WATCH_SUB[oldest][0], KL_WATCH_SUB[oldest][2]
             old_ws = WS_REF.get("spot_ws") if ocat == "spot" else ws
             if old_ws:
