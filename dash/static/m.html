@@ -65,6 +65,38 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .tr-item.buy .tr-p{color:#3ebd93}.tr-item.sell .tr-p{color:#f6465d}
 .tr-actbar{display:flex;gap:8px;margin-top:12px;padding:8px 4px;border-top:1px solid var(--border)}
 .tr-actbar .btn{padding:13px 0;font-size:15px;font-weight:700}
+/* ===== R13f 专业金融UI升级 (Kraken暗色原则) ===== */
+/* 盘口数字: 表格数字对齐 + 行hover + 深度条渐变 */
+#ob-asks .ob-item,#ob-bids .ob-item,#tr-list .tr-item{font-variant-numeric:tabular-nums}
+#ob-asks .ob-item,#ob-bids .ob-item{transition:background .12s var(--ease)}
+#ob-asks .ob-item:hover,#ob-bids .ob-item:hover{background:rgba(247,166,0,.05)}
+#ob-asks .ob-item:active,#ob-bids .ob-item:active{background:rgba(247,166,0,.1)}
+.ob-item .depthbar{background:linear-gradient(270deg,rgba(246,70,93,.32),rgba(246,70,93,.08))!important;transition:width .3s var(--ease)}
+#ob-bids .ob-item .depthbar{background:linear-gradient(270deg,rgba(62,189,147,.32),rgba(62,189,147,.08))!important}
+.ob-item .ob-px{font-weight:600;cursor:pointer}
+@keyframes pxFlash{0%{background:rgba(247,166,0,.28)}100%{background:transparent}}
+.px-flash{animation:pxFlash .5s var(--ease)}
+/* 中间价带: 大数字+涨跌色 */
+#ob-mid{font-size:20px;font-variant-numeric:tabular-nums}
+/* 金额输入组 (商业级) */
+.amt-wrap{position:relative;display:flex;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-m);transition:border-color var(--t-fast),box-shadow var(--t-fast)}
+.amt-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.amt-wrap .cur{padding:0 10px;color:var(--text-2);font-size:12px;font-weight:600;border-right:1px solid var(--border);white-space:nowrap}
+.amt-wrap input{border:none;background:transparent;color:var(--text);font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;padding:11px 10px;width:100%;outline:none;min-width:0}
+.amt-wrap input.err{color:var(--down)}
+.amt-wrap .step{display:flex;flex-direction:column;border-left:1px solid var(--border)}
+.amt-wrap .step button{background:transparent;border:none;color:var(--text-3);font-size:11px;padding:5px 9px;line-height:1;cursor:pointer}
+.amt-wrap .step button:active{color:var(--accent)}
+.pct-btns{display:flex;gap:6px;margin-top:8px}
+.pct-btns button{flex:1;padding:7px 0;font-size:12px;font-weight:600;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2)}
+.pct-btns button:active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.amt-est{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding:9px 12px;background:var(--surface);border-radius:var(--r-m);border:1px solid var(--border)}
+.amt-est .k{font-size:12px;color:var(--text-2)}
+.amt-est .v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+/* 按钮按压反馈 */
+.btn:active{transform:scale(.97)}
+.btn{transition:transform var(--t-fast),opacity var(--t-fast)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .seg button{flex:1;border:none;background:none;color:var(--text-2);font-size:12px;padding:7px 0;border-radius:6px;cursor:pointer;font-family:var(--sans);min-height:32px}
 .seg button.on{background:var(--bg);color:var(--text);font-weight:600}
 .btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:46px;color:#06251a}
@@ -1109,7 +1141,8 @@ function renderDetOb(){
   for(i=0;i<bids.length;i++)maxB=Math.max(maxB,Number(bids[i][1])||0);
   for(i=asks.length-1;i>=0;i--){
     var a=asks[i],sz=Number(a[1])||0;sumA+=sz;
-    html+='<div class="ob-item"><span class="down">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
+    var fl=OB_PX_PREV[tradeSym]&&OB_PX_PREV[tradeSym]!==String(a[0])?'px-flash':'';
+    html+='<div class="ob-item '+fl+'"><span class="down ob-px" onclick="obFillPrice('+a[0]+')">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
   }
   id('d-ob-asks').innerHTML=html;
   id('d-ob-mid').textContent=(asks[asks.length-1]&&bids[0])?fmtPx((Number(asks[asks.length-1][0])+Number(bids[0][0]))/2):(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—');
@@ -1584,16 +1617,54 @@ function renderTrades(){
   }
   el.innerHTML=html;
 }
-function quickTrade(side){
+function obFillPrice(px){
+  // 点击盘口价 → 打开下单面板 (方向: 点卖档=卖出/开空, 点买档=买入/开多)
+  var side=px>priceOf(tradeSym).last?'short':'long';
+  quickTrade(side,px);
+}
+function quickTrade(side,refPx){
   var sym=tradeSym;
   if(!sym||sym==='—'){toast('请先在上方选择标的');return}
   var live=LIVE.on;
   var dirZh=side==='long'?'买入 / 开多 (看涨)':'卖出 / 开空 (看跌)';
-  var px=priceOf(sym).last;
+  var px=refPx||priceOf(sym).last;
   openSheet('<h3>'+(live?'🔴 实盘':'纸面')+' '+dirZh+'</h3>'
-    +'<p><b>'+(SYM_CN[sym]||'')+' '+sym+'</b> · 现价 <b class="mono">'+(px?fmtPx(px):'—')+'</b> · '+(SYM_UNIT[sym]||'美元')+'</p>'
-    +'<div class="trow"><span class="k">名义金额 ($)</span><input type="number" id="qt-notional" value="10" min="1" max="200" step="1" style="width:100px"></div>'
-    +'<button class="btn '+(side==='long'?'buy':'sell')+'" style="width:100%" onclick="qtGo(\''+sym+'\',\''+side+'\')">确认开仓</button>');
+    +'<p style="margin-bottom:10px"><b>'+(SYM_CN[sym]||'')+' '+sym+'</b> · 现价 <b class="mono">'+(px?fmtPx(px):'—')+'</b> · '+(SYM_UNIT[sym]||'美元')+'</p>'
+    +'<div class="amt-wrap"><span class="cur">USDT</span>'
+    +'<input type="number" id="qt-notional" value="10" min="1" max="200" step="1" inputmode="decimal" oninput="qtUpd(\''+sym+'\',\''+side+'\')">'
+    +'<span class="step"><button onclick="qtStep(1)">▲</button><button onclick="qtStep(-1)">▼</button></span></div>'
+    +'<div class="pct-btns" id="qt-pcts">'
+    +'<button onclick="qtPct(25)">25%</button><button onclick="qtPct(50)">50%</button><button onclick="qtPct(75)">75%</button><button onclick="qtPct(100)">100%</button>'
+    +'</div>'
+    +'<div class="amt-est"><span class="k">≈ 开仓张数</span><span class="v" id="qt-est">—</span></div>'
+    +'<button class="btn '+(side==='long'?'buy':'sell')+'" style="width:100%;margin-top:12px" onclick="qtGo(\''+sym+'\',\''+side+'\')">确认开仓</button>');
+  qtUpd(sym,side);
+}
+/* R13f: 金额输入交互 (步进/比例/估算) */
+var QT_BASE=100;
+function qtStep(d){
+  var el=id('qt-notional');
+  var v=(Number(el.value)||0)+d;
+  el.value=Math.max(1,Math.min(200,v));
+  el.oninput();
+}
+function qtPct(p){
+  var el=id('qt-notional');
+  el.value=Math.max(1,Math.round(QT_BASE*p/100));
+  el.oninput();
+}
+function qtUpd(sym,side){
+  var el=id('qt-notional');
+  if(!el)return;
+  var v=Number(el.value)||0;
+  var px=priceOf(sym).last;
+  var est=id('qt-est');
+  if(!est)return;
+  if(v<1||v>200){el.classList.add('err');est.textContent='1-200 之间';return}
+  el.classList.remove('err');
+  var qty=px?(v/px):0;
+  var unit=(SYM_UNIT[sym]&&SYM_UNIT[sym].indexOf('盎司')>=0)?' 盎司':' 张';
+  est.textContent=qty?(num(qty,qty<0.01?6:4)+unit):'—';
 }
 async function qtGo(sym,side){
   var notional=Number(id('qt-notional').value)||10;
@@ -1780,7 +1851,7 @@ function startDepth(){
     es.onerror=function(){};
   }catch(e){}
 }
-var WATCH_TS={};
+var WATCH_TS={},OB_PX_PREV={};
 function watchDepth(sym){
   var now=Date.now();
   if(WATCH_TS[sym]&&now-WATCH_TS[sym]<5000)return;
@@ -1808,15 +1879,20 @@ function renderOb(){
   for(i=0;i<bids.length;i++)maxB=Math.max(maxB,Number(bids[i][1])||0);
   for(i=asks.length-1;i>=0;i--){
     var a=asks[i],sz=Number(a[1])||0;sumA+=sz;
-    html+='<div class="ob-item"><span class="down">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
+    var fl=OB_PX_PREV[tradeSym]&&OB_PX_PREV[tradeSym]!==String(a[0])?'px-flash':'';
+    html+='<div class="ob-item '+fl+'"><span class="down ob-px" onclick="obFillPrice('+a[0]+')">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
   }
   id('ob-asks').innerHTML=html;
   var mid=(asks[asks.length-1]&&bids[0])?(Number(asks[asks.length-1][0])+Number(bids[0][0]))/2:priceOf(tradeSym).last;
-  id('ob-mid').textContent=mid?fmtPx(mid):'—';
+  var midEl=id('ob-mid');
+  midEl.textContent=mid?fmtPx(mid):'—';
+  var midUp=OB_PX_PREV[tradeSym]?Number(mid)>=Number(OB_PX_PREV[tradeSym]):true;
+  midEl.style.color=midUp?'var(--up)':'var(--down)';
+  OB_PX_PREV[tradeSym]=String(mid);
   html='';
   for(i=0;i<bids.length;i++){
     var b=bids[i];sz=Number(b[1])||0;sumB+=sz;
-    html+='<div class="ob-item"><span class="up">'+fmtPx(b[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumB,2)+'</span><div class="depthbar" style="background:#3ebd93;width:'+(maxB?Math.round(sz/maxB*100):0)+'%"></div></div>';
+    html+='<div class="ob-item '+fl+'"><span class="up ob-px" onclick="obFillPrice('+b[0]+')">'+fmtPx(b[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumB,2)+'</span><div class="depthbar" style="background:#3ebd93;width:'+(maxB?Math.round(sz/maxB*100):0)+'%"></div></div>';
   }
   id('ob-bids').innerHTML=html;
 }
@@ -1828,6 +1904,7 @@ async function loadPositions(){
   if(mr.data)MODES=mr.data;
   renderModes();
   if(!r.data){return}
+  if(r.data.capital)QT_BASE=Number(r.data.capital);  // R13f: 比例按钮基准=纸面本金
   renderPosCards(r.data);
 }
 function renderModes(){
