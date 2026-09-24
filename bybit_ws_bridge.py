@@ -184,9 +184,10 @@ def on_spot_msg(ws, m):
         if sym not in TRADES_SPOT:
             TRADES_SPOT[sym] = []
         with LOCK:
-            TRADES_SPOT[sym].extend([{"p": float(t.get("p", 0)), "s": float(t.get("v", 0)),
-                                      "ts": int(t.get("T", 0)),
-                                      "side": ("S" if t.get("S") == "Sell" else "B")}
+            # R14-M6: 统一为合约格式 {T,S,v,p} — 前端 renderTrades 按 T/S/v/p 渲染
+            TRADES_SPOT[sym].extend([{"p": float(t.get("p", 0)), "v": float(t.get("v", 0)),
+                                      "T": int(t.get("T", 0)),
+                                      "S": t.get("S", "Buy")}
                                      for t in d.get("data", [])])
             TRADES_SPOT[sym] = TRADES_SPOT[sym][-50:]  # R14: 现货成交留30-50条
 

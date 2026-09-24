@@ -225,6 +225,13 @@ select.input{appearance:none}
 .pbtns .abtn{flex:1;min-width:70px;border:1px solid var(--border-2);background:none;color:var(--text-2);border-radius:8px;font-size:12px;padding:9px 4px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
 .pbtns .abtn.bad{color:var(--down)}
 .pbtns .abtn.ok{color:var(--accent)}
+/* R14-M6: 持仓操作按钮美化 (渐变填充+语义色+动效) */
+.abtn{display:inline-flex;align-items:center;justify-content:center;gap:4px;border:none;border-radius:10px;font-size:12px;font-weight:600;padding:9px 12px;cursor:pointer;font-family:var(--sans);white-space:nowrap;transition:transform .12s,box-shadow .12s,filter .12s;background:linear-gradient(180deg,rgba(120,140,255,.14),rgba(120,140,255,.05));color:#9db1ff;border:1px solid rgba(120,140,255,.28);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.abtn:active{transform:scale(.95)}
+.abtn.bad{background:linear-gradient(180deg,rgba(246,70,93,.18),rgba(246,70,93,.06));color:#ff7d8d;border-color:rgba(246,70,93,.35)}
+.abtn.bad:active{box-shadow:0 0 10px rgba(246,70,93,.35)}
+.abtn.ok{background:linear-gradient(180deg,rgba(62,189,147,.18),rgba(62,189,147,.06));color:#3ee0b0;border-color:rgba(62,189,147,.35)}
+.abtn.ok:active{box-shadow:0 0 10px rgba(62,189,147,.35)}
 .modebar{border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:10px;background:var(--surface)}
 .moderow{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}
 .moderow:last-child{margin-bottom:0}
@@ -406,85 +413,11 @@ select.input{appearance:none}
         </div>
         <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div></div>
       </div>
-      <!-- PM-OFF-R13c: 预测市场卡片已移除 (R14: 全面清除PM展示残留) -->
       <div class="sectip"><div class="i">💡</div><div class="t"><b>白话：</b>点任意币种进入交易界面。「永续」=没有到期日的合约，可做多也可做空。资金费率=多空双方每8小时互付的利息，是套利策略的核心收益。</div></div>
     </section>
 
-    <!-- ===== 预测市场 ===== -->
-<!-- PM-OFF-R13c: 预测市场对冲屏已下线 (R14 清除)
-    <section class="screen" id="screen-pm">
-      <div class="row" style="margin-bottom:10px"><b style="font-size:15px">预测市场对冲</b><span class="badge gray">Polymarket CLOB</span></div>
-      <div class="card">
-        <div class="ct">市场浏览 <span class="xs muted" id="pm-mk-n"></span></div>
-        <div class="searchwrap" style="margin-bottom:6px">
-          <input class="input" id="pm-q" placeholder="🔍 搜索事件 / 问题（支持中文）…" oninput="pmSearchKey()" style="margin:0;padding-right:34px">
-          <button class="clearx" id="pm-q-clear" onclick="pmClearSearch()" style="display:none">✕</button>
-        </div>
-        <div class="cbar" id="pm-cats" style="flex-wrap:wrap;justify-content:flex-start"></div>
-        <div id="pm-mk-list" style="max-height:44vh;overflow-y:auto;margin-top:4px" onscroll="pmScrollMore()">
-          <div class="skel-row" id="pm-skel" style="display:none"></div>
-        </div>
-        <div id="pm-load-hint" class="xs muted" style="display:none;padding:6px 2px">⏳ 加载市场中…</div>
-      </div>
-      <div class="card ticket">
-        <div class="ct">下单 <span class="xs muted">对了结算 $1/股 · 错了 $0</span></div>
-        <div class="field"><label>市场</label>
-          <select class="input" id="pm-key" style="display:none"></select>
-          <button class="input selbtn" id="pm-key-btn" onclick="openPmPicker()" style="width:100%;text-align:left;font-size:13px;min-height:38px">— 点击选择市场 —</button>
-        </div>
-        <div class="dirrow">
-          <button id="pm-buy" class="on-buy" onclick="setPmSide('BUY')">买入</button>
-          <button id="pm-sell" onclick="setPmSide('SELL')">卖出</button>
-        </div>
-        <div class="yesno-row" id="pm-yesno-row" style="display:none">
-          <button id="pm-yes" onclick="setPmOutcome('YES')"><b>YES</b><span id="pm-yes-px" class="mono">—¢</span></button>
-          <button id="pm-no" onclick="setPmOutcome('NO')"><b>NO</b><span id="pm-no-px" class="mono">—¢</span></button>
-        </div>
-        <div class="trow gaprow"><span class="k" id="pm-qty-label">份额数量</span><input type="number" id="pm-shares" value="10" min="1" max="500" step="1" style="width:90px" oninput="updPmHint()"></div>
-        <div id="pm-preview"></div>
-        <div class="dim xs" id="pm-hint" style="margin-bottom:8px"></div>
-        <button class="btn buy" id="pm-order-btn" onclick="confirmPmOpen()">买入下单</button>
-      </div>
-      <div id="pm-pos-list"></div>
-      <div class="sectip"><div class="i">🎲</div><div class="t"><b>白话：</b>对了结算 <b>$1</b>，错了 <b>$0</b>。价格即概率：YES 67¢=市场认为概率 67%。买 YES=押发生，买 NO=押不发生。与币圈仓位反向布局=对冲锁价差。</div></div>
-    </section>
--->
-
-    ← R14-M1: 标的详情屏已下线(所有标的统一Bybit风格交易屏) — 可回滚
-    <section class="screen" id="screen-symbol">
-      <div class="sym-head">
-        <div class="l"><div class="n" id="d-sym">—</div><span class="sub" id="d-sub">—</span></div>
-        <div class="r"><div class="p" id="d-px">—</div><div class="c" id="d-chg">—</div></div>
-      </div>
-      <div class="card">
-        <div class="cbar" id="dbar" style="overflow-x:auto"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
-        <svg id="d-kline" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-        <div class="ct" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏联动</span></div>
-        <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
-        <div id="d-ob-asks"></div>
-        <div class="mid"><span class="p" id="d-ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
-        <div id="d-ob-bids"></div>
-      </div>
-      <div class="card">
-        <div class="ct">24小时数据</div>
-        <div id="d-data"></div>
-      </div>
-      <div id="d-act"></div>
-      <div class="card ticket" id="spot-order-card">
-        <div class="ct">现货下单 <span class="xs muted" id="spot-sub">买入持有 · 卖出平仓</span></div>
-        <div class="dirrow">
-          <button id="spot-buy-btn" class="on-buy" onclick="setSpotSide('buy')">买入</button>
-          <button id="spot-sell-btn" onclick="setSpotSide('sell')">卖出</button>
-        </div>
-        <div class="trow"><span class="k">现货价</span><span class="v" id="spot-px">—</span></div>
-        <div class="trow gaprow"><span class="k">金额 (USDT)</span><input type="number" id="spot-amt" value="10" min="1" max="200" step="1" style="width:90px"></div>
-        <div class="dim xs" id="spot-hint" style="margin-bottom:8px"></div>
-        <button class="btn" id="spot-go-btn" onclick="confirmSpotOpen()">买入下单</button>
-        <div id="spot-pos" style="margin-top:8px"></div>
-      </div>
-      <div class="sectip"><div class="i">📊</div><div class="t"><b>白话：</b>绿柱=该时段涨，红柱=跌；柱体上下影线=最高最低。底部柱=成交量。现货买入=持有币，卖出=卖出平仓，不设杠杆。</div></div>
-    </section> -->
-
+    
+    
     <!-- ===== 交易 ===== -->
     <section class="screen" id="screen-trade">
       <div class="sym-head">
@@ -539,9 +472,6 @@ select.input{appearance:none}
       <div class="tabbody" id="tab-pos">
         <div class="modebar">
           <div class="moderow"><span class="mlabel">现货×永续套利</span><button class="modebtn" id="mode-carry-auto" onclick="confirmMode('carry','auto')">🤖 托管</button><button class="modebtn" id="mode-carry-manual" onclick="confirmMode('carry','manual')">🖐 手动</button></div>
-          <!-- PM-OFF-R13c: 预测市场对冲引擎已下线
-          <div class="moderow"><span class="mlabel">预测市场对冲</span><button class="modebtn" id="mode-paper_pm-auto" onclick="confirmMode('paper_pm','auto')">🤖 托管</button><button class="modebtn" id="mode-paper_pm-manual" onclick="confirmMode('paper_pm','manual')">🖐 手动</button></div>
-          -->
           <div class="moderow"><span class="mlabel">循环恢复策略</span><span class="dim xs" id="cycle-status">加载中…</span><button class="modebtn" id="cycle-toggle" onclick="toggleCycle()" style="display:none">—</button></div>
         </div>
         <div class="ct" style="padding:8px 4px 4px;display:flex;justify-content:space-between;align-items:center">📦 现货持仓 <span class="xs muted" id="spot-pos-n"></span><button class="abtn" onclick="batchSpotSheet()">➕ 批量买入</button></div>
@@ -675,7 +605,6 @@ select.input{appearance:none}
         <div style="flex:1"><div class="nm" id="p-name">—</div><div class="plan"><span class="badge yellow" id="p-plan">—</span> <span class="badge gray" id="p-role">—</span></div></div>
       </div>
       <div class="menulist">
-        <div class="mi" onclick="go('keys')"><span class="ico">🔑</span><span class="t">统一密钥<span class="xs muted"> · 实盘交易</span></span><span class="badge gray" id="p-keybadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="go('trade')"><span class="ico">⚡</span><span class="t">实盘模式<span class="xs muted"> · 风控限额</span></span><span class="r" id="p-livebadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="toast('密码修改请联系管理员或桌面版操作')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 锁定</span><span class="chev">›</span></div>
         <div class="mi" onclick="openHelp()"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
@@ -687,23 +616,6 @@ select.input{appearance:none}
       <div class="sectip"><div class="i">👤</div><div class="t"><b>白话：</b>「密钥绑定」是开实盘的前提：绑定你自己的 Bybit/Polymarket 密钥后（专业版+），才能用真实资金按策略交易。密钥 AES-256 加密存储，平台不接触明文。</div></div>
     </section>
 
-    <!-- ===== 密钥 (R14-M4: 统一平台密钥, 用户自助绑定已下线) ===== -->
-    <section class="screen" id="screen-keys">
-      <div class="card keycard">
-        <div class="khead row"><b style="font-size:13px">🔑 统一交易密钥</b><span class="badge green">已统一</span></div>
-        <div class="sectip"><div class="i">✅</div><div class="t">实盘交易由<b>平台统一密钥</b>执行，由管理员在总管理后台配置维护。您无需自行绑定任何交易所密钥——模拟与实盘共用同一套安全链路。</div></div>
-        <div class="trow gaprow"><span class="k">🔓 实盘权限</span><span id="keys-live-badge">查询中…</span></div>
-        <div class="sectip"><div class="i">💡</div><div class="t"><b>白话：</b>① 实盘下单=平台统一密钥执行，资金归集在平台统一账户；② 开通实盘请联系管理员（套餐+限额+实盘开关）；③ 您只需专注交易，密钥安全与轮换由平台统一负责。</div></div>
-      </div>
-      <div class="card">
-        <div class="ct">实盘风控限额 <span class="xs muted">管理员配置</span></div>
-        <div id="limits-rows"></div>
-      </div>
-      <div class="card">
-        <div class="ct">账户状态 <span class="xs muted">实时</span></div>
-        <div id="keys-status"></div>
-      </div>
-    </section>
 
     <!-- ===== 管理后台 ===== -->
     <section class="screen" id="screen-admin">
@@ -714,7 +626,6 @@ select.input{appearance:none}
         <button data-a="audit" onclick="admTab('audit')">📜 审计</button>
         <button data-a="ann" onclick="admTab('ann')">📢 公告</button>
         <button data-a="funds" onclick="admTab('funds')">💸 资金管理</button>
-        <!-- PM-OFF-R13c <button data-a="pm" onclick="admTab('pm')">🎲 PM标的管理</button> -->
       </div>
       <div id="adm-pane-users">
         <div class="card" style="padding:8px">
@@ -786,9 +697,6 @@ select.input{appearance:none}
   <div id="pull-ind" style="position:fixed;top:0;left:0;right:0;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--accent);font-size:12px;transition:height .2s;z-index:990">下拉刷新</div>
 <div class="tabbar" id="tabbar">
     <button class="on" data-s="markets" onclick="go('markets')"><span class="ico">📈</span>行情</button>
-    <!-- PM-OFF-R13c: PM 功能下线
-    <!-- PM-OFF-R13c: PM 功能下线, 预测按钮移除 <button data-s="pm" onclick="go('pm')"><span class="ico">🎲</span>预测</button> -->
-    PM-OFF-END -->
     <button data-s="trade" onclick="go('trade')"><span class="ico">⚡</span>交易</button>
     <button data-s="assets" onclick="go('assets')"><span class="ico">💰</span>资产</button>
     <button data-s="profile" onclick="go('profile')"><span class="ico">👤</span>我的</button>
@@ -844,7 +752,7 @@ function apiErr(r){
 var curScreen='login';
 var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,profile:1,symbol:1};
 var BACK_MAP={keys:'profile',admin:'profile',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
-var TITLES={login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'交易',assets:'资产',profile:'我的',keys:'密钥绑定',admin:'管理后台',symbol:'标的详情'};
+var TITLES={login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'交易',assets:'资产',profile:'我的',admin:'管理后台',symbol:'标的详情'};
 function go(s){
   if(!id('screen-'+s))return;
   curScreen=s;
@@ -868,7 +776,7 @@ function go(s){
   /* R14-M1: symbol屏已下线 if(s==='symbol')loadSpotCard(); */
   if(s==='plans')loadPlans();
   if(s==='profile')loadProfile();
-  if(s==='keys')loadKeys();
+  /* R14-M6: keys 屏已下线(统一密钥由管理员后台维护, 用户端不展示) */
   if(s==='admin')loadAdmin();
   if(s==='register'&&!capIds.reg)loadCaptcha('reg');
   if(s==='login'&&!capIds.login)loadCaptcha('login');
@@ -1784,11 +1692,11 @@ async function loadSpotInPos(){
         +'<div class="xs muted">'+(up?'+':'')+num(chg,2)+'%</div></div></div>'
         +'<div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">'
         +'<span class="xs muted">现价 <b class="mono">'+fmtPx(p.px)+'</b> · 市值 <b class="mono">'+num(p.value,2)+'$</b></span>'
-        +'<button class="abtn bad" onclick="confirmSpotClose(\''+esc(p.symbol)+'\')">平仓</button></div>'
+        +'<button class="abtn bad" onclick="confirmSpotClose(\''+esc(p.symbol)+'\')">⛔ 平仓</button></div>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">'
         +'<span class="xs '+(o?'up':'muted')+'">'+(o?('⛳ 止盈止损: '+sltpTxt):'未设止盈止损')+'</span>'
-        +'<div><button class="abtn" onclick="spotSltpSheet(\''+esc(p.symbol)+'\')">'+(o?'修改':'止盈止损')+'</button>'
-        +(o?'<button class="abtn" onclick="spotSltpClear(\''+esc(p.symbol)+'\')">清除</button>':'')
+        +'<div><button class="abtn ok" onclick="spotSltpSheet(\''+esc(p.symbol)+'\')">'+(o?'✏️ 修改':'⛳ 止盈止损')+'</button>'
+        +(o?'<button class="abtn" onclick="spotSltpClear(\''+esc(p.symbol)+'\')">🗑️ 清除</button>':'')
         +'</div></div></div>';
     }
     el.innerHTML=html;
@@ -2028,7 +1936,7 @@ function watchDepth(sym){
 }
 function renderOb(){
   if(curScreen!=='trade')return;
-  var book=(DEPTH[tradeSym]||{});
+  var book=((TRADE_CAT==='spot'?DEPTH_SPOT:DEPTH)[tradeSym]||{});  // R14-M6: 通道路由(现货读DEPTH_SPOT)
   var bids=(book.bids||[]).slice(0,10),asks=(book.asks||[]).slice(0,10);
   if(!bids.length&&!asks.length){
     watchDepth(tradeSym);  // P2: 自动请求按需订阅
