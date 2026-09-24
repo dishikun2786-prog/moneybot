@@ -83,6 +83,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .tr-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .tr-tag.paper{background:rgba(62,189,147,.15);color:#3ebd93}
 .tr-tag.live{background:rgba(246,70,93,.15);color:#f6465d}
+.tr-detail{background:var(--surface-2);border-top:1px dashed var(--bd);padding:6px 12px}
+.trd-box{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 10px;padding:4px 0}
+.trd-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted rgba(255,255,255,.05);padding:2px 0}
+.tr-item{flex-wrap:wrap}
+.tr-item .t-l{flex-basis:calc(100% - 110px)}
 .t-px-wrap{position:relative}
 @keyframes tpflashup{0%{background:rgba(62,189,147,.35)}100%{background:transparent}}
 @keyframes tpflashdown{0%{background:rgba(246,70,93,.35)}100%{background:transparent}}
@@ -2455,7 +2460,8 @@ async function loadAssets(){
     +'<div class="row" style="padding:6px 0"><span class="dim">套利回合</span><span class="mono">'+d.cy_rounds+' 轮</span></div>';
   id('a-rows').innerHTML=rows;
 }
-var TR_MODE='all',TR_OFF=0,TR_TOTAL=0;
+var TR_MODE='all',TR_OFF=0,TR_TOTAL=0,TR_IDX=0;
+function trToggle(i){var d=id('trd-'+i);if(d){d.style.display=d.style.display==='none'?'block':'none'}}
 var ACT_ZH={NATIVE_OPEN:'开仓',NATIVE_CLOSE:'平仓',SPOT_BUY:'现货买入',SPOT_SELL:'现货卖出',
 SPOT_CLOSE:'现货平仓',MANUAL_OPEN_HEDGE:'一键对冲',MANUAL_CLOSE_ORPHAN:'平孤儿腿',
 MANUAL_CLOSE_PERP_LEG:'平永续腿',MANUAL_CLOSE_BOTH:'一键平仓',MANUAL_SPOT_TO_NAKED:'现货转裸腿',
@@ -2469,7 +2475,7 @@ function trSetMode(m){TR_MODE=m;TR_OFF=0;
 function fmtT(ts){if(!ts)return'—';var t=new Date(ts);if(isNaN(t))return ts;
   return t.toLocaleString('zh-CN',{hour12:false})}
 async function loadTrades(reset){
-  if(reset){TR_OFF=0;id('tr-list').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载中…</div>'}
+  if(reset){TR_OFF=0;TR_IDX=0;id('tr-list').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载中…</div>'}
   var r=await api('/api/trades?mode='+TR_MODE+'&offset='+TR_OFF+'&limit=30');
   if(!r.data||!r.data.ok){id('tr-list').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载失败</div>';return}
   var d=r.data;
@@ -2485,6 +2491,7 @@ async function loadTrades(reset){
   id('tr-more').innerHTML=d.has_more?'<button class="mini" onclick="loadTrades()">加载更多 ('+(TR_OFF)+'/'+TR_TOTAL+')</button>':'';
 }
 function trRow(r){
+  var ridx=TR_IDX++;
   var act=ACT_ZH[r.action]||r.action||'交易';
   var sym=r.symbol||r.token_id||'';
   var side=r.side||r.dir||'';
@@ -2496,11 +2503,25 @@ function trRow(r){
   var pnlHtml=pnl==null?'':('<div class="mono '+(pnl>=0?'up':'down')+'" style="font-size:13px;margin-top:2px">'+(pnl>0?'+':'')+num(pnl,2)+' $</div>');
   var fees=r.fees?('<div class="dim xs">费用 '+num(r.fees,2)+'</div>'):'';
   var order=r.order_id||r.spot||r.perp||'';
-  return '<div class="tr-item"><div class="t-l">'
+  return '<div class="tr-item" onclick="trToggle('+ridx+')" style="cursor:pointer"><div class="t-l">'
     +'<div><b>'+esc(sym||'—')+'</b><span class="dim xs"> · '+esc(act)+esc(dirz)+'</span>'
     +'<span class="tr-tag '+(r.mode==='live'?'live':'paper')+'">'+(r.mode==='live'?'实盘':'模拟')+'</span></div>'
     +'<div class="dim xs">'+fmtT(r.ts)+qty+px+(order?' · 单#'+esc(String(order).slice(0,10)):'')+'</div>'
-    +fees+'</div><div class="t-r">'+pnlHtml+'</div></div>';
+    +fees+'</div><div class="t-r">'+pnlHtml+'</div></div>'
+    +'<div class="tr-detail" id="trd-'+ridx+'" style="display:none">'+trDetail(r)+'</div>';
+}
+function trDetail(r){
+  /* R14-M10: 点击展开完整明细 (所有留痕字段) */
+  var skip={ts:1,mode:1,symbol:1,action:1};
+  var rows=[];
+  for(var k in r){
+    if(skip[k]||k==='key_orig')continue;
+    var v=r[k];
+    if(v===null||v===undefined||v==='')continue;
+    if(typeof v==='object'){try{v=JSON.stringify(v)}catch(e){v=String(v)}}
+    rows.push('<div class="trd-row"><span class="dim xs">'+esc(k)+'</span><span class="mono xs">'+esc(String(v).slice(0,60))+'</span></div>');
+  }
+  return '<div class="trd-box">'+rows.join('')+'</div>';
 }
 function renderCurve(){
   var w=340,h=110;
