@@ -943,8 +943,9 @@ async function doLogout(){
 }
 /* ============ 实时行情 (SSE) ============ */
 var PRICES={};
-var SYM_CN={BTCUSDT:'比特币',ETHUSDT:'以太坊',XAUUSDT:'黄金',XAGUSDT:'白银'};
-var SYM_UNIT={XAUUSDT:'美元/盎司',XAGUSDT:'美元/盎司'};
+var SYM_CN={BTCUSDT:'比特币',ETHUSDT:'以太坊',XAUUSDT:'黄金',XAGUSDT:'白银',XAUTUSDT:'黄金现货'};
+var SYM_UNIT={XAUUSDT:'美元/盎司',XAGUSDT:'美元/盎司',XAUTUSDT:'美元/枚'};
+var SYM_SPOT_ONLY={XAUTUSDT:true};  // R14: 现货独占标的(无合约腿)
 function priceOf(sym){var p=PRICES[sym]||{};return {last:Number(p.last)||0,spot:Number(p.spot)||0,chg:Number(p.change_pct)||0,turn:Number(p.turnover24h)||0}}
 var SSE_STATE='connecting';
 var SSE_FALLBACK=null;
@@ -1066,6 +1067,13 @@ function openSymDetail(sym,cat){
 }
 /* R6 现货下单 */
 var SPOT_SIDE='buy',SPOT_POS=[];
+async function loadSpotPos(){  // R14: 现货持仓刷新 (qtGo 现货分支调用)
+  try{
+    var r=await api('/api/spot/positions');
+    if(r.data&&r.data.positions)SPOT_POS=r.data.positions;
+  }catch(e){SPOT_POS=[]}
+  loadPositions();
+}
 function setSpotSide(s){
   SPOT_SIDE=s;
   id('spot-buy-btn').className=s==='buy'?'on-buy':'';
@@ -1120,7 +1128,12 @@ async function spotGo(amt,live){
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard()}
   else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
 }
-async function confirmSpotClose(){
+async function confirmSpotClose(symArg){
+  if(symArg){  // R14: 持仓tab入口
+    openSheet('<h3>纸面现货平仓</h3><p><b>'+esc(symArg)+'</b> 全部按市价卖出。确认？</p>'
+      +'<button class="btn sell" onclick="spotCloseGo(false,\''+esc(symArg)+'\')">确认卖出平仓</button>');
+    return;
+  }
   var held=null;
   for(var i=0;i<SPOT_POS.length;i++){if(SPOT_POS[i].symbol===DET_SYM){held=SPOT_POS[i];break}}
   if(!held){toast('无持仓');return}
@@ -1128,10 +1141,10 @@ async function confirmSpotClose(){
   openSheet('<h3>'+(live?'🔴 实盘':'纸面')+'现货平仓</h3><p><b>'+DET_SYM+'</b> 全部 '+num(held.qty,6)+' 个按市价卖出。确认？</p>'
     +'<button class="btn sell" onclick="spotCloseGo('+live+')">确认卖出平仓</button>');
 }
-async function spotCloseGo(live){
+async function spotCloseGo(live,symArg){
   closeSheet();
-  var r=await api('/api/spot/close',{method:'POST',body:JSON.stringify({symbol:DET_SYM,live:!!live})});
-  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard()}
+  var r=await api('/api/spot/close',{method:'POST',body:JSON.stringify({symbol:symArg||DET_SYM,live:!!live})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard();loadPositions()}
   else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
 }
 /* R7 详情屏盘口 */
@@ -1585,7 +1598,8 @@ var KL_IV='15m';
 function setTradeSym(sym){
   tradeSym=sym;
   id('t-sym').textContent=(SYM_CN[sym]||'')+' '+sym;
-  id('t-sub').textContent='永续 · '+(SYM_UNIT[sym]||'美元');
+  if(SYM_SPOT_ONLY[sym]){id('t-sub').textContent='现货 · '+(SYM_UNIT[sym]||'美元/枚');}
+  id('t-sub').textContent=(SYM_SPOT_ONLY[sym]?'现货 · ':'永续 · ')+(SYM_UNIT[sym]||'美元');
   go('trade');
   klStart();
 }
@@ -1640,7 +1654,8 @@ function quickTrade(side,refPx){
   var sym=tradeSym;
   if(!sym||sym==='—'){toast('请先在上方选择标的');return}
   var live=LIVE.on;
-  var dirZh=side==='long'?'买入 / 开多 (看涨)':'卖出 / 开空 (看跌)';
+  var spotOnly=!!SYM_SPOT_ONLY[sym];  // R14: 黄金现货等现货独占标的走现货通道
+  var dirZh=spotOnly?(side==='long'?'买入 现货':'卖出 现货'):(side==='long'?'买入 / 开多 (看涨)':'卖出 / 开空 (看跌)');
   var px=refPx||priceOf(sym).last;
   openSheet('<h3>'+(live?'🔴 实盘':'纸面')+' '+dirZh+'</h3>'
     +'<p style="margin-bottom:10px"><b>'+(SYM_CN[sym]||'')+' '+sym+'</b> · 现价 <b class="mono">'+(px?fmtPx(px):'—')+'</b> · '+(SYM_UNIT[sym]||'美元')+'</p>'
@@ -1650,7 +1665,7 @@ function quickTrade(side,refPx){
     +'<div class="pct-btns" id="qt-pcts">'
     +'<button onclick="qtPct(25)">25%</button><button onclick="qtPct(50)">50%</button><button onclick="qtPct(75)">75%</button><button onclick="qtPct(100)">100%</button>'
     +'</div>'
-    +'<div class="amt-est"><span class="k">≈ 开仓张数</span><span class="v" id="qt-est">—</span></div>'
+    +'<div class="amt-est"><span class="k">≈ '+(spotOnly?'买入枚数':'开仓张数')+'</span><span class="v" id="qt-est">—</span></div>'
     +'<button class="btn '+(side==='long'?'buy':'sell')+'" style="width:100%;margin-top:12px" onclick="qtGo(\''+sym+'\',\''+side+'\')">确认开仓</button>');
   qtUpd(sym,side);
 }
@@ -1677,12 +1692,19 @@ function qtUpd(sym,side){
   if(v<1||v>200){el.classList.add('err');est.textContent='1-200 之间';return}
   el.classList.remove('err');
   var qty=px?(v/px):0;
-  var unit=(SYM_UNIT[sym]&&SYM_UNIT[sym].indexOf('盎司')>=0)?' 盎司':' 张';
+  var unit=(SYM_UNIT[sym]&&SYM_UNIT[sym].indexOf('盎司')>=0)?' 盎司':(SYM_SPOT_ONLY[sym]?' 枚':' 张');
   est.textContent=qty?(num(qty,qty<0.01?6:4)+unit):'—';
 }
 async function qtGo(sym,side){
   var notional=Number(id('qt-notional').value)||10;
   closeSheet();
+  var spotOnly=!!SYM_SPOT_ONLY[sym];
+  if(spotOnly){  // R14: 现货独占标的 → 现货下单 (buy/sell)
+    var r=await api('/api/spot/open',{method:'POST',body:JSON.stringify({symbol:sym,side:side==='long'?'buy':'sell',notional:notional,live:!!LIVE.on})});
+    if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotPos()}
+    else{toast('❌ '+apiErr(r))}
+    return;
+  }
   var r=await api('/api/native/open',{method:'POST',body:JSON.stringify({symbol:sym,side:side,notional:notional,live:!!LIVE.on})});
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
   else{toast('❌ '+apiErr(r))}
@@ -1737,6 +1759,7 @@ function confirmNativeOpen(){
   var sym=(id('nt-sym').value||'').toUpperCase();
   var notional=id('nt-notional').value;
   if(!sym){toast('请输入合约代码');return}
+  if(SYM_SPOT_ONLY[sym]){toast('ℹ️ '+SYM_CN[sym]+'是现货标的, 请用底部「买入/卖出」按钮现货下单');return}
   var live=LIVE.on;
   var dirZh=NT_SIDE==='long'?'做多(看涨)':'做空(看跌)';
   openSheet('<h3>'+(live?'🔴 实盘':'纸面')+'原生开仓确认</h3><p>'+dirZh+' <b>'+sym+'</b> · 名义 '+notional+'$<br>'+(live?'将真实下单到 Bybit 永续市场！':'模拟资金，无真实风险')+'</p>'
@@ -1758,6 +1781,27 @@ async function nativeCloseGo(sym,live){
   var r=await api('/api/native/close',{method:'POST',body:JSON.stringify({symbol:sym,live:!!live})});
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
   else{toast('❌ '+apiErr(r))}
+}
+async function loadSpotInPos(){
+  /* R14: 现货仓并入持仓tab */
+  try{
+    var r=await api('/api/spot/positions');
+    var ps=(r.data&&r.data.positions)||[];
+    var el=id('pos-list');
+    if(!el||!ps.length)return;
+    if((el.textContent||'').indexOf('暂无持仓')>=0)el.innerHTML='';
+    var html='';
+    for(var i=0;i<ps.length;i++){
+      var p=ps[i];
+      var up=(p.pnl||0)>=0;
+      html+='<div class="pos-card card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<div><b style="font-size:13px">'+esc(p.symbol)+'</b> <span class="badge blue">现货</span>'
+        +'<div class="xs muted">持仓 '+num(p.qty,6)+' 枚 · 均价 '+fmtPx(p.avg_cost)+'</div></div>'
+        +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
+        +'<div><button class="abtn bad" onclick="confirmSpotClose(\''+esc(p.symbol)+'\')">平仓</button></div></div></div></div>';
+    }
+    el.insertAdjacentHTML('beforeend',html);
+  }catch(e){}
 }
 async function loadNativePositions(target){
   var r=await api('/api/native/positions');
@@ -2027,6 +2071,7 @@ async function loadPositions(){
   if(r.data.capital)QT_BASE=Number(r.data.capital);  // R13f: 比例按钮基准=纸面本金
   renderPosCards(r.data);
   loadNativePositions('pos-list');  // R13g: 原生仓并入持仓tab(底部按钮下单的单子在这里可见)
+  loadSpotInPos();  // R14: 现货仓并入持仓tab
 }
 function renderModes(){
   var carry=MODES.carry==='manual'?'manual':'auto';

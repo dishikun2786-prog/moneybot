@@ -564,16 +564,19 @@ async def stream_prices(request: Request, __=Depends(require_session)):
 
 @app.get("/api/instruments")
 def api_instruments(__=Depends(require_session)):
-    """R13c: 标的收敛 — 只返回白名单 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT"""
-    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT").split(","))
+    """R13c: 标的收敛 — 只返回白名单 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT/XAUTUSDT"""
+    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT").split(","))  # R14: +XAUTUSDT 黄金现货
+    SPOT_ONLY = {"XAUTUSDT"}  # R14: 现货独占标的 (linear 清单中剔除, 防前端误标永续)
     try:
         with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),
                   encoding="utf-8") as f:
             d = json.load(f)
-        def _slim(lst):
+        def _slim(lst, exclude_spot_only=False):
             out = []
             for it in lst:
                 if it.get("symbol") not in WL:
+                    continue
+                if exclude_spot_only and it.get("symbol") in SPOT_ONLY:
                     continue
                 out.append({"symbol": it.get("symbol"), "name": it.get("name", ""),
                             "base": it.get("base", ""), "quote": it.get("quote", "USDT"),
@@ -581,7 +584,7 @@ def api_instruments(__=Depends(require_session)):
                             "lastPrice": it.get("lastPrice"),
                             "tickSize": it.get("tickSize"), "qtyStep": it.get("qtyStep")})
             return out
-        return {"ok": True, "linear": _slim(d.get("linear", [])),
+        return {"ok": True, "linear": _slim(d.get("linear", []), exclude_spot_only=True),
                 "spot": _slim(d.get("spot", [])), "ts": d.get("ts")}
     except Exception:
         return {"ok": True, "linear": [], "spot": [], "ts": None}

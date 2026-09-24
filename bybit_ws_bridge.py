@@ -17,15 +17,20 @@ import websocket
 BASE = os.path.expanduser("~/polymarket")
 # 深度/微结构标的 (盘口/K线/逐笔/墙/CVD 只对活跃套利标的, 保持 BTC/ETH)
 SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
-    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT").split(",") if s.strip()]
+    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT").split(",") if s.strip()]  # R14: +XAUTUSDT 黄金现货
 DEPTH_SYMS = list(SYM_WHITELIST)
-KLINE_TOPICS = [f"kline.1.{s}" for s in DEPTH_SYMS]
-BOOK_TOPICS = [f"orderbook.200.{s}" for s in DEPTH_SYMS]
-TRADE_TOPICS = [f"publicTrade.{s}" for s in DEPTH_SYMS]
+SPOT_ONLY_SYMS = [s for s in SYM_WHITELIST if s in ("XAUTUSDT",)]  # R14: 现货独占标的
+LINEAR_SYMS = [s for s in DEPTH_SYMS if s not in SPOT_ONLY_SYMS]    # 主连接(linear)只订合约标的
+KLINE_TOPICS = [f"kline.1.{s}" for s in LINEAR_SYMS]
+BOOK_TOPICS = [f"orderbook.200.{s}" for s in LINEAR_SYMS]
+TRADE_TOPICS = [f"publicTrade.{s}" for s in LINEAR_SYMS]
 ALL_TOPICS = KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
 SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
 SPOT_PIN_SYMS = [s for s in () if s]  # R13c: 白名单收敛, 不再固定订阅外围现货
-SPOT_DEPTH_TOPICS = [f"tickers.{s}" for s in list(dict.fromkeys(list(DEPTH_SYMS) + SPOT_PIN_SYMS))]
+def _spot_depth_topics():
+    """R14: 现货端点 tickers 只订现货标的 (linear 标的在 spot 端点会 Invalid symbol 致整批失败)"""
+    syms = [s for s in list(dict.fromkeys(list(DEPTH_SYMS) + SPOT_PIN_SYMS)) if s in SPOT_TICKER_SYMS or s in SPOT_PIN_SYMS]
+    return [f"tickers.{s}" for s in syms]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
@@ -35,7 +40,8 @@ MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
 WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
 BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
 INSTR_FILE = f"{BASE}/logs/bybit_instruments.json"
-STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01, "XAUUSDT": 0.01, "XAGUSDT": 0.01}  # 最细聚合档位(实测tick: XAU/XAG均0.01美元/盎司)
+STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01, "XAUUSDT": 0.01, "XAGUSDT": 0.01,
+             "XAUTUSDT": 0.01}  # R14: 黄金现货  # 最细聚合档位(实测tick: XAU/XAG均0.01美元/盎司)
 BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0, "XAUUSDT": 200.0, "XAGUSDT": 10000.0}  # 大单阈值(XAU:盎司 XAG:盎司)
 WALL_MULT = 8.0        # 墙: 单档size ≥ 同侧前20档均值×MULT
 WALL_SHARE = 0.25      # 或 ≥ 该侧总量×SHARE
@@ -103,8 +109,13 @@ MICRO_HIST = {s: deque(maxlen=120) for s in DEPTH_SYMS}   # 分钟级指标环 (
 MICRO_BUF = {s: {"bv": 0.0, "sv": 0.0, "nb": 0, "ns": 0} for s in DEPTH_SYMS}  # 本分钟累计
 
 
+SPOT_ONLY_TOPICS = ([f"kline.1.{s}" for s in SPOT_ONLY_SYMS]
+                    + [f"orderbook.200.{s}" for s in SPOT_ONLY_SYMS]
+                    + [f"publicTrade.{s}" for s in SPOT_ONLY_SYMS])
+
+
 def on_spot_msg(ws, m):
-    """现货市场统一连接: 处理 kline + orderbook (R10: 现货盘口只在 spot 端点推)"""
+    """现货市场统一连接: 处理 kline + orderbook + publicTrade (现货独占标的只在 spot 端点推)"""
     try:
         d = json.loads(m)
     except Exception:
@@ -120,13 +131,18 @@ def on_spot_msg(ws, m):
             KLINES.setdefault(sym, {})[iv] = {int(k["start"]): k for k in d.get("data", [])}
     elif topic.startswith("orderbook."):
         _on_book(d)
+    elif topic.startswith("publicTrade."):
+        _on_trade(d)  # R14: 现货成交逐笔
 
 
 def spot_mkt_loop():
-    """R9/R10: 现货端点统一连接 (kline + orderbook 都只在 spot WSS 推送)"""
+    """R9/R10: 现货端点统一连接 (kline + orderbook 都只在 spot WSS 推送; R14: 补现货独占标的订阅)"""
     while True:
+        def _spot_open(w):
+            if SPOT_ONLY_TOPICS:
+                w.send(json.dumps({"op": "subscribe", "args": SPOT_ONLY_TOPICS}))
         ws = websocket.WebSocketApp(SPOT_WS, on_message=on_spot_msg,
-                                    on_open=lambda w: None)
+                                    on_open=_spot_open)
         WS_REF["spot_ws"] = ws
         try:
             ws.run_forever(ping_interval=20, ping_timeout=10)
@@ -284,6 +300,7 @@ def depth_loop():
                     books_out[sym] = {
                         "bids": [[p, s] for p, s in sorted(b["bids"].items(), key=lambda x: -float(x[0]))[:200]],
                         "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
+
             for sym in DEPTH_SYMS:
                 trades_out[sym] = list(TRADES[sym])
             walls_out = {}
@@ -327,7 +344,7 @@ def depth_loop():
                 mb["sv"] += sv
                 mb["nb"] += nb
                 mb["ns"] += ns
-                grid = _agg_window(q, STEP_FINE[sym], now)
+                grid = _agg_window(q, STEP_FINE.get(sym, 0.01), now)  # R14: 缺键兜底
                 if grid:
                     aggs_out[sym] = {"step": STEP_FINE[sym],
                                      "grid": {str(k): v for k, v in grid.items()}}
@@ -429,7 +446,7 @@ def spot_on_open(ws):
     shard = getattr(ws, "_shard", (0, None))
     topics = shard[1] if shard[1] is not None else [f"tickers.{s}" for s in SPOT_TICKER_SYMS]
     if shard[0] == 0:
-        ws.send(json.dumps({"op": "subscribe", "args": SPOT_DEPTH_TOPICS}))
+        ws.send(json.dumps({"op": "subscribe", "args": _spot_depth_topics()}))
     n_batches = (len(topics) + 9) // 10
     print(f"[bridge] spot#{shard[0]} 连接, 分批订阅 {len(topics)} 个 ({n_batches} 批 x 0.4s)", flush=True)
     _batched_sub(ws, topics, delay=0.4)

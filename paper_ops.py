@@ -278,7 +278,7 @@ def _spot_px(sym):
 
 
 def _spot_allowed(sym):
-    if sym in ("BTCUSDT", "ETHUSDT"):
+    if sym in ("BTCUSDT", "ETHUSDT", "XAUTUSDT"):  # R14: XAUTUSDT 黄金现货(Tether Gold)恒可交易
         return True
     inst = _instruments_spot()
     it = inst.get(sym)
