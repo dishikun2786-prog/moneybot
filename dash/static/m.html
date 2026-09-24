@@ -659,7 +659,7 @@ select.input{appearance:none}
         <div id="pl-current" style="padding:4px 0"></div>
       </div>
       <div id="pl-list"></div>
-      <div class="sectip"><div class="i">🎁</div><div class="t"><b>白话：</b>专业版可绑定交易所密钥（为实盘做准备），实盘版解锁真实下单。套餐到期自动降回免费版，账户数据保留。</div></div>
+      <div class="sectip"><div class="i">🎁</div><div class="t"><b>白话：</b>专业版解锁更多标的与功能，实盘版解锁真实下单（统一平台密钥执行，无需自绑）。套餐到期自动降回免费版，账户数据保留。</div></div>
     </section>
 
     <!-- ===== 我的 ===== -->
@@ -669,7 +669,7 @@ select.input{appearance:none}
         <div style="flex:1"><div class="nm" id="p-name">—</div><div class="plan"><span class="badge yellow" id="p-plan">—</span> <span class="badge gray" id="p-role">—</span></div></div>
       </div>
       <div class="menulist">
-        <div class="mi" onclick="go('keys')"><span class="ico">🔑</span><span class="t">API 密钥绑定<span class="xs muted"> · 实盘交易</span></span><span class="badge gray" id="p-keybadge">—</span><span class="chev">›</span></div>
+        <div class="mi" onclick="go('keys')"><span class="ico">🔑</span><span class="t">统一密钥<span class="xs muted"> · 实盘交易</span></span><span class="badge gray" id="p-keybadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="go('trade')"><span class="ico">⚡</span><span class="t">实盘模式<span class="xs muted"> · 风控限额</span></span><span class="r" id="p-livebadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="toast('密码修改请联系管理员或桌面版操作')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 锁定</span><span class="chev">›</span></div>
         <div class="mi" onclick="openHelp()"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
@@ -681,41 +681,22 @@ select.input{appearance:none}
       <div class="sectip"><div class="i">👤</div><div class="t"><b>白话：</b>「密钥绑定」是开实盘的前提：绑定你自己的 Bybit/Polymarket 密钥后（专业版+），才能用真实资金按策略交易。密钥 AES-256 加密存储，平台不接触明文。</div></div>
     </section>
 
-    <!-- ===== 密钥 ===== -->
+    <!-- ===== 密钥 (R14-M4: 统一平台密钥, 用户自助绑定已下线) ===== -->
     <section class="screen" id="screen-keys">
-      <div id="keys-status"></div>
       <div class="card keycard">
-        <div class="khead row"><b style="font-size:13px">🟧 绑定 Bybit 密钥</b><span class="xs muted">需专业版+</span></div>
-        <div class="sectip"><div class="i">⚠️</div><div class="t"><b>创建密钥三要点：</b>① Secret 仅显示一次请保存好；② 权限勾「<b>现货交易</b>」+「<b>合约交易</b>」；③ 开 IP 白名单请加服务器 <b class="mono">34.253.194.97</b>。</div></div>
-        <div class="field"><label>API Key</label><input class="input mono" id="bk-key" placeholder="从 Bybit 官网创建（建议子账户·只交易）"></div>
-        <div class="field"><label>API Secret</label><input class="input mono" id="bk-secret" type="password" placeholder="仅用于服务端签名">
-          <div class="hint">AES-256-GCM 加密存储 · 不写日志 · 不返明文</div></div>
-        <button class="btn accent" onclick="bindBybit()">🔌 绑定并连通性测试</button>
-      </div>
-      <div class="card keycard">
-        <div class="khead row"><b style="font-size:13px">🟦 绑定 Polymarket</b><span class="xs muted">派生凭证 · 私钥即弃</span></div>
-        <div class="seg" style="margin-bottom:10px" id="pm-bind-seg">
-          <button class="on" onclick="pmBind(0)">一次性私钥导入</button>
-          <button onclick="pmBind(1)">Relayer Key</button>
-        </div>
-        <div id="pm-bind-0">
-          <div class="sectip"><div class="i">⚠️</div><div class="t"><b>一次性模式</b>：粘贴 owner 私钥 → 服务端立即派生交易凭证 → <b>私钥随即丢弃不存储</b>。派生凭证只能交易不能提现。</div></div>
-          <div class="field"><label>钱包私钥（一次性）</label><input class="input mono" id="pk-key" type="password" placeholder="0x...（用完即弃）"></div>
-          <div class="field"><label>Relayer Key（可选，免gas）</label><input class="input mono" id="pk-relay" placeholder="UUID（Polymarket 设置页创建）"></div>
-          <button class="btn accent" onclick="bindPm()">导入并派生（私钥即弃）</button>
-        </div>
-        <div id="pm-bind-1" style="display:none">
-          <div class="sectip"><div class="i">💡</div><div class="t">Polymarket「设置 → Relayer API Keys」创建：Signer 地址 + API 密钥（UUID），用于免 gas。需配合私钥派生凭证才能交易。</div></div>
-          <div class="field"><label>Signer 地址</label><input class="input mono" id="pr-addr" placeholder="0x..."></div>
-          <div class="field"><label>Relayer API Key</label><input class="input mono" id="pr-key" placeholder="UUID"></div>
-          <button class="btn accent" onclick="bindPmRelay()">保存 Relayer</button>
-        </div>
+        <div class="khead row"><b style="font-size:13px">🔑 统一交易密钥</b><span class="badge green">已统一</span></div>
+        <div class="sectip"><div class="i">✅</div><div class="t">实盘交易由<b>平台统一密钥</b>执行，由管理员在总管理后台配置维护。您无需自行绑定任何交易所密钥——模拟与实盘共用同一套安全链路。</div></div>
+        <div class="trow gaprow"><span class="k">🔓 实盘权限</span><span id="keys-live-badge">查询中…</span></div>
+        <div class="sectip"><div class="i">💡</div><div class="t"><b>白话：</b>① 实盘下单=平台统一密钥执行，资金归集在平台统一账户；② 开通实盘请联系管理员（套餐+限额+实盘开关）；③ 您只需专注交易，密钥安全与轮换由平台统一负责。</div></div>
       </div>
       <div class="card">
         <div class="ct">实盘风控限额 <span class="xs muted">管理员配置</span></div>
         <div id="limits-rows"></div>
       </div>
-      <div class="sectip"><div class="i">🔒</div><div class="t"><b>白话：</b>① 绑定即自动连通性测试，全过才能实盘下单；② Bybit 建议「只交易」子账户密钥；③ 解绑=撤销平台交易权，资金始终在你自己的账户里。</div></div>
+      <div class="card">
+        <div class="ct">账户状态 <span class="xs muted">实时</span></div>
+        <div id="keys-status"></div>
+      </div>
     </section>
 
     <!-- ===== 管理后台 ===== -->
@@ -907,7 +888,7 @@ var HELPS={
   login:'<h3>💡 登录页怎么用</h3><p>账号+密码+图形验证码三重验证，验证码看不清点图换一张。连续输错5次账号锁定15分钟。没有账号？注册即送 <b>$100 模拟资金</b>。</p>',
   markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对最新价与24h涨跌。点币种进交易界面；下方是预测市场（按模型价差排序，价差越大机会越好）。</p>',
   pm:'<h3>💡 预测市场怎么用</h3><p>对了结算 $1，错了 $0。价格即概率。买 YES=押发生，买 NO=押不发生。与币圈仓位反向布局=对冲。<b>盘口价=模型价±价差</b>，模型价来自平台σ校准。</p>',
-  trade:'<h3>💡 交易页怎么用</h3><p>顶部实时价+资金费率。<b>K线</b>看走势·<b>盘口</b>看挂单·<b>持仓</b>看仓位+切托管/手动·<b>下单</b>开仓。<br>⚪模拟=纸面资金；🔴实盘=真实资金（管理员开通+绑密钥后可见）。</p>',
+  trade:'<h3>💡 交易页怎么用</h3><p>顶部实时价+资金费率。<b>K线</b>看走势·<b>盘口</b>看挂单·<b>持仓</b>看仓位+切托管/手动·<b>下单</b>开仓。<br>⚪模拟=纸面资金；🔴实盘=真实资金（管理员开通后可见，平台统一密钥执行）。</p>',
   assets:'<h3>💡 资产页怎么用</h3><p>总资产=初始$100+已实现盈亏+持仓浮盈。曲线为累计盈亏走势。资产分布列出各策略占用与可用保证金。</p>',
   profile:'<h3>💡 我的页怎么用</h3><p>密钥绑定=开实盘入口；实盘模式=查看风控限额与开关键；退出登录安全退出。管理员额外可见「管理后台」。</p>',
   keys:'<h3>💡 密钥绑定怎么用</h3><p><b>Bybit</b>：官网创建 API Key（子账户·只交易权限）→ 粘贴 → 绑定即自动五项连通性测试。<br><b>PM</b>：粘贴 owner 私钥一次性派生交易凭证（私钥即弃），或保存 Relayer Key。密钥 AES-256 加密，任何人无法再查看明文。</p>',
@@ -2409,18 +2390,16 @@ async function loadProfile(){
 async function loadKeys(){
   var r=await api('/api/keys');
   if(!r.data){return}
-  var ks=r.data.keys||[],lim=r.data.limits||{};
-  var html='';
-  for(var i=0;i<ks.length;i++){
-    var k=ks[i];
-    html+='<div class="card keycard"><div class="khead row"><div class="t" style="font-size:13px;font-weight:700">🟧 Bybit</div>'
-      +'<span class="badge '+(k.last_test_ok?'green':(k.last_test_at?'red':'gray'))+'">'+(k.last_test_ok?'测试通过':(k.last_test_at?'测试失败':'已绑定'))+'</span></div>'
-      +'<div class="row" style="padding:5px 0"><span class="dim xs">凭证（掩码）</span><span class="mono xs">'+esc(k.key_masked||'—')+'</span></div>'
-      +(k.last_test_at?'<div class="row" style="padding:5px 0"><span class="dim xs">上次测试</span><span class="xs">'+new Date(k.last_test_at*1000).toLocaleString('zh-CN')+'</span></div>':'')
-      +(k.last_error?'<div class="row" style="padding:5px 0"><span class="dim xs">上次错误</span><span class="xs down">'+esc(k.last_error)+'</span></div>':'')
-      +'<div class="pbtns" style="margin-top:8px"><button class="abtn ok" onclick="testKey(\''+k.venue+'\')">重新测试</button><button class="abtn bad" onclick="unbindKey(\''+k.venue+'\')">解绑</button></div></div>';
-  }
-  id('keys-status').innerHTML=html;
+  var lim=r.data.limits||{};
+  /* R14-M4: 统一平台密钥 — 用户端不再显示自绑密钥, 展示平台密钥与实盘权限状态 */
+  var st=await api('/api/live/status');
+  var bybitOk=(st.data&&st.data.bybit_bound),pmOk=(st.data&&st.data.pm_bound);
+  id('keys-status').innerHTML='<div class="row" style="padding:5px 0"><span class="dim xs">🟧 Bybit 统一密钥</span><span class="badge '+(bybitOk?'green':'red')+'">'+(bybitOk?'✅ 平台已配置':'⛔ 平台未配置')+'</span></div>'
+    +'<div class="row" style="padding:5px 0"><span class="dim xs">🔐 密钥保管</span><span class="xs">AES-256-GCM 加密 · 管理员统一维护</span></div>'
+    +'<div class="row" style="padding:5px 0"><span class="dim xs">🔄 轮换策略</span><span class="xs">平台 90 天轮换告警 · 自动监控</span></div>';
+  id('keys-live-badge').innerHTML=lim.live_enabled
+    ?'<span class="badge green">✅ 实盘已开通（平台统一密钥执行）</span>'
+    :'<span class="badge gray">⛔ 未开通 · 请联系管理员</span>';
   id('limits-rows').innerHTML='<div class="row" style="padding:5px 0"><span class="dim xs">单笔名义上限</span><span class="mono xs">$'+num(lim.max_notional,0)+'</span></div>'
     +'<div class="row" style="padding:5px 0"><span class="dim xs">日亏熔断</span><span class="mono xs">$'+num(lim.daily_loss_cap,0)+'</span></div>'
     +'<div class="row" style="padding:5px 0"><span class="dim xs">最大持仓数</span><span class="mono xs">'+lim.max_positions+'</span></div>'

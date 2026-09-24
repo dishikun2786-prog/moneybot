@@ -16,7 +16,8 @@ from app import main as m, auth, config  # noqa: E402
 c = TestClient(m.app)
 ck = {config.COOKIE_NAME: auth.make_session(1, "admin")}
 
-WL = {"BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT"}
+# R14-M2: 标的扩展 SOL/NEAR/XRP 后, linear 白名单 = 8 标的 (XAUT spot-only 不在 linear)
+WL = {"BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"}
 
 
 def test_instruments_whitelist():
@@ -25,7 +26,7 @@ def test_instruments_whitelist():
     lin = {x["symbol"] for x in d["linear"]}
     spot = {x["symbol"] for x in d["spot"]}
     assert lin == WL, f"linear 白名单不符: {lin}"
-    assert spot == {"BTCUSDT", "ETHUSDT"}, f"spot 白名单不符: {spot}"
+    assert spot == {"BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"}, f"spot 白名单不符: {spot}"
     # 不应包含任何非白名单标的
     assert not (lin - WL), "linear 有白名单外标的"
 

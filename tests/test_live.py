@@ -12,6 +12,7 @@ _TMP = tempfile.mkdtemp(prefix="m5_live_test_")
 os.environ["USERS_DB"] = os.path.join(_TMP, "users.db")
 os.environ["KEYS_DB"] = os.path.join(_TMP, "keys.db")
 os.environ["PAPER_BASE"] = _TMP
+os.environ["PLATFORM_KEY_FILE"] = os.path.join(_TMP, ".platform_keys.json")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dash"))
@@ -47,14 +48,16 @@ class TestLive(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("实盘未开启", err)
 
-    def test_03_gate_key_required(self):
+    def test_03_gate_platform_key_required(self):
+        # R14-M4: 实盘统一平台密钥 — 无平台密钥时报错
         keys.set_limits(self.uid, live_enabled=1)
         ok, err = live_exec._gate(self.uid, "bybit", 10)
         self.assertFalse(ok)
-        self.assertIn("未绑定 Bybit", err)
+        self.assertIn("平台 Bybit 密钥未配置", err)
 
     def test_04_gate_notional_validation(self):
-        keys.bind(self.uid, "bybit", "K12345678", "S12345678")
+        from app import funds
+        funds.save_platform_key("PK12345678", "PS12345678")
         ok, err = live_exec._gate(self.uid, "bybit", 3)
         self.assertFalse(ok)
         self.assertIn("单笔名义", err)

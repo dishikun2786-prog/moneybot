@@ -16,7 +16,7 @@ import time
 from . import config, keys as keys_mod
 
 DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "funds.db")
-PK_FILE = os.path.expanduser("~/polymarket/.platform_keys.json")
+PK_FILE = os.environ.get("PLATFORM_KEY_FILE", os.path.expanduser("~/polymarket/.platform_keys.json"))
 LOCK = threading.Lock()
 
 PLATFORM_ADDR = "TMVjkk3h2nQ2xvF3npeu7WfKAhaXJKSkVu"  # 平台 USDT-TRC20 收款地址 (Bybit 主账户)

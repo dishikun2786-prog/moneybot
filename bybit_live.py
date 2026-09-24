@@ -56,10 +56,36 @@ def wallet_balance(key, secret, account_type="UNIFIED"):
 
 
 def positions(key, secret, category="linear", symbol=None):
+    if category == "spot":
+        # R14-M4: UTA 现货持仓不在 /v5/position/list, 在 wallet-balance 的 coin.spot 字段
+        return _spot_positions(key, secret, symbol)
     params = {"category": category}
     if symbol:
         params["symbol"] = symbol
     return _req(key, secret, "GET", "/v5/position/list", params=params)
+
+
+def _spot_positions(key, secret, symbol=None):
+    """R14-M4: UTA 现货持仓 (coin.spot > 0) → 与 linear 同形状 {result:{list:[{symbol,size,...}]}}"""
+    p = {"accountType": "UNIFIED"}
+    if symbol:
+        p["coin"] = symbol.replace("USDT", "")
+    d = _req(key, secret, "GET", "/v5/account/wallet-balance", params=p)
+    rows = []
+    try:
+        for acc in (d.get("result") or {}).get("list", []):
+            for c in acc.get("coin", []):
+                # UTA: 非稳定币的 walletBalance 即现货持仓 (spot 字段仅现货杠杆账户用)
+                if (c.get("coin") or "").upper() in ("USDT", "USDC", "USD"):
+                    continue
+                spot = float(c.get("walletBalance") or c.get("spot") or 0)
+                if spot > 0:
+                    rows.append({"symbol": (c.get("coin") or "") + "USDT",
+                                 "size": str(spot), "avgPrice": "0", "side": "Buy",
+                                 "unrealisedPnl": "0"})
+    except Exception:
+        pass
+    return {"retCode": d.get("retCode", 0), "result": {"list": rows}}
 
 
 def place_order(key, secret, symbol, side, qty, category="linear",
@@ -76,8 +102,10 @@ def place_order(key, secret, symbol, side, qty, category="linear",
 
 
 def place_spot_order(key, secret, symbol, side, qty, order_type="Market", price=None):
+    # R14-M4: UTA 现货市价单必须 marketUnit=baseCoin, 否则 qty 被解释为 quote 金额
+    # → 小额单全报 170140 "Order value exceeded lower limit" (实测)
     body = {"category": "spot", "symbol": symbol, "side": side,
-            "orderType": order_type, "qty": str(qty)}
+            "orderType": order_type, "qty": str(qty), "marketUnit": "baseCoin"}
     if price is not None:
         body["price"] = str(price)
     return _req(key, secret, "POST", "/v5/order/create", body=body)
@@ -86,6 +114,20 @@ def place_spot_order(key, secret, symbol, side, qty, order_type="Market", price=
 def cancel_order(key, secret, symbol, order_id, category="linear"):
     return _req(key, secret, "POST", "/v5/order/cancel",
                 body={"category": category, "symbol": symbol, "orderId": order_id})
+
+
+def query_order(key, secret, symbol, order_id, category="linear"):
+    """R14-M4: 订单查询 (同步性测试: 下单/撤单后状态链核对)"""
+    return _req(key, secret, "GET", "/v5/order/realtime",
+                params={"category": category, "symbol": symbol, "orderId": order_id})
+
+
+def open_orders(key, secret, category="linear", symbol=None, limit=20):
+    """R14-M4: 挂单列表 (撤单同步验证)"""
+    p = {"category": category, "limit": limit}
+    if symbol:
+        p["symbol"] = symbol
+    return _req(key, secret, "GET", "/v5/order/realtime", params=p)
 
 
 def test_bybit(key, secret):

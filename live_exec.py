@@ -26,6 +26,12 @@ import pm_live  # noqa: E402
 import tenants  # noqa: E402
 
 from app import keys, users  # noqa: E402
+from app import funds as _funds  # noqa: E402 (R14-M4: 实盘统一平台密钥)
+
+
+def _platform_bybit():
+    """R14-M4: 实盘统一使用管理后台配置的平台 Bybit 密钥 (不再读用户自绑密钥)"""
+    return _funds.platform_key()
 
 MIN_ORDER_USDT = 6.0  # Bybit UTA 最低下单额(现货/合约通用下限, 币安式保守)
 DAY_NOTIONAL_CAP_MULT = 10  # 当日累计名义 = 10 × 单笔限额 (日亏熔断占位策略)
@@ -62,7 +68,7 @@ def live_positions_count(uid):
     """实盘当前持仓数 (Bybit 非零持仓 + PM 持仓)"""
     n = 0
     try:
-        s = keys.get_secrets(uid, "bybit")
+        s = _platform_bybit()
         if s:
             d = bybit_live.positions(s["key"], s["secret"])
             if d.get("retCode") == 0:
@@ -94,8 +100,8 @@ def _gate(uid, venue, notional):
     lim = keys.get_limits(uid)
     if not lim.get("live_enabled"):
         return False, "实盘未开启, 请联系管理员开通"
-    if venue == "bybit" and not keys.get_secrets(uid, "bybit"):
-        return False, "未绑定 Bybit 密钥 (密钥管理页绑定)"
+    if venue == "bybit" and not _platform_bybit():
+        return False, "平台 Bybit 密钥未配置, 请联系管理员 (统一密钥)"
     if venue == "pm" and not keys.get_secrets(uid, "pm"):
         return False, "未绑定 Polymarket (密钥管理页绑定)"
     try:
@@ -135,7 +141,7 @@ def bybit_open_native(uid, body):
         return {"ok": False, "error": err}
     if not _native_whitelist_ok(sym):
         return {"ok": False, "error": f"{sym} 不在原生交易白名单"}
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     if d.get("retCode") == 0:
         for p in d["result"]["list"]:
@@ -156,7 +162,7 @@ def bybit_open_native(uid, body):
 def bybit_close_native(uid, body):
     """原生平仓: 查持仓 → 反向 reduce_only 全平"""
     sym = str(body.get("symbol", "")).upper()
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     if d.get("retCode") != 0:
         return {"ok": False, "error": "持仓查询失败: " + str(d.get("retMsg"))[:80]}
@@ -212,7 +218,7 @@ def bybit_spot_order(uid, body):
         return {"ok": False, "error": "paper_ops 不可用"}
     if not _spot_allowed(sym):
         return {"ok": False, "error": f"{sym} 不在现货交易白名单"}
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     px = _last_spot_price(sym)
     if not px:
         return {"ok": False, "error": "现货价格快照不可用"}
@@ -236,7 +242,7 @@ def bybit_open_naked(uid, body):
     ok, err = _gate(uid, "bybit", notional)
     if not ok:
         return {"ok": False, "error": err}
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     if d.get("retCode") == 0:
         for p in d["result"]["list"]:
@@ -254,7 +260,7 @@ def bybit_open_naked(uid, body):
 
 def bybit_close_naked(uid, body):
     sym = str(body.get("symbol", "")).upper()
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     if d.get("retCode") != 0:
         return {"ok": False, "error": "持仓查询失败: " + str(d.get("retMsg"))[:80]}
@@ -276,7 +282,7 @@ def bybit_open_hedge(uid, body):
     ok, err = _gate(uid, "bybit", notional)
     if not ok:
         return {"ok": False, "error": err}
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     px = _last_price(sym)
     if not px:
         return {"ok": False, "error": "价格快照不可用"}
@@ -306,7 +312,7 @@ def bybit_open_hedge(uid, body):
 
 def bybit_close_perp_leg(uid, body):
     sym = str(body.get("symbol", "")).upper()
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     pos = next((p for p in d["result"]["list"] if float(p.get("size") or 0) != 0), None) \
         if d.get("retCode") == 0 else None
@@ -322,7 +328,7 @@ def bybit_close_perp_leg(uid, body):
 def bybit_close_both(uid, body):
     """全平: 永续平仓 + 现货腿平仓"""
     sym = str(body.get("symbol", "")).upper()
-    s = keys.get_secrets(uid, "bybit")
+    s = _platform_bybit()
     out = []
     d = bybit_live.positions(s["key"], s["secret"], symbol=sym)
     if d.get("retCode") == 0:
@@ -512,13 +518,13 @@ def status(uid):
     lim = keys.get_limits(uid)
     out = {"plan": u.get("plan"), "live_enabled": bool(lim.get("live_enabled")),
            "limits": lim,
-           "bybit_bound": keys.get_secrets(uid, "bybit") is not None,
+           "bybit_bound": _platform_bybit() is not None,
            "pm_bound": keys.get_secrets(uid, "pm") is not None,
            "today_notional": round(_today_notional(uid), 2),
            "positions": {"bybit": [], "pm": []},
            "ledger": []}
     try:
-        s = keys.get_secrets(uid, "bybit")
+        s = _platform_bybit()
         if s:
             d = bybit_live.positions(s["key"], s["secret"])
             if d.get("retCode") == 0:

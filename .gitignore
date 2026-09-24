@@ -11,3 +11,4 @@ node_modules/
 *.db
 .typesafe_key
 dash/users.db
+dash/funds_health.json
