@@ -47,6 +47,19 @@ def checks(prev_restarts):
     fr = subprocess.run(["free", "-m"], capture_output=True, text=True).stdout.splitlines()[1].split()
     if int(fr[6]) < 300:
         probs.append(f"可用内存仅 {fr[6]}MB (阈值300)")
+    # R14-M1: K线 REST 回源健康 (429限频/失败率告警)
+    try:
+        import json as _j
+        hp = "/home/ubuntu/polymarket/logs/kl_rest_health.json"
+        if os.path.exists(hp) and time.time() - os.path.getmtime(hp) < 180:
+            with open(hp) as _f:
+                hd = _j.load(_f)
+            if hd.get("r429", 0) > 0:
+                probs.append(f"K线REST回源429限频 {hd['r429']} 次(累计)")
+            if hd.get("fails", 0) > 30:
+                probs.append(f"K线REST回源失败 {hd['fails']} 次(累计,阈值30)")
+    except Exception:
+        pass
     return probs, restarts
 
 def main():

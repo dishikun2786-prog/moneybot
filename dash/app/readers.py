@@ -454,6 +454,20 @@ def share_view():
 
 
 KLINE_IVS = ("1m", "5m", "15m", "1h", "4h", "D", "W", "M")
+_REST_FAILS = 0   # R14-M1: REST 回源失败计数
+_REST_429 = 0     # R14-M1: REST 回源 429 限频计数
+
+
+def _rest_health_snapshot():
+    """R14-M1: 写 REST 回源健康快照 (watchdog 60s 读取告警)"""
+    try:
+        import os
+        p = os.path.join(config.BASE, "logs", "kl_rest_health.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"fails": _REST_FAILS, "r429": _REST_429,
+                       "ts": int(time.time())}, f)
+    except Exception:
+        pass
 
 # 策略说明（策略面板展示）
 STRATEGY_INFO = {
@@ -511,6 +525,7 @@ def _kline_has_gap(bars, interval):
 def _rest_klines(symbol, interval, limit=1000):
     """Bybit v5 REST kline 回源 (linear+spot 双分类重试) → bars 列表"""
     import urllib.request
+    global _REST_FAILS, _REST_429
     iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
           "D": "D", "W": "W", "M": "M"}.get(interval, "15")
     for cat in ("linear", "spot"):
@@ -527,7 +542,12 @@ def _rest_klines(symbol, interval, limit=1000):
             if bars:
                 bars.reverse()
                 return bars
-        except Exception:
+        except Exception as e:
+            if getattr(e, "code", None) == 429:   # R14-M1: 429 限频计数 (watchdog 告警)
+                _REST_429 += 1
+            else:
+                _REST_FAILS += 1
+            _rest_health_snapshot()  # 异常也落快照 (429 必须让 watchdog 看到)
             continue
     return []
 
@@ -642,6 +662,7 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
                 return {"symbol": symbol, "interval": interval,
                         "bars": hist[-limit:], "live": True}
         _KLINE_CACHE[key] = (now, bars)
+        _rest_health_snapshot()  # R14-M1: 回源后落健康快照
         return {"symbol": symbol, "interval": interval, "bars": bars[-limit:],
                 "live": _kline_live(bars[-limit:], iv_ms)}  # R14: REST回源补 live
     except Exception as e:

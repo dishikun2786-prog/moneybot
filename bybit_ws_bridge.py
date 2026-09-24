@@ -432,7 +432,8 @@ def depth_loop():
             _append_log(BIG_LOG, rec)
         snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out,
                 "books_spot": books_spot_out, "trades_spot": trades_spot_out,  # R14: 现货通道盘口/成交
-                "px": {s: PRICES.get(s, {}).get("last") for s in DEPTH_SYMS},      # R14: 现价并入depth流(与成交同源同帧)
+                "px": {s: {"last": PRICES.get(s, {}).get("last"),
+                          "chg": PRICES.get(s, {}).get("change_pct", 0)} for s in DEPTH_SYMS},  # R14: 现价+涨跌并入depth流
                 "px_spot": {s: PRICES.get(s, {}).get("spot") for s in SPOT_CH_SYMS},
                 "big": big_out, "walls": walls_out, "micro": micro_out}
         tmp = DEPTH_FILE + ".tmp"

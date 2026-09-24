@@ -444,7 +444,7 @@ select.input{appearance:none}
     </section>
 -->
 
-    <!-- ===== 标的详情 (R3: 现货/合约通用行情落地页) ===== -->
+    ← R14-M1: 标的详情屏已下线(所有标的统一Bybit风格交易屏) — 可回滚
     <section class="screen" id="screen-symbol">
       <div class="sym-head">
         <div class="l"><div class="n" id="d-sym">—</div><span class="sub" id="d-sub">—</span></div>
@@ -477,7 +477,7 @@ select.input{appearance:none}
         <div id="spot-pos" style="margin-top:8px"></div>
       </div>
       <div class="sectip"><div class="i">📊</div><div class="t"><b>白话：</b>绿柱=该时段涨，红柱=跌；柱体上下影线=最高最低。底部柱=成交量。现货买入=持有币，卖出=卖出平仓，不设杠杆。</div></div>
-    </section>
+    </section> -->
 
     <!-- ===== 交易 ===== -->
     <section class="screen" id="screen-trade">
@@ -875,7 +875,7 @@ function go(s){
   if(s==='assets'){loadAssets();loadFunds()}
   if(s==='recharge')loadRecharge();
   if(s==='withdraw')loadWithdraw();
-  if(s==='symbol')loadSpotCard();
+  /* R14-M1: symbol屏已下线 if(s==='symbol')loadSpotCard(); */
   if(s==='plans')loadPlans();
   if(s==='profile')loadProfile();
   if(s==='keys')loadKeys();
@@ -974,37 +974,13 @@ function setSse(st){
       try{
         var r=await fetch('/api/prices');
         var d=await r.json();
-        if(d&&d.ok&&d.prices){PRICES=d.prices;applyPrices();setSse('off')}
+        if(d&&d.ok&&d.prices){PRICES=d.prices;renderTickers();setSse('off')}
       }catch(e){}
     },30000);
   }
 }
-function startPrices(){
-  try{
-    var es=new EventSource('/api/stream/prices?diff=1');
-    es.onopen=function(){setSse('live')};
-    es.onmessage=function(ev){
-      try{
-        var d=JSON.parse(ev.data);
-        if(d&&d.prices){
-          if(d.full){PRICES=d.prices}
-          else{for(var k in d.prices){PRICES[k]=d.prices[k]}}
-          if(Object.keys(PRICES).length>4500){var pr={},n=0;for(var k2 in PRICES){pr[k2]=PRICES[k2];if(++n>=3500)break}PRICES=pr}
-        }
-        applyPrices();
-      }catch(e){}
-    };
-    es.onerror=function(){setSse('retry')};
-  }catch(e){}
-}
+/* R14-M1: 价格 SSE 已下线 — 现价/涨跌/盘口/成交全部由 depth SSE 单流驱动 */
 var lastPxRender=0;
-function applyPrices(){
-  var now=Date.now();
-  if(curScreen==='markets'&&now-lastPxRender>900)renderTickers();
-  if(curScreen==='trade'&&now-lastPxRender>400)renderTradePx();
-  if(now-lastPxRender>1500){renderOb();renderTrades();}
-  lastPxRender=now;
-}
 /* ============ 行情屏 (P1 全标的: 搜索/分类/排序/虚拟滚动/自选) ============ */
 var PM_ROWS=[];
 var INSTR={linear:[],spot:[]};
@@ -1058,6 +1034,7 @@ function mkTap(sym,cat){
   setTradeSym(sym);go('trade');  // R14: 所有标的统一进 Bybit 风格交易屏 (现货与合约UI对齐)
 }
 /* R3 标的详情屏 */
+/* R14-M1: 旧详情屏已下线(所有标的统一交易屏) — 可回滚
 var DET_SYM='',DET_CAT='linear',DET_IV='15m',DET_POLL=null;
 function openSymDetail(sym,cat){
   DET_SYM=sym;DET_CAT=cat||'linear';
@@ -1071,7 +1048,7 @@ function openSymDetail(sym,cat){
   go('symbol');
   detStart();
   if(isSpot)loadSpotCard();
-}
+} */
 /* R6 现货下单 */
 var SPOT_SIDE='buy',SPOT_POS=[];
 async function loadSpotPos(){  // R14: 现货持仓刷新 (qtGo 现货分支调用)
@@ -1081,6 +1058,7 @@ async function loadSpotPos(){  // R14: 现货持仓刷新 (qtGo 现货分支调�
   }catch(e){SPOT_POS=[]}
   loadPositions();
 }
+/* R14-M1: 详情屏专属, 已下线 (交易屏现货走 quickTrade/qtGo)
 function setSpotSide(s){
   SPOT_SIDE=s;
   id('spot-buy-btn').className=s==='buy'?'on-buy':'';
@@ -1089,52 +1067,24 @@ function setSpotSide(s){
   b.className=s==='buy'?'btn buy':'btn sell';
   b.textContent=(s==='buy'?'买入':'卖出')+'下单';
   updSpotCard();
-}
+} */
 function spotPxOf(sym){
   var p=PRICES[sym]||{};
   var v=p.spot||p.last||0;
   return Number(v)||0;
 }
+/* R14-M1: 详情屏专属, 已下线
 async function loadSpotCard(){
   try{
     var r=await api('/api/spot/positions');
     if(r.data&&r.data.positions)SPOT_POS=r.data.positions;
   }catch(e){SPOT_POS=[]}
   updSpotCard();
+}*/
+async function loadSpotCard(){  // R14-M1: 空壳防残留引用
+  loadSpotPos();
 }
-function updSpotCard(){
-  var px=spotPxOf(DET_SYM);
-  id('spot-px').textContent=px?fmtPx(px)+' USDT':'—';
-  var amt=Number(id('spot-amt').value)||0;
-  var qty=px?amt/px:0;
-  id('spot-hint').textContent=px?('按现价约 '+num(qty,6)+' '+DET_SYM.replace(/USDT$|USDC$|USD$/,'')+' · 市价成交'):'';
-  var held=null;
-  for(var i=0;i<SPOT_POS.length;i++){if(SPOT_POS[i].symbol===DET_SYM){held=SPOT_POS[i];break}}
-  var html='';
-  if(held){
-    html='<div style="border-top:1px solid var(--border);padding-top:6px"><div class="xs muted">我的现货持仓</div>'
-      +'<div style="display:flex;justify-content:space-between"><span class="mono">'+num(held.qty,6)+' 个 · 成本 '+fmtPx(held.avg_cost)+'</span>'
-      +'<span class="mono '+(held.pnl>=0?'up':'down')+'">'+(held.pnl>=0?'+':'')+num(held.pnl,2)+'$</span></div>'
-      +'<button class="abtn bad" style="margin-top:4px" onclick="confirmSpotClose()">全部卖出平仓</button></div>';
-  }
-  id('spot-pos').innerHTML=html;
-}
-function confirmSpotOpen(){
-  var amt=Number(id('spot-amt').value)||0;
-  if(amt<1||amt>200){toast('金额 1-200$');return}
-  var px=spotPxOf(DET_SYM);
-  if(!px){toast('无现货实时价');return}
-  var live=LIVE.on;
-  var act=SPOT_SIDE==='buy'?'买入':'卖出';
-  openSheet('<h3>'+(live?'🔴 实盘':'纸面')+'现货'+act+'</h3><p><b>'+DET_SYM+'</b> · 金额 <b>'+amt+' USDT</b> · 约 '+num(amt/px,6)+' 个<br>按市价 '+(live?'真实下单到 Bybit 现货市场！':'模拟成交')+'</p>'
-    +'<button class="btn '+(SPOT_SIDE==='buy'?'buy':'sell')+'" onclick="spotGo('+amt+','+live+')">确认'+act+'</button>');
-}
-async function spotGo(amt,live){
-  closeSheet();
-  var r=await api('/api/spot/open',{method:'POST',body:JSON.stringify({symbol:DET_SYM,side:SPOT_SIDE,notional:amt,live:!!live})});
-  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard()}
-  else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
-}
+/* R14-M1: updSpotCard/confirmSpotOpen/spotGo 为详情屏专属已下线 */
 async function confirmSpotClose(symArg){
   if(symArg){  // R14: 持仓tab入口
     openSheet('<h3>纸面现货平仓</h3><p><b>'+esc(symArg)+'</b> 全部按市价卖出。确认？</p>'
@@ -1154,78 +1104,8 @@ async function spotCloseGo(live,symArg){
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadSpotCard();loadPositions()}
   else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
 }
-/* R7 详情屏盘口 */
-function renderDetOb(){
-  if(curScreen!=='symbol')return;
-  var book=(DEPTH[DET_SYM]||{});
-  var bids=(book.bids||[]).slice(0,10),asks=(book.asks||[]).slice(0,10);
-  if(!bids.length&&!asks.length){
-    watchDepth(DET_SYM);
-    var wt=(WATCH_TS[DET_SYM]||0);
-    var hint=wt&&(Date.now()-wt)>10000
-      ?'<div class="dim small" style="padding:10px 4px">⚠️ 该标的暂无深度推送<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>'
-      :'<div class="dim small" style="padding:10px 4px">正在订阅 '+DET_SYM+' 实时盘口（约2秒）…<br>当前报价：'+(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—')+'</div>';
-    id('d-ob-asks').innerHTML=hint;
-    id('d-ob-bids').innerHTML='';
-    id('d-ob-mid').textContent=priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—';
-    return;
-  }
-  var i,sumA=0,html='',maxA=0,maxB=0;
-  for(i=0;i<asks.length;i++)maxA=Math.max(maxA,Number(asks[i][1])||0);
-  for(i=0;i<bids.length;i++)maxB=Math.max(maxB,Number(bids[i][1])||0);
-  for(i=asks.length-1;i>=0;i--){
-    var a=asks[i],sz=Number(a[1])||0;sumA+=sz;
-    var fl=OB_PX_PREV[tradeSym]&&OB_PX_PREV[tradeSym]!==String(a[0])?'px-flash':'';
-    html+='<div class="ob-item '+fl+'"><span class="down ob-px" onclick="obFillPrice('+a[0]+')">'+fmtPx(a[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#f6465d;width:'+(maxA?Math.round(sz/maxA*100):0)+'%"></div></div>';
-  }
-  id('d-ob-asks').innerHTML=html;
-  id('d-ob-mid').textContent=(asks[asks.length-1]&&bids[0])?fmtPx((Number(asks[asks.length-1][0])+Number(bids[0][0]))/2):(priceOf(DET_SYM).last?fmtPx(priceOf(DET_SYM).last):'—');
-  html='';sumA=0;
-  for(i=0;i<bids.length;i++){
-    var b=bids[i];sz=Number(b[1])||0;sumA+=sz;
-    html+='<div class="ob-item"><span class="up">'+fmtPx(b[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumA,2)+'</span><div class="depthbar" style="background:#3ebd93;width:'+(maxB?Math.round(sz/maxB*100):0)+'%"></div></div>';
-  }
-  id('d-ob-bids').innerHTML=html;
-}
-function detStart(){
-  if(DET_POLL)clearInterval(DET_POLL);
-  try{api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV)})})}catch(e){}
-  renderKlineSVG([],DET_IV,false,id('d-kline'));
-  detLoad();
-  renderDetOb();
-  DET_POLL=setInterval(function(){detLoad();renderDetOb()},3000);
-}
-async function detLoad(){
-  var p=PRICES[DET_SYM]||{};
-  var px=priceOf(DET_SYM);
-  id('d-px').textContent=px.last||px.spot?fmtPx(px.last||px.spot):'—';
-  var chg=px.chg;
-  id('d-chg').innerHTML='<span class="'+(chg>=0?'up':'down')+'">'+(chg>=0?'+':'')+num(chg,2)+'%</span>';
-  var hi=p.high||0,lo=p.low||0,v=p.vol||0;
-  var pct=(p.change_pct!=null?p.change_pct:chg);
-  var prev=(pct!=null&&Math.abs(pct)<99)?((px.last||px.spot)/(1+pct/100)):0;
-  var amp=(hi&&lo&&prev)?((hi-lo)/prev*100):0;
-  id('d-data').innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">'
-    +'<div><div class="xs muted">24h最高</div><b class="mono">'+(hi?fmtPx(hi):'—')+'</b></div>'
-    +'<div><div class="xs muted">24h最低</div><b class="mono">'+(lo?fmtPx(lo):'—')+'</b></div>'
-    +'<div><div class="xs muted">24h成交额</div><b class="mono">'+(v?num(v/1e6,1)+'M$':'—')+'</b></div>'
-    +'<div><div class="xs muted">24h成交量</div><b class="mono">'+(p.qv?num(p.qv,2)+'枚':'—')+'</b></div>'
-    +'<div><div class="xs muted">振幅</div><b class="mono">'+(amp?num(amp,2)+'%':'—')+'</b></div>'
-    +'<div><div class="xs muted">24h涨跌</div><b class="mono">'+(chg!=null?(chg>=0?'+':'')+num(chg,2)+'%':'—')+'</b></div></div>';
-  var detCat=(DET_CAT==='spot')?'spot':'linear';
-  api('/api/kline/watch',{method:'POST',body:JSON.stringify({symbol:DET_SYM,interval:klIvf(DET_IV),category:detCat})}).catch(function(){});
-  var r=await api('/api/klines?symbol='+DET_SYM+'&interval='+klIvf(DET_IV)+'&limit=60&category='+detCat);
-  var bars=(r.data&&r.data.bars)||[];
-  renderKlineSVG(bars,DET_IV,!!(r.data&&r.data.live),id('d-kline'));
-}
-id('dbar').addEventListener('click',function(e){
-  var s=e.target.closest('span[data-iv]');
-  if(!s)return;
-  DET_IV=s.dataset.iv;
-  var sp=id('dbar').querySelectorAll('span');
-  for(var i=0;i<sp.length;i++)sp[i].className=sp[i]===s?'on':'';
-  detStart();
-});
+
+/* R14-M1: renderDetOb/detStart/detLoad/dbar 详情屏渲染已下线 */
 function mkScroll(){
   var el=id('ticker-list');
   if(!el)return;
@@ -2033,6 +1913,8 @@ var DEPTH={},DEPTH_TR={},DEPTH_SPOT={},DEPTH_TR_SPOT={};  // R14: 现货通道�
 function startDepth(){
   try{
     var es=new EventSource('/api/stream/depth');
+    es.onopen=function(){setSse('live')};   // R14-M1: 连接状态徽标接depth流
+    es.onerror=function(){setSse('retry')};
     es.onmessage=function(ev){
       try{
         var d=JSON.parse(ev.data);
@@ -2041,7 +1923,7 @@ function startDepth(){
         if(d&&d.books_spot)DEPTH_SPOT=d.books_spot;  // R14: 现货通道盘口
         if(d&&d.trades_spot)DEPTH_TR_SPOT=d.trades_spot;  // R14: 现货通道成交
         if(d&&d.px){  // R14: 现价并入depth流(与盘口/成交同帧, 告别价格SSE依赖)
-          for(var k in d.px){if(d.px[k]){PRICES[k]=PRICES[k]||{};PRICES[k].last=d.px[k]}}
+          for(var k in d.px){var v=d.px[k];if(v&&typeof v==='object'){PRICES[k]=PRICES[k]||{};PRICES[k].last=v.last;PRICES[k].change_pct=v.chg}}
         }
         if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}}
         // R13e: 盘口/成交渲染与 depth SSE 同源 (1s直驱, 不依赖价格SSE)
@@ -2821,9 +2703,8 @@ loadCaptcha('login');
     id('guide').classList.add('on');renderGuide();
   }
 })();
-startPrices();
+startDepth();  /* R14-M1: 单流化后只启 depth SSE */
 startPmStream();
-startDepth();
 </script>
 </body>
 </html>
