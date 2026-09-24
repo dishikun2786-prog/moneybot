@@ -86,9 +86,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .tr-detail{background:var(--surface-2);border-top:1px dashed var(--bd);padding:6px 12px}
 .trd-box{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 10px;padding:4px 0}
 .trd-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted rgba(255,255,255,.05);padding:2px 0}
-.tr-item{flex-wrap:wrap}
+#tr-history .tr-item{flex-wrap:wrap}
 .tr-arrow{color:var(--text-3);font-size:10px;margin-left:4px;vertical-align:top}
-.tr-item .t-l{flex-basis:calc(100% - 110px)}
+#tr-history .tr-item .t-l{flex-basis:calc(100% - 110px)}
 .t-px-wrap{position:relative}
 @keyframes tpflashup{0%{background:rgba(62,189,147,.35)}100%{background:transparent}}
 @keyframes tpflashdown{0%{background:rgba(246,70,93,.35)}100%{background:transparent}}
@@ -100,8 +100,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .obtabs{display:flex;gap:6px;margin:10px 0 6px;padding:0 4px}
 .obtabs button{flex:1;padding:8px 0;border-radius:8px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-2);font-size:13px;font-weight:600}
 .obtabs button.on{border-color:var(--accent);color:var(--accent);background:var(--surface-2)}
-.tr-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:4px}
-.tr-item.buy .tr-p{color:#3ebd93}.tr-item.sell .tr-p{color:#f6465d}
+.trfeed .tr-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:4px}
+.trfeed .tr-item.buy .tr-p{color:#3ebd93}.trfeed .tr-item.sell .tr-p{color:#f6465d}
 .tr-actbar{display:flex;gap:8px;margin-top:12px;padding:8px 4px;border-top:1px solid var(--border)}
 .tr-actbar .btn{padding:13px 0;font-size:15px;font-weight:700}
 /* ===== R13f 专业金融UI升级 (Kraken暗色原则) ===== */
@@ -487,7 +487,7 @@ select.input{appearance:none}
         </div>
         <div id="tr-pane" style="display:none;padding:0 6px 6px;max-height:38vh;overflow-y:auto">
           <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">时间</span></div>
-          <div id="tr-list"></div>
+          <div id="tr-list" class="trfeed"></div>
         </div>
         <!-- 底部常驻买卖 (Bybit风格一页下单) -->
         <div class="tr-actbar" id="tr-actbar">
@@ -644,7 +644,7 @@ select.input{appearance:none}
           <button class="chip" data-m="live" onclick="trSetMode('live')">🔴 实盘</button>
         </div>
       </div>
-      <div id="tr-list"></div>
+      <div id="tr-history"></div>
       <div id="tr-more" class="row" style="justify-content:center"></div>
     </section>
 
@@ -2476,9 +2476,9 @@ function trSetMode(m){TR_MODE=m;TR_OFF=0;
 function fmtT(ts){if(!ts)return'—';var t=new Date(ts);if(isNaN(t))return ts;
   return t.toLocaleString('zh-CN',{hour12:false})}
 async function loadTrades(reset){
-  if(reset){TR_OFF=0;TR_IDX=0;id('tr-list').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载中…</div>'}
+  if(reset){TR_OFF=0;TR_IDX=0;id('tr-history').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载中…</div>'}
   var r=await api('/api/trades?mode='+TR_MODE+'&offset='+TR_OFF+'&limit=30');
-  if(!r.data||!r.data.ok){id('tr-list').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载失败</div>';return}
+  if(!r.data||!r.data.ok){id('tr-history').innerHTML='<div class="dim" style="padding:20px;text-align:center">加载失败</div>';return}
   var d=r.data;
   TR_TOTAL=d.total;
   var s=d.summary||{};
@@ -2487,7 +2487,7 @@ async function loadTrades(reset){
     +'<div style="flex:1;text-align:center"><div class="dim xs">实盘累计名义</div><div class="mono">'+num(s.live_notional,2)+' $</div><div class="dim xs">'+s.live_n+' 笔</div></div>';
   var html=(d.rows||[]).map(trRow).join('');
   if(!html&&TR_OFF===0){html='<div class="dim" style="padding:24px;text-align:center">📭 暂无交易记录<br><span class="xs">模拟/实盘开仓、平仓后自动留痕，盈亏实时可查</span></div><div style="text-align:center;padding-bottom:14px"><button class="btn accent" style="width:auto;padding:0 22px" onclick="go(\'trade\')">去下单</button></div>'}
-  if(TR_OFF===0)id('tr-list').innerHTML=html;else id('tr-list').insertAdjacentHTML('beforeend',html);
+  if(TR_OFF===0)id('tr-history').innerHTML=html;else id('tr-history').insertAdjacentHTML('beforeend',html);
   TR_OFF+=d.rows.length;
   id('tr-more').innerHTML=d.has_more?'<button class="mini" onclick="loadTrades()">加载更多 ('+(TR_OFF)+'/'+TR_TOTAL+')</button>':'';
 }
