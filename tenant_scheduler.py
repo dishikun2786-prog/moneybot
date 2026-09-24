@@ -17,7 +17,8 @@ sys.path.insert(0, BASE)
 sys.path.insert(0, os.path.join(BASE, "dash"))
 sys.path.insert(0, os.path.join(BASE, "dash", "app"))
 
-import tenants  # noqa: E402
+import tenants
+import paper_ops  # noqa: E402
 import paper_engine  # noqa: E402
 import carry_engine  # noqa: E402
 import swing_cycle  # noqa: E402
@@ -62,6 +63,13 @@ def run_user(uid):
             n += 1
         except Exception as e:
             print(f"  [uid {uid}] cycle err: {e}", flush=True)
+        try:
+            hits = paper_ops.check_spot_sltp()  # R14-M2: 现货止盈止损触发
+            n += 1
+            if hits:
+                print(f"  [uid {uid}] 现货SL/TP触发: {hits}", flush=True)
+        except Exception as e:
+            print(f"  [uid {uid}] sltp err: {e}", flush=True)
         return time.time() - t0, n
 
 

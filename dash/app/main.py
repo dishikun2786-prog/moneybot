@@ -377,6 +377,37 @@ async def spot_open(request: Request, su=Depends(require_session_user)):
         return paper_ops.open_spot(sym, side, body.get("notional"))
 
 
+@app.post("/api/spot/sltp/set")
+async def spot_sltp_set(req: Request, su: dict = Depends(require_session_user)):
+    """R14-M2: 现货止损/止盈挂单 {symbol, sl?, tp?}"""
+    try:
+        b = await req.json()
+        with tenants.tenant(su["u"]):
+            r = paper_ops.set_spot_sltp(b.get("symbol"), b.get("sl"), b.get("tp"))
+        return {"ok": r.get("ok"), "data": r}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
+
+
+@app.post("/api/spot/sltp/clear")
+async def spot_sltp_clear(req: Request, su: dict = Depends(require_session_user)):
+    """R14-M2: 清除现货止损/止盈 {symbol}"""
+    try:
+        b = await req.json()
+        with tenants.tenant(su["u"]):
+            r = paper_ops.clear_spot_sltp(b.get("symbol"))
+        return {"ok": r.get("ok"), "data": r}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
+
+
+@app.get("/api/spot/sltp/list")
+async def spot_sltp_list(su: dict = Depends(require_session_user)):
+    """R14-M2: 全部现货挂单"""
+    with tenants.tenant(su["u"]):
+        return {"ok": True, "data": {"orders": paper_ops.spot_sltp_list()}}
+
+
 @app.post("/api/spot/close")
 async def spot_close(request: Request, su=Depends(require_session_user)):
     try:
@@ -565,7 +596,7 @@ async def stream_prices(request: Request, __=Depends(require_session)):
 @app.get("/api/instruments")
 def api_instruments(__=Depends(require_session)):
     """R13c: 标的收敛 — 只返回白名单 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT/XAUTUSDT"""
-    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT").split(","))  # R14: +XAUTUSDT 黄金现货
+    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(","))  # R14-M2: +SOL/NEAR/XRP
     SPOT_ONLY = {"XAUTUSDT"}  # R14: 现货独占标的 (linear 清单中剔除, 防前端误标永续)
     try:
         with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),

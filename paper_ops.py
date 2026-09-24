@@ -153,7 +153,7 @@ def _instruments_linear():
 
 def _native_allowed(sym):
     """R13c: 原生交易白名单 — 4核心标的恒可 (BTC/ETH/XAU/XAG), 其余需成交额 Top N"""
-    if sym in ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT"):
+    if sym in ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"):
         return True
     inst = _instruments_linear()
     it = inst.get(sym)
@@ -278,7 +278,7 @@ def _spot_px(sym):
 
 
 def _spot_allowed(sym):
-    if sym in ("BTCUSDT", "ETHUSDT", "XAUTUSDT"):  # R14: XAUTUSDT 黄金现货(Tether Gold)恒可交易
+    if sym in ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"):  # R14-M2: 现货白名单扩展
         return True
     inst = _instruments_spot()
     it = inst.get(sym)
@@ -561,6 +561,93 @@ def close_both(sym):
         return {"ok": True, "msg": f"已全平 {sym} (PnL {total:+.3f}$, 含funding累计{pos.get('funding_acc', 0):+.3f}$)"}
     finally:
         _unlock(f)
+
+
+def set_spot_sltp(sym, sl=None, tp=None):
+    """R14-M2: 现货止损/止盈挂单 (sl/tp 传 None 表示不设; 双 None 清除)"""
+    sym = (sym or "").upper()
+    if sl is None and tp is None:
+        return clear_spot_sltp(sym)
+    if sl is not None and tp is not None and float(sl) >= float(tp):
+        return {"ok": False, "error": "止损价必须低于止盈价"}
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        spot = (st.get("spot") or {}).get(sym)
+        if not spot:
+            return {"ok": False, "error": f"{sym} 无现货持仓"}
+        px = _spot_px(sym)
+        if not px:
+            return {"ok": False, "error": f"{sym} 无现货实时价"}
+        cur = (st.get("spot_sltp") or {}).get(sym) or {}
+        if sl is not None:
+            cur["sl"] = float(sl)
+        if tp is not None:
+            cur["tp"] = float(tp)
+        cur["set_ts"] = int(time.time())
+        st.setdefault("spot_sltp", {})[sym] = cur
+        _write(_resolve("CARRY_STATE"), st)
+        _audit("set_spot_sltp", sym, {"sl": cur.get("sl"), "tp": cur.get("tp")})
+        return {"ok": True, "msg": f"{sym} 已挂止盈止损 SL={cur.get('sl')} TP={cur.get('tp')}"}
+    finally:
+        _unlock(f)
+
+
+def clear_spot_sltp(sym):
+    """R14-M2: 清除现货止损/止盈挂单"""
+    sym = (sym or "").upper()
+    f = _lock()
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        if (st.get("spot_sltp") or {}).pop(sym, None) is None:
+            return {"ok": True, "msg": f"{sym} 无挂单"}
+        _write(_resolve("CARRY_STATE"), st)
+        _audit("clear_spot_sltp", sym, {})
+        return {"ok": True, "msg": f"{sym} 止损/止盈挂单已清除"}
+    finally:
+        _unlock(f)
+
+
+def spot_sltp_list():
+    """R14-M2: 全部现货挂单 → [{symbol, sl, tp, set_ts, px}]"""
+    st = _read(_resolve("CARRY_STATE"), {})
+    sltp = st.get("spot_sltp", {})
+    out = []
+    for sym, o in sltp.items():
+        out.append({"symbol": sym, "sl": o.get("sl"), "tp": o.get("tp"),
+                    "set_ts": o.get("set_ts", 0), "px": _spot_px(sym)})
+    return out
+
+
+def check_spot_sltp():
+    """R14-M2: 触发检查 (调度器每60s调用) — 现货只有做多: 跌破SL或涨破TP即市价全平"""
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        sltp = st.get("spot_sltp") or {}
+        if not sltp:
+            return []
+        hits = []
+        for sym, o in list(sltp.items()):
+            px = _spot_px(sym)
+            if not px:
+                continue
+            trigger = None
+            if o.get("sl") is not None and px <= o["sl"]:
+                trigger = f"止损 SL={o['sl']}"
+            elif o.get("tp") is not None and px >= o["tp"]:
+                trigger = f"止盈 TP={o['tp']}"
+            if trigger:
+                r = close_spot(sym)  # 市价全平 (含PnL入账+留痕+审计)
+                clear_spot_sltp(sym)
+                hits.append({"symbol": sym, "trigger": trigger, "px": px,
+                             "result": r.get("ok"), "msg": r.get("msg")})
+                _log_trade(_resolve("CARRY_TRADES"),
+                           dict(symbol=sym, action="SPOT_SLTP_HIT", px=px,
+                                trigger=trigger))
+        return hits
+    except Exception as e:
+        print(f"[spot-sltp] 检查异常: {e}", flush=True)
+        return []
 
 
 def close_spot_to_naked(sym, tp, sl):

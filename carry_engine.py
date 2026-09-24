@@ -459,6 +459,13 @@ def cycle():
           f"累计 {st.get('cum_pnl', 0):+.2f}$ 有效名义{N}$({N / max(NOTIONAL, 0.01):.2f}x)")
     for e in events:
         print("  ", e)
+    try:  # R14-M2: 现货止盈止损触发 (admin 由 pm-carry 60s 托管)
+        import paper_ops as _po
+        _hits = _po.check_spot_sltp()
+        if _hits:
+            print(f"  [sltp] 现货触发: {_hits}", flush=True)
+    except Exception as _e:
+        print(f"  [sltp] err: {_e}", flush=True)
     return st
 
 

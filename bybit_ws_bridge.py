@@ -17,11 +17,11 @@ import websocket
 BASE = os.path.expanduser("~/polymarket")
 # 深度/微结构标的 (盘口/K线/逐笔/墙/CVD 只对活跃套利标的, 保持 BTC/ETH)
 SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
-    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT").split(",") if s.strip()]  # R14: +XAUTUSDT 黄金现货
+    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(",") if s.strip()]  # R14-M2: +SOL/NEAR/XRP 双通道标的
 DEPTH_SYMS = list(SYM_WHITELIST)
 SPOT_ONLY_SYMS = [s for s in SYM_WHITELIST if s in ("XAUTUSDT",)]  # R14: 现货独占标的
 LINEAR_SYMS = [s for s in DEPTH_SYMS if s not in SPOT_ONLY_SYMS]    # 主连接(linear)只订合约标的
-SPOT_CH_SYMS = ["XAUTUSDT", "BTCUSDT", "ETHUSDT"]  # R14: 现货通道盘口/成交标的 (双通道标的现货盘口独立于合约)
+SPOT_CH_SYMS = ["XAUTUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"]  # R14-M2: 现货通道盘口/成交标的
 KLINE_TOPICS = [f"kline.1.{s}" for s in LINEAR_SYMS]
 BOOK_TOPICS = [f"orderbook.200.{s}" for s in LINEAR_SYMS]
 TRADE_TOPICS = [f"publicTrade.{s}" for s in LINEAR_SYMS]
@@ -42,7 +42,7 @@ WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
 BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
 INSTR_FILE = f"{BASE}/logs/bybit_instruments.json"
 STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01, "XAUUSDT": 0.01, "XAGUSDT": 0.01,
-             "XAUTUSDT": 0.01}  # R14: 黄金现货  # 最细聚合档位(实测tick: XAU/XAG均0.01美元/盎司)
+             "XAUTUSDT": 0.01, "SOLUSDT": 0.01, "NEARUSDT": 0.001, "XRPUSDT": 0.0001}  # R14: 黄金现货  # 最细聚合档位(实测tick: XAU/XAG均0.01美元/盎司)
 BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0, "XAUUSDT": 200.0, "XAGUSDT": 10000.0}  # 大单阈值(XAU:盎司 XAG:盎司)
 WALL_MULT = 8.0        # 墙: 单档size ≥ 同侧前20档均值×MULT
 WALL_SHARE = 0.25      # 或 ≥ 该侧总量×SHARE
@@ -184,7 +184,11 @@ def spot_mkt_loop():
     while True:
         def _spot_open(w):
             if SPOT_ONLY_TOPICS:
-                w.send(json.dumps({"op": "subscribe", "args": SPOT_ONLY_TOPICS}))
+                # R14-M2: 分批订阅 (单消息>10主题被Bybit静默拒, 27主题必须分批)
+                for i in range(0, len(SPOT_ONLY_TOPICS), 10):
+                    w.send(json.dumps({"op": "subscribe",
+                                       "args": SPOT_ONLY_TOPICS[i:i + 10]}))
+                    time.sleep(0.3)
         ws = websocket.WebSocketApp(SPOT_WS, on_message=on_spot_msg,
                                     on_open=_spot_open)
         WS_REF["spot_ws"] = ws
