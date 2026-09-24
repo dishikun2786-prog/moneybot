@@ -87,6 +87,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .trd-box{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 10px;padding:4px 0}
 .trd-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted rgba(255,255,255,.05);padding:2px 0}
 .tr-item{flex-wrap:wrap}
+.tr-arrow{color:var(--text-3);font-size:10px;margin-left:4px;vertical-align:top}
 .tr-item .t-l{flex-basis:calc(100% - 110px)}
 .t-px-wrap{position:relative}
 @keyframes tpflashup{0%{background:rgba(62,189,147,.35)}100%{background:transparent}}
@@ -2461,7 +2462,7 @@ async function loadAssets(){
   id('a-rows').innerHTML=rows;
 }
 var TR_MODE='all',TR_OFF=0,TR_TOTAL=0,TR_IDX=0;
-function trToggle(i){var d=id('trd-'+i);if(d){d.style.display=d.style.display==='none'?'block':'none'}}
+function trToggle(i){var d=id('trd-'+i);if(d){d.style.display=d.style.display==='none'?'block':'none'}var a=id('tra-'+i);if(a)a.textContent=d.style.display==='none'?'▸':'▾'}
 var ACT_ZH={NATIVE_OPEN:'开仓',NATIVE_CLOSE:'平仓',SPOT_BUY:'现货买入',SPOT_SELL:'现货卖出',
 SPOT_CLOSE:'现货平仓',MANUAL_OPEN_HEDGE:'一键对冲',MANUAL_CLOSE_ORPHAN:'平孤儿腿',
 MANUAL_CLOSE_PERP_LEG:'平永续腿',MANUAL_CLOSE_BOTH:'一键平仓',MANUAL_SPOT_TO_NAKED:'现货转裸腿',
@@ -2501,13 +2502,15 @@ function trRow(r){
   var qty=r.qty!=null&&r.qty!==undefined?' · '+num(r.qty,4):'';
   var px=r.entry?(' @ '+num(r.entry,4)):(r.price?(' @ '+num(r.price,4)):((r.px?(' @ '+num(r.px,4)):((r.exit?(' → '+num(r.exit,4)):'')))));
   var pnlHtml=pnl==null?'':('<div class="mono '+(pnl>=0?'up':'down')+'" style="font-size:13px;margin-top:2px">'+(pnl>0?'+':'')+num(pnl,2)+' $</div>');
-  var fees=r.fees?('<div class="dim xs">费用 '+num(r.fees,2)+'</div>'):'';
+  var fees=r.fees?('<span class="dim xs"> · 费 '+num(r.fees,2)+'</span>'):'';
   var order=r.order_id||r.spot||r.perp||'';
+  var arrow='<span class="tr-arrow" id="tra-'+ridx+'">▸</span>';
   return '<div class="tr-item" onclick="trToggle('+ridx+')" style="cursor:pointer"><div class="t-l">'
     +'<div><b>'+esc(sym||'—')+'</b><span class="dim xs"> · '+esc(act)+esc(dirz)+'</span>'
     +'<span class="tr-tag '+(r.mode==='live'?'live':'paper')+'">'+(r.mode==='live'?'实盘':'模拟')+'</span></div>'
-    +'<div class="dim xs">'+fmtT(r.ts)+qty+px+(order?' · 单#'+esc(String(order).slice(0,10)):'')+'</div>'
-    +fees+'</div><div class="t-r">'+pnlHtml+'</div></div>'
+    +'<div class="xs" style="margin-top:2px">'+fmtT(r.ts)+' · <b>方向</b> '+(dirz?esc(side):'—')+qty+px+fees+'</div>'
+    +(order?'<div class="dim xs">订单 #'+esc(String(order).slice(0,12))+'</div>':'')
+    +'</div><div class="t-r">'+pnlHtml+arrow+'</div></div>'
     +'<div class="tr-detail" id="trd-'+ridx+'" style="display:none">'+trDetail(r)+'</div>';
 }
 function trDetail(r){
