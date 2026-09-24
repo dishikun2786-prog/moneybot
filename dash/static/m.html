@@ -876,6 +876,8 @@ async function doLogout(){
 }
 /* ============ 实时行情 (SSE) ============ */
 var PRICES={};
+var SYM_CN={BTCUSDT:'比特币',ETHUSDT:'以太坊',XAUUSDT:'黄金',XAGUSDT:'白银'};
+var SYM_UNIT={XAUUSDT:'美元/盎司',XAGUSDT:'美元/盎司'};
 function priceOf(sym){var p=PRICES[sym]||{};return {last:Number(p.last)||0,spot:Number(p.spot)||0,chg:Number(p.change_pct)||0,turn:Number(p.turnover24h)||0}}
 var SSE_STATE='connecting';
 var SSE_FALLBACK=null;
@@ -984,9 +986,9 @@ function mkTap(sym,cat){
 var DET_SYM='',DET_CAT='linear',DET_IV='15m',DET_POLL=null;
 function openSymDetail(sym,cat){
   DET_SYM=sym;DET_CAT=cat||'linear';
-  id('d-sym').textContent=sym;
+  id('d-sym').textContent=(SYM_CN[sym]||sym)+' '+sym;
   var isSpot=cat==='spot';
-  id('d-sub').textContent=isSpot?'现货 · 可交易':'永续 · 可交易';
+  id('d-sub').textContent=(isSpot?'现货 · ':'永续 · ')+(SYM_UNIT[sym]||'美元')+' · 可交易';
   id('spot-order-card').style.display=isSpot?'':'none';
   id('d-act').innerHTML=isSpot
     ?''
@@ -1162,7 +1164,7 @@ function renderTickers(){
     var hue=(r.sym.charCodeAt(1)*7+(r.sym.charCodeAt(r.sym.length-1)||0))%360;
     list+='<div class="market-item" onclick="mkTap(\''+r.sym+'\',\''+r.cat+'\')">'
       +'<div class="mk" style="background:hsl('+hue+',55%,90%);color:hsl('+hue+',50%,32%)">'+coin+'</div>'
-      +'<div class="nm"><div class="t">'+r.sym+' <span class="xs muted">'+(r.cat==='linear'?'永续':'现货')+'</span></div><div class="s">'+esc(r.name)+'</div></div>'
+      +'<div class="nm"><div class="t">'+(SYM_CN[r.sym]||r.sym)+' <span class="xs muted">'+r.sym+'·'+(r.cat==='linear'?'永续':'现货')+'</span></div><div class="s">'+(SYM_UNIT[r.sym]||'美元')+'</div></div>'
       +'<div class="favbtn" onclick="event.stopPropagation();toggleFav(\''+r.sym+'\')">'+(isFav?'⭐':'☆')+'</div>'
       +'<div class="pr">'+(px?fmtPx(px):'—')+'</div><div class="chg '+(up?'up':'down')+'" style="width:64px">'+(up?'+':'')+num(chg,2)+'%</div></div>';
   }
@@ -1514,10 +1516,8 @@ var tradeSym='BTCUSDT';
 var KL_IV='15m';
 function setTradeSym(sym){
   tradeSym=sym;
-  id('t-sym').textContent=sym;
-  var nm='';
-  for(var i=0;i<INSTR.linear.length;i++){if(INSTR.linear[i].symbol===sym){nm=INSTR.linear[i].name;break}}
-  id('t-sub').textContent='永续'+(nm?' · '+nm:'');
+  id('t-sym').textContent=(SYM_CN[sym]||'')+' '+sym;
+  id('t-sub').textContent='永续 · '+(SYM_UNIT[sym]||'美元');
   go('trade');
   klStart();
 }
@@ -1573,7 +1573,7 @@ function openSymSearch(from){
   for(var i=0;i<rows.length;i++){
     var r=rows[i];
     html+='<div class="market-item" onclick="pickNativeSym(\''+r.symbol+'\')">'
-      +'<div class="nm"><div class="t">'+r.symbol+'</div><div class="s">'+esc(r.name||'')+'</div></div>'
+      +'<div class="nm"><div class="t">'+(SYM_CN[r.symbol]||r.symbol)+'</div><div class="s">'+esc(r.symbol)+'</div></div>'
       +'<div class="pr">'+(priceOf(r.symbol).last?fmtPx(priceOf(r.symbol).last):'—')+'</div></div>';
   }
   html+='</div>';
