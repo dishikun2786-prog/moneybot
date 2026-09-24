@@ -222,11 +222,13 @@ function renderUsers(){
       <td><span class="tag ${u.role}">${u.role==='admin'?'管理员':'用户'}</span></td>
       <td><span class="tag ${u.status}">${u.status==='active'?'正常':'已禁用'}</span></td>
       <td><span class="tag ${u.plan}">${u.plan_zh||u.plan}</span></td>
+      <td><span class="tag ${u.fee_tier?'vip':''}" title="费率等级">${u.fee_tier?'VIP费率(减半)':'标准费率'}</span></td>
       <td class="num">${fmtNum(s.capital)}</td><td class="num">${s.positions||0}</td>
       <td class="dim">${fmtTs(u.created_at)}</td><td class="dim">${fmtTs(u.last_login_at)}</td>
       <td>
         ${u.role!=='admin'?`
         <button class="mini" onclick="userPlan(${u.id},'${u.plan}')">套餐</button>
+        <button class="mini" onclick="userFeeTier(${u.id},${u.fee_tier||0})">${u.fee_tier?'降标准':'升VIP'}</button>
         <button class="mini" onclick="userPw(${u.id})">重置密码</button>
         ${u.status==='active'
           ?`<button class="mini danger" onclick="userStatus(${u.id},'disabled')">禁用</button>`
@@ -243,6 +245,12 @@ async function userStatus(uid,st){
     <button class="btn ghost" onclick="mclose()">取消</button></div>`);
 }
 async function doStatus(uid,st){const {d}=await j('POST',`/api/admin/user/${uid}/status`,{status:st});toast(d.ok?'已更新':'失败: '+(d.msg||d.error),!d.ok);loadUsers()}
+async function userFeeTier(uid,cur){
+  const t=cur?0:1;
+  modal(`<h3>费率等级 #${uid}</h3><p class="dim" style="font-size:13px">${t?'VIP：全部交易费率减半（现货0.05%/永续约0.028%）':'标准：默认费率（现货0.1%/永续约0.055%）'}</p>
+    <div class="row"><button class="btn" onclick="mclose();doFeeTier(${uid},${t})">确认${t?'升VIP':'降标准'}</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
+}
+async function doFeeTier(uid,t){const {d}=await j('POST',`/api/admin/user/${uid}/fee-tier`,{tier:t});toast(d.ok?'费率已更新':'失败: '+(d.msg||d.error),!d.ok);loadUsers()}
 async function userPlan(uid,cur){
   modal(`<h3>用户 #${uid} 套餐</h3>
     <div class="row"><select id="np">

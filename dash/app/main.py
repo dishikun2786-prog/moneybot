@@ -757,8 +757,12 @@ async def admin_funds_review(request: Request, su=Depends(require_admin)):
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
-    return funds.review_withdraw(su["u"], body.get("id"), bool(body.get("approve")),
-                                 body.get("note", ""))
+    r = funds.review_withdraw(su["u"], body.get("id"), bool(body.get("approve")),
+                              body.get("note", ""))
+    users.audit_log(int(su["u"]), "withdraw_review",
+                    f"提现单#{body.get('id')} {'批准' if body.get('approve') else '驳回'}",
+                    "", f"admin:{su['u']}")  # R14-M3: 管理操作审计全覆盖
+    return r
 
 
 @app.post("/api/admin/funds/adjust")
@@ -776,6 +780,9 @@ async def admin_funds_adjust(request: Request, su=Depends(require_admin)):
         return {"ok": False, "error": "金额为 0"}
     bal = funds.add_balance(int(body.get("uid")), amt, "admin",
                             body.get("note", ""), f"管理员调整 ({su['u']})")
+    users.audit_log(int(su["u"]), "funds_adjust",
+                    f"用户{body.get('uid')}余额调整 {amt:+.2f} USDT ({body.get('note','')})",
+                    "", f"admin:{su['u']}")  # R14-M3: 管理操作审计全覆盖
     return {"ok": True, "new_balance": bal}
 
 
@@ -1106,6 +1113,21 @@ async def api_admin_status(uid: int, request: Request, su=Depends(require_admin)
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     ok, msg = users.set_status(uid, body.get("status", ""))
     return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/user/{uid}/fee-tier")
+async def api_admin_fee_tier(uid: int, request: Request, su=Depends(require_admin)):
+    """R14-M3: 设置用户费率等级 0=标准 1=VIP(减半)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "bad request"}
+    tier = int(body.get("tier", 0))
+    if tier not in (0, 1):
+        return {"ok": False, "error": "tier 仅支持 0/1"}
+    users.set_fee_tier(uid, tier)
+    users.audit_log(int(su["u"]), "fee_tier", f"用户{uid}费率等级改为 tier={tier}", "", f"admin:{su['u']}")
+    return {"ok": True, "msg": f"已设置 tier={tier} (标准/VIP)"}
 
 
 @app.post("/api/admin/user/{uid}/plan")

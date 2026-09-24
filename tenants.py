@@ -16,6 +16,11 @@ _LOCK = threading.RLock()
 _CUR = 1  # 默认租户 = admin
 
 
+def current_uid():
+    """R14-M3: 当前租户上下文 uid (费率分级等按租户配置读取用)"""
+    return int(_CUR if _CUR is not None else 1)
+
+
 @contextmanager
 def tenant(uid):
     """在当前租户上下文中执行 (嵌套安全, 退出恢复)"""

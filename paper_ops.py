@@ -49,6 +49,22 @@ def __getattr__(name):
 
 FEE_SPOT = 0.001
 FEE_PERP = 0.00055
+# R14-M3: 费率分级乘数 (tier 0=标准1.0 / tier 1=VIP 0.5)
+
+
+def _fee_mult():
+    """R14-M3: 按租户费率等级返回乘数 (延迟导入防环, 失败回退1.0)"""
+    try:
+        import os as _os
+        import sys as _s
+        import tenants as _t
+        _sp = _os.path.join(_t.base(), "dash")
+        if _sp not in _s.path:
+            _s.path.insert(0, _sp)
+        from dash.app import users as _u
+        return 0.5 if _u.get_fee_tier(_t.current_uid()) == 1 else 1.0
+    except Exception:
+        return 1.0
 MAX_NAKED = 2
 MAX_NAKED_NOTIONAL = 50.0
 
@@ -209,7 +225,7 @@ def open_native(sym, side, notional):
             return {"ok": False, "error": f"{sym} 已有原生持仓"}
         if len(nat) >= NATIVE_MAX_POS:
             return {"ok": False, "error": f"原生仓位已达上限{NATIVE_MAX_POS}"}
-        fees = NATIVE_FEE * notional
+        fees = NATIVE_FEE * _fee_mult() * notional
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
         st.setdefault("native", {})[sym] = dict(side=side, entry=entry, notional=notional,
                                                 qty=qty, t0=time.time())
@@ -237,7 +253,7 @@ def close_native(sym):
             return {"ok": False, "error": f"{sym} 无原生持仓"}
         entry, n, side = nat["entry"], nat.get("notional", 10.0), nat["side"]
         pnl = ((px["perp"] - entry) if side == "long" else (entry - px["perp"])) / entry * n
-        fees = NATIVE_FEE * n
+        fees = NATIVE_FEE * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
         del st["native"][sym]
         _write(_resolve("CARRY_STATE"), st)
@@ -417,7 +433,7 @@ def native_positions():
         pnl = None
         if cur and entry:
             pnl = ((cur - entry) if nat["side"] == "long" else (entry - cur)) / entry * nat.get("notional", 10.0)
-            pnl = round(pnl - NATIVE_FEE * nat.get("notional", 10.0), 4)
+            pnl = round(pnl - NATIVE_FEE * _fee_mult() * nat.get("notional", 10.0), 4)
         out.append({"symbol": sym, "side": nat["side"], "entry": entry,
                     "notional": nat.get("notional"), "qty": nat.get("qty"),
                     "last": cur, "pnl": pnl, "t0": nat.get("t0")})
@@ -483,7 +499,7 @@ def close_orphan(sym):
         n = orph.get("notional", 10.0)
         d = orph.get("dir", "fwd")
         pnl = ((px["spot"] - orph["spot_entry"]) if d == "fwd" else
-               (orph["spot_entry"] - px["spot"])) / orph["spot_entry"] * n - FEE_SPOT * n
+               (orph["spot_entry"] - px["spot"])) / orph["spot_entry"] * n - FEE_SPOT * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
@@ -513,7 +529,7 @@ def close_perp_leg(sym):
         n = pos.get("notional", 10.0)
         perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
-        fees = FEE_PERP * n
+        fees = FEE_PERP * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         st.setdefault("orphans", {})[sym] = dict(spot_entry=pos["spot_entry"], t0=pos["t0"],
                                                  next_funding_ts=pos.get("next_funding_ts", 0),
@@ -680,7 +696,7 @@ def close_spot_to_naked(sym, tp, sl):
             return {"ok": False, "error": f"名义{n}$超过裸腿上限{MAX_NAKED_NOTIONAL}$"}
         spot_pnl = ((px["spot"] - pos["spot_entry"]) if d == "fwd" else
                     (pos["spot_entry"] - px["spot"])) / pos["spot_entry"] * n
-        fees = FEE_SPOT * n
+        fees = FEE_SPOT * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + spot_pnl - fees, 4)
         st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=n, tp=tp, sl=sl,
                                                t0=time.time(), funding_acc=pos.get("funding_acc", 0.0),
@@ -715,7 +731,7 @@ def close_naked(sym):
         d = nk.get("dir", "fwd")
         perp_pnl = ((nk["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - nk["perp_entry"])) / nk["perp_entry"] * n
-        fees = FEE_PERP * n
+        fees = FEE_PERP * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         del st["naked"][sym]
         _write(_resolve("CARRY_STATE"), st)
@@ -907,7 +923,7 @@ def open_naked(sym, dir_, notional, tp, sl):
         naked = st.get("naked", {})
         if len(naked) >= MAX_NAKED:
             return {"ok": False, "error": f"裸腿数已达上限{MAX_NAKED}"}
-        fees = FEE_PERP * notional
+        fees = FEE_PERP * _fee_mult() * notional
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
         st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=notional, tp=tp, sl=sl,
                                                t0=time.time(), funding_acc=0.0,

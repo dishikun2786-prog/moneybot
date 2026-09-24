@@ -90,6 +90,37 @@ def get_user(uid):
             con.close()
 
 
+def _ensure_fee_tier(con):
+    """R14-M3: users 表加 fee_tier 列 (0=标准 1=VIP), 幂等"""
+    cols = [r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
+    if "fee_tier" not in cols:
+        con.execute("ALTER TABLE users ADD COLUMN fee_tier INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+
+
+def get_fee_tier(uid):
+    """R14-M3: 用户费率等级 0=标准 1=VIP"""
+    con = _db()
+    try:
+        _ensure_fee_tier(con)
+        r = con.execute("SELECT fee_tier FROM users WHERE id=?", (int(uid),)).fetchone()
+        return int(r[0]) if r else 0
+    finally:
+        con.close()
+
+
+def set_fee_tier(uid, tier):
+    """R14-M3: 设置费率等级 (0/1)"""
+    con = _db()
+    try:
+        _ensure_fee_tier(con)
+        con.execute("UPDATE users SET fee_tier=? WHERE id=?", (int(tier), int(uid)))
+        con.commit()
+        return True
+    finally:
+        con.close()
+
+
 def get_by_username(username):
     with _lock:
         con = _db()
@@ -104,9 +135,10 @@ def list_users():
     with _lock:
         con = _db()
         try:
+            _ensure_fee_tier(con)
             rows = con.execute(
                 "SELECT id, username, email, role, status, plan, plan_expires, "
-                "created_at, last_login_at FROM users ORDER BY id").fetchall()
+                "created_at, last_login_at, fee_tier FROM users ORDER BY id").fetchall()
             return [dict(r) for r in rows]
         finally:
             con.close()

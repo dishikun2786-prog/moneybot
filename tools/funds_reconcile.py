@@ -24,6 +24,13 @@ def main():
     else:
         print(f"[funds] 对账失败: {r.get('error')}", flush=True)
     funds.track_withdraw_status()
+    rc = funds.reconcile_balance_check()  # R14-M3: 三方核对 (Bybit余额 vs 账本 vs 在途)
+    if rc.get("ok"):
+        d = rc.get("data", {})
+        print(f"[funds] 三方核对: Bybit {d.get('bybit_usdt')} vs 预期 {d.get('expected')} (差 {d.get('diff')})",
+              flush=True)
+    else:
+        print(f"[funds] 三方核对跳过/失败: {rc.get('error')}", flush=True)
     # 每日一次: 套餐到期降级 (UTC 02:50~03:10 窗口)
     hh = time.strftime("%H%M", time.gmtime())
     if "0250" <= hh <= "0310":

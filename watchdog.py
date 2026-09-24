@@ -47,6 +47,29 @@ def checks(prev_restarts):
     fr = subprocess.run(["free", "-m"], capture_output=True, text=True).stdout.splitlines()[1].split()
     if int(fr[6]) < 300:
         probs.append(f"可用内存仅 {fr[6]}MB (阈值300)")
+    # R14-M3: 平台密钥轮换告警 (>90天未换或缺失 set_ts)
+    try:
+        pkf = "/home/ubuntu/polymarket/.platform_keys.json"
+        if os.path.exists(pkf):
+            with open(pkf) as _f:
+                _pk = json.load(_f)
+            _set = int(_pk.get("set_ts") or 0)
+            if _set and (time.time() - _set) > 90 * 86400:
+                probs.append(f"平台Bybit密钥已{int((time.time()-_set)//86400)}天未轮换(建议90天内更新)")
+        else:
+            probs.append("平台Bybit密钥未配置(充值提现链路不可用)")
+    except Exception:
+        pass
+    # R14-M3: 资金三方核对差异告警
+    try:
+        fp = "/home/ubuntu/polymarket/dash/funds_health.json"
+        if os.path.exists(fp) and time.time() - os.path.getmtime(fp) < 600:
+            with open(fp) as _f:
+                fh = json.load(_f)
+            if abs(fh.get("diff", 0)) >= 5.0:
+                probs.append(f"资金三方核对差异 {fh['diff']} USDT (Bybit {fh.get('bybit_usdt')} vs 预期 {fh.get('expected')})")
+    except Exception:
+        pass
     # R14-M1: K线 REST 回源健康 (429限频/失败率告警)
     try:
         import json as _j

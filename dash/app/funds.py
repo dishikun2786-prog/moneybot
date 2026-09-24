@@ -120,7 +120,9 @@ def _now():
 # ---------- 平台 Bybit 密钥 ----------
 
 def save_platform_key(api_key, secret):
-    enc = json.dumps({"key": keys_mod.encrypt(api_key), "secret": keys_mod.encrypt(secret)})
+    # R14-M3: 记录保存时间 (密钥轮换告警用)
+    enc = json.dumps({"key": keys_mod.encrypt(api_key), "secret": keys_mod.encrypt(secret),
+                      "set_ts": int(time.time())})
     tmp = PK_FILE + ".tmp"
     with open(tmp, "w") as f:
         f.write(enc)
@@ -483,6 +485,44 @@ def review_withdraw(admin_uid, order_id, approve, note=""):
             return {"ok": True, "msg": f"已打款 {o['amount']} USDT → {o['address'][:8]}… (Bybit id {txid})"}
         finally:
             con.close()
+
+
+def reconcile_balance_check():
+    """R14-M3: 三方核对 — Bybit实际USDT余额 vs balance表总和 vs 在途(冻结+未确认充值) → health快照
+    允许容差: 在途资金估算误差 (充值匹配延迟期)
+    """
+    try:
+        pk = platform_key()
+        if not pk:
+            return {"ok": False, "error": "平台密钥未配置"}
+        from bybit_live import _req
+        d = _req(pk["key"], pk["secret"], "GET", "/v5/asset/transfer/query-account-coins-balance",
+                 {"accountType": "UNIFIED", "coin": "USDT"})
+        # Bybit v5: result.balance 是 list [{coin, walletBalance, ...}]
+        _bals = ((d.get("result") or {}).get("balance")) or []
+        _hit = [x for x in _bals if x.get("coin") == "USDT"] if isinstance(_bals, list) else []
+        bal = float(_hit[0].get("walletBalance") or 0) if _hit else 0.0
+    except Exception as e:
+        return {"ok": False, "error": f"Bybit余额拉取失败: {e}"}
+    con = _con()
+    try:
+        total = con.execute("SELECT COALESCE(SUM(usdt),0) FROM balance").fetchone()[0]
+        frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending','paid','submitting')").fetchone()[0]
+        pend_dep = con.execute("SELECT COALESCE(SUM(amount_unique),0) FROM deposit_orders WHERE status='pending'").fetchone()[0]
+    finally:
+        con.close()
+    expected = round(float(total), 2) + round(float(frozen), 2) - round(float(pend_dep), 2)
+    diff = round(bal - expected, 2)
+    snap = {"bybit_usdt": bal, "db_total": round(float(total), 2),
+            "frozen_withdraw": round(float(frozen), 2), "pending_deposit": round(float(pend_dep), 2),
+            "expected": expected, "diff": diff, "ts": int(time.time())}
+    try:
+        hp = os.path.join(os.path.dirname(DB_FILE), "funds_health.json")
+        with open(hp, "w", encoding="utf-8") as f:
+            json.dump(snap, f)
+    except Exception:
+        pass
+    return {"ok": abs(diff) < 5.0, "data": snap}  # 容差 5 USDT
 
 
 def track_withdraw_status():

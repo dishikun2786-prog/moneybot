@@ -2600,6 +2600,17 @@ async function admFsetSave(){
   if(r.data&&r.data.ok){toast('✅ 参数已保存');loadAdmFunds()}else{toast('❌ '+apiErr(r))}
 }
 var ADMA={offset:0,rows:[]};
+async function admFeeTier(uid,cur){
+  /* R14-M3: 费率等级切换 (0=标准 1=VIP减半) */
+  var t=cur?0:1;
+  openSheet('<h3>费率等级 #'+uid+'</h3><p class="xs muted">'+(t?'VIP：全部交易费率减半（现货0.05%）':'标准：默认费率（现货0.1%）')+'</p>'
+    +'<button class="btn accent" onclick="admFeeTierGo('+uid+','+t+')">确认'+(t?'升VIP':'降标准')+'</button>');
+}
+async function admFeeTierGo(uid,t){
+  var r=await api('/api/admin/user/'+uid+'/fee-tier',{method:'POST',body:JSON.stringify({tier:t})});
+  if(r.data&&r.data.ok){closeSheet();toast('✅ 费率已更新');loadAdmin()}
+  else{toast('❌ '+(r.data&&r.data.error||'失败'))}
+}
 async function loadAdmAudit(offset){
   if(offset===0){ADMA.offset=0;ADMA.rows=[];}
   var r=await api('/api/admin/audit?offset='+ADMA.offset+'&limit=30');
@@ -2639,12 +2650,13 @@ async function loadAdmin(){
     html+='<div class="user-item" id="ur-'+u.id+'">'
       +'<div class="av">'+esc((u.username||'?').charAt(0).toUpperCase())+'</div>'
       +'<div class="u"><div class="n">'+esc(u.username)+(u.role==='admin'?' <span class="badge yellow">管理员</span>':'')+'</div>'
-      +'<div class="m">'+PLAN_ZH[u.plan]+' · 模拟资金 $'+num(u.capital,2)+' · 已实现 '+num(u.realized_total,2)+'</div></div>'+st
+      +'<div class="m">'+PLAN_ZH[u.plan]+' · '+(u.fee_tier?'<span class="badge blue">VIP费率</span> ':'')+'模拟资金 $'+num(u.capital,2)+' · 已实现 '+num(u.realized_total,2)+'</div></div>'+st
       +'<div class="ops">'
       +'<select onchange="admPlan('+u.id+',this.value)"><option value="free"'+(u.plan==='free'?' selected':'')+'>免费版</option><option value="pro"'+(u.plan==='pro'?' selected':'')+'>专业版</option><option value="live"'+(u.plan==='live'?' selected':'')+'>实盘版</option></select>'
       +(u.role!=='admin'?'<button class="'+(u.status==='active'?'bad':'')+'" onclick="admStatus('+u.id+')">'+(u.status==='active'?'禁用':'启用')+'</button>':'')
       +'<button onclick="admPwd('+u.id+')">改密</button>'
-      +'<button onclick="admLimits('+u.id+')">限额</button></div></div>';
+      +'<button onclick="admLimits('+u.id+')">限额</button>'
+      +'<button onclick="admFeeTier('+u.id+','+(u.fee_tier||0)+')">'+(u.fee_tier?'降标准':'升VIP')+'</button></div></div>';
   }
   if(more)html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadMoreUsers()">加载更多用户</button>';
   id('admin-users').innerHTML=html||'<div class="dim small" style="padding:8px">暂无用户</div>';
