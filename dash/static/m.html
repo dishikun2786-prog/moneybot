@@ -823,9 +823,10 @@ function toast(m,kind){
 async function api(path, opts){
   opts=opts||{};
   opts.headers=Object.assign({'Content-Type':'application/json'},opts.headers||{});
+  var noAuth=!!opts.noAuth;
   try{
     var r=await fetch(path,opts);
-    if(r.status===401){go('login');throw new Error('未登录')}
+    if(r.status===401&&!noAuth){go('login');throw new Error('未登录')}
     var d=null;
     try{d=await r.json()}catch(e){d=null}
     return {status:r.status, data:d};
@@ -917,7 +918,7 @@ async function doLogin(){
   if(!u||!p){toast('请输入账号和密码');return}
   if(!c||!capIds.login){toast('请输入验证码');return}
   var b=id('btn-login');b.disabled=true;b.textContent='登录中…';
-  var r=await api('/api/login',{method:'POST',body:JSON.stringify({username:u,password:p,captcha_id:capIds.login,captcha_code:c})});
+  var r=await api('/api/login',{method:'POST',noAuth:true,body:JSON.stringify({username:u,password:p,captcha_id:capIds.login,captcha_code:c})});
   b.disabled=false;b.textContent='登 录';
   if(r.data&&r.data.ok){toast('登录成功');afterLogin(r.data.user)}else{toast(apiErr(r));loadCaptcha('login')}
 }
@@ -929,7 +930,7 @@ async function doRegister(){
   if(!id('r-terms').checked){toast('请先勾选同意服务条款');return}
   if(!c||!capIds.reg){toast('请输入验证码');return}
   var b=id('btn-register');b.disabled=true;b.textContent='注册中…';
-  var r=await api('/api/auth/register',{method:'POST',body:JSON.stringify({username:u,email:m,password:p,captcha_id:capIds.reg,captcha_code:c,terms:true})});
+  var r=await api('/api/auth/register',{method:'POST',noAuth:true,body:JSON.stringify({username:u,email:m,password:p,captcha_id:capIds.reg,captcha_code:c,terms:true})});
   b.disabled=false;b.textContent='注册并领取 $100 模拟资金';
   if(r.data&&r.data.ok){toast('注册成功！$100 模拟资金已到账');afterLogin(r.data.user)}else{toast(apiErr(r));loadCaptcha('reg')}
 }
