@@ -12,6 +12,8 @@ import threading
 import time
 from collections import deque
 
+import threading
+threading.excepthook = lambda args: print(f"[bridge] 线程异常: {args.exc_value}", flush=True)  # R14-M7: 任何线程未捕获异常打日志不死静默
 import websocket
 
 BASE = os.path.expanduser("~/polymarket")
@@ -353,6 +355,23 @@ def _agg_window(q, step, now, wins=(15, 60, 300)):
     return grid
 
 
+def _kline_snap_out():
+    """R14-M7: depth 帧附带K线末根快照 — 前端K线与盘口/成交同帧(1s)刷新, 不再依赖3s REST轮询"""
+    out = {}
+    with LOCK:  # 必须加锁: on_message 线程并发写 KLINES, 无锁遍历会 RuntimeError 杀线程
+        items = [(s, dict(p)) for s, p in KLINES.items()]
+    for sym, per in items:
+        for iv, roots in per.items():
+            if not roots:
+                continue
+            st = max(roots.keys())
+            k = roots[st]
+            out.setdefault(sym, {})[iv] = {"t": int(st), "o": float(k["open"]), "h": float(k["high"]),
+                                          "l": float(k["low"]), "c": float(k["close"]),
+                                          "v": float(k["volume"]), "cf": bool(k.get("confirm"))}
+    return out
+
+
 def depth_loop():
     """每秒: 盘口快照+逐笔带+聚合+CVD+墙检测+分钟指标 → orderbook.json 原子写; 多路留痕"""
     last_min = ""
@@ -456,6 +475,7 @@ def depth_loop():
             _append_log(BIG_LOG, rec)
         snap = {"ts": now, "books": books_out, "trades": trades_out, "aggs": aggs_out,
                 "books_spot": books_spot_out, "trades_spot": trades_spot_out,  # R14: 现货通道盘口/成交
+                "kline_snap": _kline_snap_out(),  # R14-M7: K线末根快照(K线与盘口成交同帧1s)
                 "px": {s: {"last": PRICES.get(s, {}).get("last"),
                           "chg": PRICES.get(s, {}).get("change_pct", 0)} for s in DEPTH_SYMS},  # R14: 现价+涨跌并入depth流
                 "px_spot": {s: PRICES.get(s, {}).get("spot") for s in SPOT_CH_SYMS},

@@ -1883,7 +1883,7 @@ async function klWatch(){
       category:TRADE_CAT})});  // R14: 按通道分类
   }catch(e){}
 }
-function klStart(){
+function klStart(){applyKSnap();
   if(KL_POLL)clearInterval(KL_POLL);
   KL_RESET_VIEW=true;
   klBindSvg();
@@ -1903,6 +1903,29 @@ id('kbar').addEventListener('click',function(e){
 });
 /* 盘口 */
 var DEPTH={},DEPTH_TR={},DEPTH_SPOT={},DEPTH_TR_SPOT={};  // R14: 现货通道数据
+var KSNAP={};  // R14-M7: depth帧附带的K线末根快照
+var KSNAP_TS=0;
+var KL_IV_NUM_MAP={'5m':'5','15m':'15','1h':'60','4h':'240','1d':'D','1w':'W','1M':'M'};
+function applyKSnap(){
+  /* R14-M7: 用 depth 帧的K线末根直接刷新蜡烛 (与盘口/成交同帧1s, 不再依赖3s REST) */
+  if(curScreen!=='trade'||!KL_BARS||!KL_BARS.length)return;
+  var per=KSNAP[tradeSym];
+  if(!per)return;
+  var ivn=KL_IV_NUM_MAP[KL_IV]||'15';
+  var k=per[ivn];
+  if(!k)return;
+  var last=KL_BARS[KL_BARS.length-1];
+  if(k.t>last.t){
+    KL_BARS.push({t:k.t,o:k.o,h:k.h,l:k.l,c:k.c,v:k.v});
+    if(KL_BARS.length>300)KL_BARS.shift();
+  }else if(k.t===last.t){
+    last.o=k.o;last.h=k.h;last.l=k.l;last.c=k.c;last.v=k.v;
+  }else return;
+  KSNAP_TS=Date.now();
+  renderKlineSVG(KL_BARS, KL_IV, true, id('kline-svg'));
+  var hu=id('kline-hud');
+  if(hu){hu.style.display='block';hu.innerHTML='<span class="up">●</span> 实时 · 更新于 '+new Date().toTimeString().slice(0,8);}
+}
 function startDepth(){
   try{
     var es=new EventSource('/api/stream/depth');
@@ -1919,6 +1942,7 @@ function startDepth(){
           for(var k in d.px){var v=d.px[k];if(v&&typeof v==='object'){PRICES[k]=PRICES[k]||{};PRICES[k].last=v.last;PRICES[k].change_pct=v.chg}}
         }
         if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}} if(d&&d.basis){for(var bk in d.basis){BASIS[bk]=d.basis[bk]} renderBasis();}
+        if(d&&d.kline_snap){KSNAP=d.kline_snap; if(curScreen==='trade')applyKSnap();}  // R14-M7: K线与盘口成交同帧
         // R13e: 盘口/成交渲染与 depth SSE 同源 (1s直驱, 不依赖价格SSE)
         if(curScreen==='trade'){renderOb();renderTrades();renderTradePx();}
         if(curScreen==='markets'||curScreen==='assets'){renderTickers();}
