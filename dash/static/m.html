@@ -1759,12 +1759,16 @@ async function nativeCloseGo(sym,live){
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
   else{toast('❌ '+apiErr(r))}
 }
-async function loadNativePositions(){
+async function loadNativePositions(target){
   var r=await api('/api/native/positions');
   var ps=(r.data&&r.data.positions)||[];
-  var el=id('nt-pos');
+  var el=id(target||'nt-pos');
   if(!el)return;
-  if(!ps.length){el.innerHTML='<div class="dim xs" style="padding:6px 2px">当前无原生持仓</div>';return}
+  if(!ps.length){
+    if(target==='pos-list')return;  // 空时保持 pos-list 现状(空态由renderPosCards负责)
+    el.innerHTML='<div class="dim xs" style="padding:6px 2px">当前无原生持仓</div>';return
+  }
+  if(target==='pos-list'){el.innerHTML='';}  // 有原生仓则清掉'暂无持仓'空态
   var html='';
   for(var i=0;i<ps.length;i++){
     var p=ps[i];
@@ -1787,8 +1791,7 @@ function renderKlineSVG(bars, iv, live, el){
   }
   var W=340,H=150,VH=32,pad=2, n=bars.length;
   var v=KL_VIEW;
-  var cwBase=(W-pad*2)/n-1;
-  var cw=Math.max(2,cwBase*v.zoom);
+  var cw=Math.max(2,3*v.zoom);  // R13g修复: 基准3px/根×zoom (n大时cwBase负值导致无法放大)
   var viewN=Math.max(3,Math.floor((W-pad*2)/cw));
   v.off=Math.max(0,Math.min(v.off,n-viewN));
   var i0=v.off,i1=Math.min(n,v.off+viewN);
@@ -1838,7 +1841,7 @@ function klZoom(d){
 }
 function klBarsView(){
   var v=KL_VIEW,n=KL_BARS.length;
-  var cwBase=(340-4)/n-1,cw=Math.max(2,cwBase*v.zoom);
+  var cw=Math.max(2,3*KL_VIEW.zoom);  // R13g修复: 固定基准, klBarsView与render一致
   var viewN=Math.max(3,Math.floor((340-4)/cw));
   return {i0:v.off,i1:Math.min(n,v.off+viewN),step:(340-4)/viewN,n:n};
 }
@@ -2023,6 +2026,7 @@ async function loadPositions(){
   if(!r.data){return}
   if(r.data.capital)QT_BASE=Number(r.data.capital);  // R13f: 比例按钮基准=纸面本金
   renderPosCards(r.data);
+  loadNativePositions('pos-list');  // R13g: 原生仓并入持仓tab(底部按钮下单的单子在这里可见)
 }
 function renderModes(){
   var carry=MODES.carry==='manual'?'manual':'auto';
