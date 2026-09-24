@@ -286,24 +286,54 @@ def _mtm_pm(st):
 
 
 def _mtm_carry(st):
-    """现货永续套利持仓按最新ticker盯市"""
-    pos = st.get("positions") or {}
-    if not pos:
-        return 0.0
-    rows = _q(f"""WITH latest AS (
-        SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY ts DESC) rn
-        FROM read_parquet('{config.DATA}/carry_1m/year=*/month=*/*.parquet'))
-        SELECT symbol, spot, perp_mark FROM latest WHERE rn=1""")
-    m = {r[0]: (r[1], r[2]) for r in rows}
+    """模拟盘 carry 侧全部持仓盯市: 双腿/孤儿/裸腿/原生/现货
+    R14-A3 修复: ①名义不再写死10$ ②补孤儿/裸腿/原生/现货四类MTM
+    ③价格源改 paper_ops._prices 实时SNAP (与开平仓同源, 原parquet有lag且只覆盖双腿)"""
+    try:
+        from paper_ops import _prices
+        px_all = _prices()
+    except Exception:
+        px_all = {}
     tot = 0.0
-    for sym, p in pos.items():
-        cur = m.get(sym)
-        if not cur:
+    for sym, p in (st.get("positions") or {}).items():
+        cur = px_all.get(sym, {})
+        spot_now, perp_now = cur.get("spot"), cur.get("perp")
+        if not perp_now:
             continue
-        spot_now, perp_now = cur
-        spot_pnl = (spot_now - p["spot_entry"]) / p["spot_entry"] * 10.0
-        perp_pnl = (p["perp_entry"] - perp_now) / p["perp_entry"] * 10.0
-        tot += spot_pnl + perp_pnl + p.get("funding_acc", 0.0)
+        n = float(p.get("notional", 10.0))
+        d = p.get("dir", "fwd")
+        sp = ((spot_now - p["spot_entry"]) if d == "fwd" else (p["spot_entry"] - spot_now)) / p["spot_entry"] * n if spot_now else 0.0
+        pp = ((p["perp_entry"] - perp_now) if d == "fwd" else (perp_now - p["perp_entry"])) / p["perp_entry"] * n
+        tot += sp + pp + float(p.get("funding_acc", 0.0))
+    for sym, o in (st.get("orphans") or {}).items():
+        cur = px_all.get(sym, {})
+        spot_now = cur.get("spot")
+        if not spot_now:
+            continue
+        n = float(o.get("notional", 10.0))
+        d = o.get("dir", "fwd")
+        tot += ((spot_now - o["spot_entry"]) if d == "fwd" else (o["spot_entry"] - spot_now)) / o["spot_entry"] * n
+    for sym, nk in (st.get("naked") or {}).items():
+        cur = px_all.get(sym, {})
+        perp_now = cur.get("perp")
+        if not perp_now:
+            continue
+        n = float(nk.get("notional", 10.0))
+        d = nk.get("dir", "fwd")
+        tot += ((nk["perp_entry"] - perp_now) if d == "fwd" else (perp_now - nk["perp_entry"])) / nk["perp_entry"] * n + float(nk.get("funding_acc", 0.0))
+    for sym, nat in (st.get("native") or {}).items():
+        cur = px_all.get(sym, {})
+        perp_now = cur.get("perp")
+        if not perp_now:
+            continue
+        n = float(nat.get("notional", 10.0))
+        tot += ((perp_now - nat["entry"]) if nat["side"] == "long" else (nat["entry"] - perp_now)) / nat["entry"] * n
+    for sym, sp_ in (st.get("spot") or {}).items():
+        cur = px_all.get(sym, {})
+        spot_now = cur.get("spot")
+        if not spot_now:
+            continue
+        tot += (spot_now - sp_["avg_cost"]) * float(sp_["qty"])
     return tot
 
 
@@ -456,6 +486,64 @@ def cycle():
 _KLINE_CACHE = {}  # REST回源缓存: {(symbol,interval): (ts, bars)}
 
 
+def _kline_gap_ms(interval):
+    return {"1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000,
+            "4h": 14400000, "D": 86400000, "W": 604800000}.get(interval, 900000)
+
+
+def _kline_has_gap(bars, interval):
+    """相邻根间隔 > 1.5x 期望间隔 → 存在停推缺口 (R14-B2)"""
+    if len(bars) < 3:
+        return False
+    g = _kline_gap_ms(interval)
+    return any(bars[i + 1]["t"] - bars[i]["t"] > g * 1.5 for i in range(len(bars) - 1))
+
+
+def _rest_klines(symbol, interval, limit=1000):
+    """Bybit v5 REST kline 回源 (linear+spot 双分类重试) → bars 列表"""
+    import urllib.request
+    iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
+          "D": "D", "W": "W", "M": "M"}.get(interval, "15")
+    for cat in ("linear", "spot"):
+        url = (f"https://api.bybit.com/v5/market/kline?category={cat}"
+               f"&symbol={symbol}&interval={iv}&limit={limit}")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                j = json.load(r)
+            lst = ((j.get("result") or {}).get("list")) or []
+            bars = [{"t": int(x[0]), "o": float(x[1]), "h": float(x[2]),
+                     "l": float(x[3]), "c": float(x[4]), "v": float(x[5])}
+                    for x in lst]
+            if bars:
+                bars.reverse()
+                return bars
+        except Exception:
+            continue
+    return []
+
+
+def _rest_klines_cat(symbol, interval, category, limit=1000):
+    """指定分类的 REST 回源 (R9: 现货标的需要 category 指定)"""
+    import urllib.request
+    iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",
+          "D": "D", "W": "W", "M": "M"}.get(interval, "15")
+    url = (f"https://api.bybit.com/v5/market/kline?category={category}"
+           f"&symbol={symbol}&interval={iv}&limit={limit}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            j = json.load(r)
+        lst = ((j.get("result") or {}).get("list")) or []
+        bars = [{"t": int(x[0]), "o": float(x[1]), "h": float(x[2]),
+                 "l": float(x[3]), "c": float(x[4]), "v": float(x[5])}
+                for x in lst]
+        bars.reverse()
+        return bars
+    except Exception:
+        return []
+
+
 def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
     """真实K线 → [{t,o,h,l,c,v}]
     优先级: ①桥内实时订阅缓存 (kline.<iv>.<sym>, 末根实时) ②BTC/ETH 本地 parquet ③REST 回源
@@ -489,6 +577,12 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
         rows.reverse()
         bars = [{"t": int(r[0].timestamp() * 1000), "o": r[1], "h": r[2],
                  "l": r[3], "c": r[4], "v": r[5]} for r in rows]
+        # R14-B2: 缺口检测 (管线停推宕机空窗) → REST 回源补全
+        if _kline_has_gap(bars, interval):
+            rest_bars = _rest_klines(symbol, interval)
+            if rest_bars:
+                bars = rest_bars
+        bars = bars[-limit:]  # R14: REST 回补后统一截断
         if live_bars and bars:
             live_min = live_bars[0]["t"]
             hist = [b for b in bars if b["t"] < live_min]
@@ -496,7 +590,8 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
             if hist:
                 return {"symbol": symbol, "interval": interval,
                         "bars": hist[-limit:], "live": True}
-        return {"symbol": symbol, "interval": interval, "bars": bars}
+        return {"symbol": symbol, "interval": interval, "bars": bars,
+                "live": bool(live_bars)}  # R14: parquet 分支补 live 标志
     # ---- 其他标的: Bybit v5 REST kline, TTL 60s ----
     key = (symbol, interval)
     now = time.time()

@@ -2102,16 +2102,18 @@ function mtm(p){
   if(!p.live||!p.live.symbol)return null;
   var L=priceOf(p.live.symbol).last,S=priceOf(p.live.symbol).spot;
   var d=p.live.dir||'fwd',n=Number(p.live.notional)||0;
-  if(!L||!S||!n)return null;
+  var fa=Number(p.live.funding_acc)||0;  // R14-A3: funding累计纳入未实现盈亏(与后端口径一致)
+  if(!L||!n)return null;
   if(p.live.naked){
-    return d==='fwd'?(Number(p.live.perp_entry)-L)/Number(p.live.perp_entry)*n:(L-Number(p.live.perp_entry))/Number(p.live.perp_entry)*n;
+    return (d==='fwd'?(Number(p.live.perp_entry)-L)/Number(p.live.perp_entry)*n:(L-Number(p.live.perp_entry))/Number(p.live.perp_entry)*n)+fa;
   }
   if(p.live.orphan){
-    return d==='fwd'?(S-Number(p.live.spot_entry))/Number(p.live.spot_entry)*n:(Number(p.live.spot_entry)-S)/Number(p.live.spot_entry)*n;
+    return (S?(d==='fwd'?(S-Number(p.live.spot_entry))/Number(p.live.spot_entry)*n:(Number(p.live.spot_entry)-S)/Number(p.live.spot_entry)*n):0)+fa;
   }
-  return d==='fwd'
+  if(!S)return null;
+  return (d==='fwd'
     ?((S-Number(p.live.spot_entry))/Number(p.live.spot_entry)+(Number(p.live.perp_entry)-L)/Number(p.live.perp_entry))*n
-    :((Number(p.live.spot_entry)-S)/Number(p.live.spot_entry)+(L-Number(p.live.perp_entry))/Number(p.live.perp_entry))*n;
+    :((Number(p.live.spot_entry)-S)/Number(p.live.spot_entry)+(L-Number(p.live.perp_entry))/Number(p.live.perp_entry))*n)+fa;
 }
 /* 下单 (纸面/实盘) */
 var pendingOrder=null;
