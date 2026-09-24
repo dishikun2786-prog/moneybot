@@ -619,7 +619,7 @@ select.input{appearance:none}
       <div class="menulist" id="p-admin-entry" style="display:none">
         <div class="mi" onclick="go('admin')"><span class="ico">🛠️</span><span class="t">管理后台</span><span class="badge yellow">管理员</span><span class="chev">›</span></div>
       </div>
-      <div class="sectip"><div class="i">👤</div><div class="t"><b>白话：</b>「密钥绑定」是开实盘的前提：绑定你自己的 Bybit/Polymarket 密钥后（专业版+），才能用真实资金按策略交易。密钥 AES-256 加密存储，平台不接触明文。</div></div>
+      <div class="sectip"><div class="i">👤</div><div class="t"><b>白话：</b>实盘由管理员为你开通（平台统一密钥执行交易，你无需自绑任何密钥）。开通后在「我的」页可见实盘模式与风控限额。</div></div>
     </section>
 
 
@@ -758,7 +758,7 @@ function apiErr(r){
 var curScreen='login';
 var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,profile:1,symbol:1};
 var BACK_MAP={keys:'profile',admin:'profile',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
-var TITLES={login:'交易室',register:'创建账户',markets:'行情',pm:'预测市场',trade:'交易',assets:'资产',profile:'我的',admin:'管理后台',symbol:'标的详情'};
+var TITLES={login:'交易室',register:'创建账户',markets:'行情',trade:'交易',assets:'资产',profile:'我的',admin:'管理后台',symbol:'标的详情'};
 function go(s){
   if(!id('screen-'+s))return;
   curScreen=s;
@@ -791,9 +791,9 @@ function go(s){
 var G=[
   {icon:'👋',t:'欢迎使用交易室',p:'这里是<b>多用户对冲套利平台</b>：中心实时行情 + 专业策略 + 模拟/实盘交易，手机随时操作。首次使用花20秒了解核心功能。'},
   {icon:'📈',t:'中心行情 · 登录即用',p:'行情、盘口、微结构数据由平台 7×24 采集（<b>100ms 级实时推送</b>）。注册即送 <b>$100 模拟资金</b>，先用模拟账户练手。'},
-  {icon:'⚡',t:'三种策略 · 一键托管',p:'<b>现货×永续套利</b>：赚资金费率利息<br><b>预测市场对冲</b>：赚价格回归差价<br><b>循环恢复策略</b>：波段量能小单循环<br>每套策略都有「托管/手动」双模式。'},
+  {icon:'⚡',t:'两套策略 · 一键托管',p:'<b>现货×永续套利</b>：赚资金费率利息<br><b>循环恢复策略</b>：波段量能小单循环<br>每套策略都有「托管/手动」双模式。'},
   {icon:'🛡️',t:'风控内置 · 亏损有底',p:'仓位强制<b>止盈止损</b>；每日亏损熔断；单笔上限；持仓上限。<br>托管模式亏损到线自动停手——先活下来，再谈盈利。'},
-  {icon:'🔑',t:'实盘交易 · 你的密钥你做主',p:'模拟免费。想用真实资金？绑定你自己的 <b>Bybit / Polymarket</b> 密钥（加密存储，平台不接触明文）。一切就绪，开始吧！'}
+  {icon:'🔑',t:'实盘交易 · 管理员开通',p:'模拟免费。想用真实资金？联系管理员开通实盘（<b>平台统一密钥</b>执行，加密托管）。开通后即可用真实资金按策略交易。'}
 ];
 var gi=0;
 function renderGuide(){
@@ -807,12 +807,14 @@ function closeGuide(){id('guide').classList.remove('on');go('login')}
 /* ============ 帮助弹层 ============ */
 var HELPS={
   login:'<h3>💡 登录页怎么用</h3><p>账号+密码+图形验证码三重验证，验证码看不清点图换一张。连续输错5次账号锁定15分钟。没有账号？注册即送 <b>$100 模拟资金</b>。</p>',
-  markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对最新价与24h涨跌。点币种进交易界面；下方是预测市场（按模型价差排序，价差越大机会越好）。</p>',
-  pm:'<h3>💡 预测市场怎么用</h3><p>对了结算 $1，错了 $0。价格即概率。买 YES=押发生，买 NO=押不发生。与币圈仓位反向布局=对冲。<b>盘口价=模型价±价差</b>，模型价来自平台σ校准。</p>',
+  markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对最新价与24h涨跌（自选/合约/现货/全部可切换）。点币种进交易界面；下方是现货×永续基差监控卡（基差=两腿价差，正基差做多现货做空永续）。</p>',
+
+
   trade:'<h3>💡 交易页怎么用</h3><p>顶部实时价+资金费率。<b>K线</b>看走势·<b>盘口</b>看挂单·<b>持仓</b>看仓位+切托管/手动·<b>下单</b>开仓。<br>⚪模拟=纸面资金；🔴实盘=真实资金（管理员开通后可见，平台统一密钥执行）。</p>',
   assets:'<h3>💡 资产页怎么用</h3><p>总资产=初始$100+已实现盈亏+持仓浮盈。曲线为累计盈亏走势。资产分布列出各策略占用与可用保证金。</p>',
-  profile:'<h3>💡 我的页怎么用</h3><p>密钥绑定=开实盘入口；实盘模式=查看风控限额与开关键；退出登录安全退出。管理员额外可见「管理后台」。</p>',
-  keys:'<h3>💡 密钥绑定怎么用</h3><p><b>Bybit</b>：官网创建 API Key（子账户·只交易权限）→ 粘贴 → 绑定即自动五项连通性测试。<br><b>PM</b>：粘贴 owner 私钥一次性派生交易凭证（私钥即弃），或保存 Relayer Key。密钥 AES-256 加密，任何人无法再查看明文。</p>',
+  profile:'<h3>💡 我的页怎么用</h3><p>实盘状态=查看实盘是否开通与风控限额；套餐=查看当前版本与到期时间；退出登录安全退出。管理员额外可见「管理后台」。</p>',
+
+
   admin:'<h3>💡 管理后台怎么用</h3><p>统计面板+用户管理（套餐/禁用/重置密码/风控限额）+公告发布。所有管理操作自动留审计痕。运营要点：模拟免费获客→专业版订阅→实盘版变现。</p>'
 };
 function openHelp(){id('sheet-body').innerHTML=HELPS[curScreen]||'';id('sheet').classList.add('on');id('mask').classList.add('on')}
@@ -2347,12 +2349,6 @@ async function loadProfile(){
   id('p-plan').textContent=PLAN_ZH[ME.plan]||ME.plan;
   id('p-role').textContent=ME.role==='admin'?'管理员':'用户';
   id('p-admin-entry').style.display=ME.role==='admin'?'':'none';
-  var r2=await api('/api/keys');
-  if(r2.data){
-    var ks=r2.data.keys||[];
-    id('p-keybadge').textContent=ks.length?('已绑 '+ks.length+' 个'):'未绑定';
-    id('p-keybadge').className='badge '+(ks.length?'green':'gray');
-  }
   if(LIVE.live_enabled){id('p-livebadge').textContent='✅ 已开通';id('p-livebadge').style.color='var(--up)'}
   else{id('p-livebadge').textContent='未开通'}
 }

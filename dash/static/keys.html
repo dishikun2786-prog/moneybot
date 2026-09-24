@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>密钥管理 · moneybot</title>
+<title>密钥与实盘 · moneybot</title>
 <style>
 :root{--bg:#121318;--card:#1a1b22;--bd:#2a2c36;--fg:#e8e9ee;--mut:#8b8e9c;--acc:#f7a600;--up:#3ebd93;--dn:#f6465d}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -15,13 +15,6 @@ header a{margin-left:auto;color:var(--acc);text-decoration:none;font-size:13px;b
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:18px}
 .card h2{font-size:15px;margin-bottom:6px}
 .card .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
-label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
-input,textarea{width:100%;background:#0f1015;border:1px solid var(--bd);color:var(--fg);padding:9px 11px;border-radius:6px;font-size:13px;font-family:inherit}
-input:focus,textarea:focus{outline:none;border-color:var(--acc)}
-.btn{background:var(--acc);color:#121318;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;margin-top:14px}
-.btn.ghost{background:transparent;border:1px solid var(--bd);color:var(--mut);margin-left:8px}
-.btn.danger{background:transparent;border:1px solid var(--dn);color:var(--dn)}
-.btn:disabled{opacity:.5;cursor:not-allowed}
 .status{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--bd);border-radius:8px;margin-top:10px}
 .status .dot{width:9px;height:9px;border-radius:50%;background:#555}
 .status.ok .dot{background:var(--up)}.status.bad .dot{background:var(--dn)}
@@ -36,109 +29,47 @@ input:focus,textarea:focus{outline:none;border-color:var(--acc)}
 </head>
 <body>
 <header>
-  <h1>🔑 密钥管理</h1>
-  <a href="/trade">← 返回交易室</a><a href="/system">系统</a><a href="/admin" id="k-adminlnk" style="display:none;color:#f7a600">管理后台</a><a href="/m" style="color:#f7a600">📱 移动版</a>
+  <h1>🔑 密钥与实盘</h1>
+  <a href="/m">← 返回交易室</a><a href="/admin" id="k-adminlnk" style="display:none;color:#f7a600">管理后台</a>
 </header>
 <div class="wrap">
   <div class="card">
     <h2>我的实盘风控限额</h2>
-    <div class="sub">由管理员配置, 实盘下单前强制校验</div>
+    <div class="sub">由管理员配置，实盘下单前强制校验</div>
     <div class="limits" id="limbox"></div>
     <div class="warnbox" id="livewarn" style="display:none"></div>
   </div>
 
-  <div class="card" id="c-bybit">
-    <h2>Bybit 交易所 API</h2>
-    <div class="sub">实盘交易用。密钥仅在绑定/测试/下单瞬间解密, AES-256-GCM 加密存储, 永不显示明文</div>
-    <div id="bybit-bound" style="display:none"></div>
-    <div id="bybit-form">
-      <label>API Key</label><input id="b-key" type="password" autocomplete="off" placeholder="Bybit 官网 API 管理页创建的 Key">
-      <label>API Secret</label><input id="b-secret" type="password" autocomplete="off" placeholder="Secret 仅在创建时显示一次">
-      <button class="btn" id="b-bind" onclick="bybitBind()">绑定</button>
-    </div>
-    <div class="warnbox">① Bybit Secret 只显示一次, 请复制保存<br>② 套利策略需要同时勾选 <b>现货交易</b> 与 <b>合约交易</b> 权限<br>③ 若开启了 IP 白名单, 请加入服务器 IP<br>④ 只读密钥无法实盘, 绑定后会自动检测</div>
-  </div>
-
-  <div class="card" id="c-pm">
-    <h2>Polymarket 账户</h2>
-    <div class="sub">三选一绑定方式, 推荐「一次性私钥导入」(平台只保存派生交易凭证, 凭证不可提现)</div>
-    <div id="pm-bound" style="display:none"></div>
-    <div id="pm-form">
-      <label>Owner 私钥 (一次性导入, 派生凭证后立即丢弃, 服务器不保存)</label>
-      <textarea id="pm-key" rows="2" autocomplete="off" placeholder="0x 开头私钥 — 设置页 敏感区 导出"></textarea>
-      <label>Deposit 钱包地址 (可选, 默认=签名者钱包)</label><input id="pm-wallet" type="text" autocomplete="off" placeholder="0x...">
-      <label>Relayer API Key (可选, gasless 交易用)</label><input id="pm-relayer" type="password" autocomplete="off" placeholder="设置页 relayer-api-keys 创建">
-      <label>Relayer 签名者地址 (填了 Relayer 必填)</label><input id="pm-relayer-addr" type="text" autocomplete="off" placeholder="0x...">
-      <button class="btn" id="pm-bind" onclick="pmBind()">绑定并验证</button>
-    </div>
-    <div class="warnbox">⚠️ Owner 私钥是<b>资金控制密钥</b>（可提现全部资产）。平台设计：<br>
-    ① 私钥仅经 HTTPS 进入服务器内存一次, 用于派生 L2 交易凭证<br>
-    ② 派生完成后立即丢弃, 服务器只加密保存派生凭证（凭证只能下单/撤单, 不可提现）<br>
-    ③ 更安全的替代: 浏览器钱包签名连接（后续版本）, 私钥不出设备</div>
+  <div class="card">
+    <h2>交易密钥</h2>
+    <div class="sub">平台统一密钥模式：所有用户的实盘下单、充值对账、提现打款均由平台统一密钥执行</div>
+    <div class="status" id="pk-status"><span class="dot"></span><span class="info">加载中…</span></div>
+    <div class="warnbox">密钥由<b>管理员在后台统一维护</b>（AES-256-GCM 加密存储）。你无需、也无法自行绑定任何交易所密钥；如需开通实盘交易权限，请联系管理员。</div>
   </div>
 </div>
 <div id="toast"></div>
 <script>
-let ME = null;
 function $(s){return document.querySelector(s)}
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderLeftColor=bad?'var(--dn)':'var(--acc)';t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3200)}
-async function j(method,url,body){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const d=await r.json().catch(()=>({}));return {s:r.status,d}}
-function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString('zh-CN',{hour12:false}):'—'}
-function boundHtml(name, venue, k){
-  const ok = k.last_test_ok;
-  return `<div class="status ${ok===1?'ok':ok===0?'bad':''}">
-    <span class="dot"></span><div class="info">
-      <b>${name}</b> · ${esc(k.label||'')} · 密钥 ${esc(k.key_masked)}
-      <div class="sub" style="margin-top:2px">${ok===1?`✅ 连通正常: ${esc(k.last_error||'')}`:ok===0?`❌ ${esc(k.last_error||'测试未通过')}`:'尚未测试'} · 最近测试 ${fmtTs(k.last_test_at)}</div>
-    </div>
-    <button class="btn ghost" onclick="testKey('${venue}')">连通测试</button>
-    <button class="btn danger" onclick="unbind('${venue}')">解绑</button></div>`;
-}
+async function j(method,url){const r=await fetch(url,{method});return {s:r.status,d:await r.json().catch(()=>({}))}}
 async function load(){
-  try{const {d}=await j('GET','/api/auth/me');ME=d.user}catch(e){}
+  try{
+    const me=await j('GET','/api/auth/me');
+    if(me.d&&me.d.user&&me.d.user.role==='admin')$('#k-adminlnk').style.display='';
+  }catch(e){}
   const {d}=await j('GET','/api/keys');
-  const ks=d.keys||[], lim=d.limits||{};
-  $('#limbox').innerHTML=`
-    <div class="lim"><div class="l">单笔名义上限</div><div class="n">$${lim.max_notional}</div></div>
-    <div class="lim"><div class="l">日亏熔断</div><div class="n">$${lim.daily_loss_cap}</div></div>
-    <div class="lim"><div class="l">最大持仓数</div><div class="n">${lim.max_positions}</div></div>
-    <div class="lim"><div class="l">实盘开关</div><div class="n">${lim.live_enabled?'已开启':'未开启'}</div></div>`;
-  if(!lim.live_enabled)$('#livewarn').style.display='';$('#livewarn').textContent='实盘交易未开启: 请联系管理员开通 (实盘版套餐 + 风控限额审核)';
-  const bk=ks.find(x=>x.venue==='bybit'), pk=ks.find(x=>x.venue==='pm');
-  if(bk){$('#bybit-bound').style.display='';$('#bybit-bound').innerHTML=boundHtml('Bybit','bybit',bk);$('#bybit-form').style.display='none'}
-  if(pk){$('#pm-bound').style.display='';$('#pm-bound').innerHTML=boundHtml('Polymarket','pm',pk);$('#pm-form').style.display='none'}
-}
-async function bybitBind(){
-  const key=$('#b-key').value.trim(), secret=$('#b-secret').value.trim();
-  if(!key||!secret){toast('密钥和 Secret 均不能为空',1);return}
-  const b=$('#b-bind');b.disabled=true;b.textContent='绑定中(含连通测试)...';
-  const {d}=await j('POST','/api/keys/bybit/bind',{key,secret});
-  b.disabled=false;b.textContent='绑定';
-  toast(d.msg||d.error, !d.ok);
-  load();
-}
-async function pmBind(){
-  const pk=$('#pm-key').value.trim(), w=$('#pm-wallet').value.trim(),
-        rk=$('#pm-relayer').value.trim(), ra=$('#pm-relayer-addr').value.trim();
-  if(!pk){toast('owner 私钥不能为空',1);return}
-  if(rk&&!ra){toast('Relayer 密钥需同时提供签名者地址',1);return}
-  const b=$('#pm-bind');b.disabled=true;b.textContent='派生中(私钥一次性)...';
-  const {d}=await j('POST','/api/keys/pm/bind',{private_key:pk,wallet:w,relayer_key:rk,relayer_address:ra});
-  b.disabled=false;b.textContent='绑定并验证';
-  if(!d.ok){toast(d.error||'绑定失败',1);return}
-  $('#pm-key').value='';  // 即弃: 清空表单
-  toast(d.msg||'绑定成功');load();
-}
-async function testKey(venue){
-  const {d}=await j('POST',`/api/keys/${venue}/test`);
-  toast(d.test_ok?`✅ ${d.test_msg}`:`❌ ${d.test_msg}`, !d.test_ok);
-  load();
-}
-async function unbind(venue){
-  if(!confirm(`确认解绑 ${venue==='bybit'?'Bybit':'Polymarket'}? 解绑后实盘下单将不可用`))return;
-  const {d}=await j('POST',`/api/keys/${venue}/unbind`);
-  toast(d.msg||'已解绑');load();
+  const lim=(d&&d.limits)||{};
+  $('#limbox').innerHTML=
+    '<div class="lim"><div class="l">单笔名义上限</div><div class="n">$'+(lim.max_notional||0).toLocaleString()+'</div></div>'
+    +'<div class="lim"><div class="l">日亏熔断</div><div class="n">$'+(lim.daily_loss_cap||0).toLocaleString()+'</div></div>'
+    +'<div class="lim"><div class="l">最大持仓数</div><div class="n">'+(lim.max_positions||0)+'</div></div>'
+    +'<div class="lim"><div class="l">实盘开关</div><div class="n">'+(lim.live_enabled?'已开启':'未开启')+'</div></div>';
+  if(!lim.live_enabled){$('#livewarn').style.display='';$('#livewarn').textContent='实盘交易未开启：请联系管理员开通（实盘版套餐 + 风控限额审核）。开通后由平台统一密钥执行，无需自绑密钥。'}
+  try{
+    const lv=await j('GET','/api/live/status');
+    const st=lv.d&&lv.d.data&&lv.d.data.live_enabled;
+    if(st){$('#pk-status').className='status ok';$('#pk-status').innerHTML='<span class="dot"></span><span class="info">✅ 实盘已开通 — 平台统一密钥执行</span>'}
+    else{$('#pk-status').className='status';$('#pk-status').innerHTML='<span class="dot"></span><span class="info">实盘未开通（模拟交易）— 联系管理员开通后，由平台统一密钥执行</span>'}
+  }catch(e){$('#pk-status').innerHTML='<span class="dot"></span><span class="info">状态加载失败</span>'}
 }
 load();
 </script>

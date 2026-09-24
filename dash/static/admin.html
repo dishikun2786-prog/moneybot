@@ -141,28 +141,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
       <button class="btn" onclick="fSaveKey()">加密保存</button>
     </div>
   </div>
-  <div class="panel" id="p-pm">
-    <div class="row" style="margin-bottom:10px"><b style="color:#a78bfa">🔮 PM 标的管理</b>
-      <span class="dim" id="pmadm-stats"></span></div>
-    <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
-      <input id="pmadm-q" placeholder="搜索标的（中/英文/事件key）..." style="width:260px"
-             oninput="pmadmDebounce()">
-      <select id="pmadm-st" style="width:110px" onchange="loadPmAdmin(0)">
-        <option value="">全部状态</option><option value="on">已上线</option><option value="off">已下线</option></select>
-      <button class="btn" onclick="pmadmAll()">全选本页</button>
-      <button class="btn" onclick="pmadmInvert()">反选本页</button>
-      <button class="btn ok" onclick="pmadmSet('on')">✅ 批量上线</button>
-      <button class="btn bad" onclick="pmadmSet('off')">⛔ 批量下线</button>
-    </div>
-    <div class="row dim" style="margin-bottom:8px">勾选标的 → 点批量上线/下线；下线后移动端全站不再展示、不可下单</div>
-    <div class="row" style="margin-bottom:8px;gap:8px;flex-wrap:wrap">
-      <label><input type="checkbox" id="pmadm-checkall" onchange="pmadmCheckAll()"> 全选已加载</label>
-      <button class="btn dim" onclick="loadPmAdmin(0)">刷新</button>
-      <button class="btn dim" onclick="pmadmMore()">加载更多</button>
-    </div>
-    <div id="pmadm-list" style="max-height:60vh;overflow-y:auto"></div>
-  </div>
-
 </div>
 
 <div class="modal-bg" id="modal"><div class="modal" id="mbox"></div></div>
@@ -256,7 +234,7 @@ async function userPlan(uid,cur){
     <div class="row"><select id="np">
       <option value="free" ${cur==='free'?'selected':''}>免费版 — 模拟交易全权限</option>
       <option value="pro" ${cur==='pro'?'selected':''}>专业版 $19.9/月 — +AI高级+循环策略</option>
-      <option value="live" ${cur==='live'?'selected':''}>实盘版 $49.9/月 — +绑定密钥实盘</option>
+      <option value="live" ${cur==='live'?'selected':''}>实盘版 $49.9/月 — +统一平台密钥实盘</option>
     </select></div>
     <div class="row"><button class="btn" onclick="doPlan(${uid})">保存</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
 }
