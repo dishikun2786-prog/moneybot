@@ -94,19 +94,21 @@ def main():
             n, ms = r
             print(f"  carry_1m: {n} 行, {ms:.0f}ms")
 
-    books = f"{BASE}/logs/books_1s.jsonl"
-    if os.path.exists(books):
-        sel = f"""SELECT TRY_CAST(ts AS TIMESTAMP) AS ts, asset_id,
-                  TRY_CAST(best_bid AS DOUBLE) AS best_bid,
-                  TRY_CAST(best_ask AS DOUBLE) AS best_ask,
-                  TRY_CAST(bid_size AS DOUBLE) AS bid_size,
-                  TRY_CAST(ask_size AS DOUBLE) AS ask_size
-                  FROM read_json_auto('{books}', format='newline_delimited')
-                  WHERE ts IS NOT NULL"""
-        r = rebuild(con, "book_1s", sel, True)
-        if r:
-            n, ms = r
-            print(f"  book_1s: {n} 行, {ms:.0f}ms")
+    # R13c PM-OFF: books_1s 是 PM 盘口留痕, PM 下线后停写 (5.7GB 全量读曾贡献 ~300MB 内存)
+    if False:
+        books = f"{BASE}/logs/books_1s.jsonl"
+        if os.path.exists(books):
+            sel = f"""SELECT TRY_CAST(ts AS TIMESTAMP) AS ts, asset_id,
+                      TRY_CAST(best_bid AS DOUBLE) AS best_bid,
+                      TRY_CAST(best_ask AS DOUBLE) AS best_ask,
+                      TRY_CAST(bid_size AS DOUBLE) AS bid_size,
+                      TRY_CAST(ask_size AS DOUBLE) AS ask_size
+                      FROM read_json_auto('{books}', format='newline_delimited')
+                      WHERE ts IS NOT NULL"""
+            r = rebuild(con, "book_1s", sel, True)
+            if r:
+                n, ms = r
+                print(f"  book_1s: {n} 行, {ms:.0f}ms")
 
     # K线数据集 (8间隔; JSONL行=[ts_ms, symbol, o, h, l, c, v]; 按(symbol,ts)去重)
     for key in ("1m", "5m", "15m", "1h", "4h", "D", "W", "M"):

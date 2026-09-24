@@ -34,7 +34,8 @@ def __getattr__(name):
     if f:
         return f()
     raise AttributeError(f"module 'swing_cycle' has no attribute '{name}'")
-SYMBOLS = ("BTCUSDT", "ETHUSDT")
+SYMBOLS = tuple(s.strip().upper() for s in os.environ.get(
+    "SWING_SYMS", "BTCUSDT,ETHUSDT").split(",") if s.strip())  # R13c: 金银待回测达标后经环境变量加入
 
 ENABLED = 0
 MIN_SCORE = 60.0
