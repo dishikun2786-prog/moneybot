@@ -188,11 +188,10 @@ def _native_allowed(sym):
 
 
 def _native_qty(sym, notional, px):
-    """按 qtyStep 取整数量"""
-    it = _instruments_linear().get(sym) or {}
-    step = float(it.get("qtyStep") or 0.0001)
-    qty = float(notional) / float(px)
-    return round(qty / step) * step
+    """纸面仓精确数量 = 名义/价格 (R14-M11: 不再按qtyStep取整 —
+    round进位会超买, 如名义43$ BTC被round成0.001张(84.5$), 与pnl百分比模型矛盾;
+    模拟盘允许任意精度, pnl统一按 qty×价差 真实数量模型计算)"""
+    return float(notional) / float(px)
 
 
 def open_native(sym, side, notional):
@@ -252,13 +251,14 @@ def close_native(sym):
         if not nat:
             return {"ok": False, "error": f"{sym} 无原生持仓"}
         entry, n, side = nat["entry"], nat.get("notional", 10.0), nat["side"]
-        pnl = ((px["perp"] - entry) if side == "long" else (entry - px["perp"])) / entry * n
+        qty_n = nat.get("qty") or (n / entry)   # R14-M11: 真实数量模型(老仓无qty回退名义/价)
+        pnl = ((px["perp"] - entry) if side == "long" else (entry - px["perp"])) * qty_n
         fees = NATIVE_FEE * _fee_mult() * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
         del st["native"][sym]
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="NATIVE_CLOSE",
-                                      side=side, entry=entry, exit=px["perp"],
+                                      side=side, entry=entry, exit=px["perp"], qty=round(qty_n, 6),
                                       pnl_usd=round(pnl, 4), fees=fees))
         _audit("close_native", sym, {"exit": px["perp"], "pnl": round(pnl, 4)})
         return {"ok": True, "msg": f"已平{'多' if side == 'long' else '空'}仓 {sym} @{px['perp']:.4f} "
@@ -313,10 +313,8 @@ def _spot_allowed(sym):
 
 
 def _spot_qty(sym, notional, px):
-    it = _instruments_spot().get(sym) or {}
-    step = float(it.get("qtyStep") or 0.0001)
-    qty = float(notional) / float(px)
-    return round(qty / step) * step
+    """纸面现货精确数量 (R14-M11: 去qtyStep取整, 理由同_native_qty)"""
+    return float(notional) / float(px)
 
 
 def open_spot(sym, side, notional):

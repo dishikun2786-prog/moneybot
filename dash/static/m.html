@@ -2503,8 +2503,8 @@ function trRow(r){
   try{var p=parseFloat(r.pnl_usd);if(!isNaN(p))pnl=p}catch(e){}
   var qty=r.qty!=null&&r.qty!==undefined?' · '+num(r.qty,4):'';
   var px=r.entry?(' @ '+num(r.entry,4)):(r.price?(' @ '+num(r.price,4)):((r.px?(' @ '+num(r.px,4)):((r.exit?(' → '+num(r.exit,4)):'')))));
-  var pnlHtml=pnl==null?'':('<div class="mono '+(pnl>=0?'up':'down')+'" style="font-size:13px;margin-top:2px">'+(pnl>0?'+':'')+num(pnl,2)+' $</div>');
-  var fees=r.fees?('<span class="dim xs"> · 费 '+num(r.fees,2)+'</span>'):'';
+  var pnlHtml=pnl==null?'':('<div class="mono '+(pnl>=0?'up':'down')+'" style="font-size:13px;margin-top:2px">'+(pnl>0?'+':'')+num(pnl,4)+' $</div>');
+  var fees=r.fees?('<span class="dim xs"> · 费 '+num(r.fees,4)+'</span>'):'';
   var order=r.order_id||r.spot||r.perp||'';
   var arrow='<span class="tr-arrow" id="tra-'+ridx+'">▸</span>';
   return '<div class="tr-item" onclick="trToggle('+ridx+')" style="cursor:pointer"><div class="t-l">'
@@ -2523,7 +2523,7 @@ function trDetail(r){
     exit:{zh:'平仓价',desc:'离场时的成交价格',fmt:num4},
     price:{zh:'成交价',desc:'实际成交的价格',fmt:num4},
     px:{zh:'成交价',desc:'实际成交的价格',fmt:num4},
-    pnl_usd:{zh:'盈亏',desc:'这笔交易赚/亏多少钱(美元)',fmt:function(v){return (Number(v)>=0?'+':'')+num(Number(v),4)+' $'}},
+    pnl_usd:{zh:'盈亏',desc:'毛盈亏 = 价差收益, 未扣除手续费',fmt:function(v){return (Number(v)>=0?'+':'')+num(Number(v),4)+' $'}},
     fees:{zh:'手续费',desc:'平台收取的交易费用(美元)',fmt:function(v){return num(Number(v),4)+' $'}},
     notional:{zh:'名义金额',desc:'下单的总金额(美元)',fmt:function(v){return num(Number(v),2)+' $'}},
     qty:{zh:'数量',desc:'成交的币数量',fmt:num4},
@@ -2552,6 +2552,11 @@ function trDetail(r){
     shown[k]=1;
     var val=f.fmt?f.fmt(v):esc(String(v).slice(0,40));
     rows.push('<div class="trd-row"><span class="trd-k">'+f.zh+'</span><span class="mono xs">'+val+'</span><span class="trd-desc">'+f.desc+'</span></div>');
+  }
+  if(shown.pnl_usd){
+    var net=Number(r.pnl_usd)-(Number(r.fees)||0);
+    var nc=net>=0?'up':'down';
+    rows.push('<div class="trd-row" style="border-top:1px solid var(--bd)"><span class="trd-k" style="font-weight:700">净盈亏</span><span class="mono xs '+nc+'">'+(net>=0?'+':'')+num(net,4)+' $</span><span class="trd-desc">毛盈亏减手续费后的实际到账</span></div>');
   }
   return '<div class="trd-box">'+rows.join('')+'</div>';
 }
