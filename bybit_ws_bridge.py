@@ -255,6 +255,17 @@ def on_msg(ws, m):
                 upd["oi"] = float(t["openInterest"])
             if t.get("openInterestValue"):
                 upd["oi_val"] = float(t["openInterestValue"])
+            # R14-M9: 资金费率(套利平台核心数据) — ticker 周期性推送, 有值才更新
+            if t.get("fundingRate"):
+                try:
+                    upd["funding_rate"] = float(t["fundingRate"])
+                except Exception:
+                    pass
+            if t.get("nextFundingTime"):
+                try:
+                    upd["next_funding"] = int(t["nextFundingTime"])
+                except Exception:
+                    pass
             PRICES[sym].update(upd)
             LAST_LAG["ms"] = lag
             N_TICKS["n"] += 1
@@ -381,7 +392,9 @@ def depth_loop():
         ts_s = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         with LOCK:
             books_out, trades_out, aggs_out, big_out = {}, {}, {}, list(BIG)
-            for sym in list(WATCH_SUB):          # P2: 盘口输出 = 动态订阅集合
+            for sym in list(WATCH_SUB):          # P2: 盘口输出 = 动态订阅集合 (R14-M9: 输出前过滤白名单)
+                if sym not in SYM_WHITELIST:
+                    continue
                 b = BOOKS.get(sym)
                 if b and b["snap"]:
                     books_out[sym] = {
@@ -389,7 +402,8 @@ def depth_loop():
                         "asks": [[p, s] for p, s in sorted(b["asks"].items(), key=lambda x: float(x[0]))[:200]]}
 
             for sym in DEPTH_SYMS:
-                trades_out[sym] = list(TRADES[sym])
+                if sym in SYM_WHITELIST:
+                    trades_out[sym] = list(TRADES[sym])
             books_spot_out, trades_spot_out = {}, {}
             for sym in SPOT_CH_SYMS:
                 bs = BOOKS_SPOT.get(sym)
@@ -477,7 +491,10 @@ def depth_loop():
                 "books_spot": books_spot_out, "trades_spot": trades_spot_out,  # R14: 现货通道盘口/成交
                 "kline_snap": _kline_snap_out(),  # R14-M7: K线末根快照(K线与盘口成交同帧1s)
                 "px": {s: {"last": PRICES.get(s, {}).get("last"),
-                          "chg": PRICES.get(s, {}).get("change_pct", 0)} for s in DEPTH_SYMS},  # R14: 现价+涨跌并入depth流
+                          "chg": PRICES.get(s, {}).get("change_pct", 0),
+                          "oi": PRICES.get(s, {}).get("oi"),
+                          "funding": PRICES.get(s, {}).get("funding_rate"),
+                          "next_funding": PRICES.get(s, {}).get("next_funding")} for s in DEPTH_SYMS},  # R14-M9: +OI+资金费率
                 "px_spot": {s: PRICES.get(s, {}).get("spot") for s in SPOT_CH_SYMS},
                 # R14-M5: 现货-永续基差监控 (仅双通道标的, spot-only 无永续腿是假基差)
                 "basis": {s: _basis_row(s) for s in SPOT_CH_SYMS if s not in SPOT_ONLY_SYMS},

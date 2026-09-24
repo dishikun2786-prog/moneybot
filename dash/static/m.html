@@ -439,6 +439,14 @@ select.input{appearance:none}
         <div class="l"><div class="n" id="t-sym">BTCUSDT</div><span class="sub" id="t-sub">永续 · 比特币</span></div>
         <div class="r"><div class="p" id="t-px">—</div><div class="c" id="t-chg">—</div><div id="px-hud" class="px-hud" style="display:none"></div></div>
       </div>
+      <div class="card" id="fund-card" style="display:none;margin:0 0 10px;padding:10px 12px">
+        <div class="row" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div><span class="dim xs">资金费率</span> <b class="mono" id="fund-rate" style="font-size:15px">—</b>
+            <span class="xs" id="fund-count" style="margin-left:6px"></span></div>
+          <div><span class="dim xs">未平仓 OI</span> <b class="mono" id="fund-oi">—</b></div>
+          <div><span class="dim xs">8h 预计利息(持仓$1000)</span> <b class="mono" id="fund-est">—</b></div>
+        </div>
+      </div>
       <div class="seg catseg" id="t-catseg" style="margin:0 0 10px">
         <button class="on" data-c="linear" onclick="setTradeCat('linear')">永续</button>
         <button data-c="spot" onclick="setTradeCat('spot')">现货</button>
@@ -1084,12 +1092,12 @@ async function spotSltpGo(sym){
   if(sl===null&&tp===null){toast('至少填一项');return}
   if(sl!==null&&tp!==null&&sl>=tp){toast('止损价必须低于止盈价');return}
   var r=await api('/api/spot/sltp/set',{method:'POST',body:JSON.stringify({symbol:sym,sl:sl,tp:tp})});
-  if(r.data&&r.data.ok){closeSheet();toast('✅ '+(r.data.data&&r.data.data.msg||'已保存'));loadSpotInPos()}
+  if(r.data&&r.data.ok){closeSheet();toast('✅ '+(r.data.data&&r.data.data.msg||'已保存'));SPOT_SIG='';loadSpotInPos()}
   else{toast('❌ '+(r.data&&r.data.error||'设置失败'))}
 }
 async function spotSltpClear(sym){
   var r=await api('/api/spot/sltp/clear',{method:'POST',body:JSON.stringify({symbol:sym})});
-  if(r.data&&r.data.ok){toast('✅ 挂单已清除');loadSpotInPos()}
+  if(r.data&&r.data.ok){toast('✅ 挂单已清除');SPOT_SIG='';loadSpotInPos()}
   else{toast('❌ 清除失败')}
 }
 async function confirmSpotClose(symArg){
@@ -1532,6 +1540,34 @@ function renderTradePx(){
   var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'%'+(TRADE_CAT==='spot'?' · 现货':' · 永续');c.className='c '+(up?'up':'down');
   var hu=id('px-hud');  // R14-M7: 顶部实时徽标(每秒刷新证明数据流同步)
   if(hu){hu.style.display='block';hu.innerHTML='<span class="up">●</span> 实时 · 更新于 '+new Date().toTimeString().slice(0,8);}
+  renderFundCard();  // R14-M9: 资金费率卡
+}
+function renderFundCard(){
+  /* R14-M9: 资金费率卡 — 套利平台核心决策数据 (当前费率+倒计时+OI+8h预计利息) */
+  var p=PRICES[tradeSym]||{};
+  var card=id('fund-card');
+  if(!card)return;
+  if(TRADE_CAT!=='spot'&&p.funding!=null&&p.funding!==undefined){
+    card.style.display='';
+    var f=Number(p.funding);
+    var rEl=id('fund-rate');rEl.textContent=(f>0?'+':'')+(f*100).toFixed(4)+'%';
+    rEl.className='mono '+(f>=0?'up':'down');
+    var nf=Number(p.next_funding);
+    if(nf){
+      var left=nf-Date.now();
+      var cEl=id('fund-count');
+      if(left>0){
+        var h=Math.floor(left/3600000),m=Math.floor(left%3600000/60000),s=Math.floor(left%60000/1000);
+        cEl.textContent='距结算 '+h+'h'+m+'m'+s+'s';
+        cEl.style.color='#f7c948';
+      }else{cEl.textContent='结算中…';cEl.style.color='var(--down)'}
+    }
+    var oi=Number(p.oi);
+    id('fund-oi').textContent=oi?num(oi/1e6,2)+' M':'—';
+    var est=f*1000;  // $1000 名义 8h 利息
+    var eEl=id('fund-est');eEl.textContent=(est>0?'+':'')+num(est,2)+'$';
+    eEl.className='mono '+(est>=0?'up':'down');
+  }else{card.style.display='none'}
 }
 function swTab(b){
   var bt=document.querySelectorAll('#trade-tabs button');
@@ -1721,6 +1757,12 @@ async function loadSpotInPos(){
     if(!el)return;
     var n=id('spot-pos-n');
     if(n)n.textContent=ps.length?('· '+ps.length+' 个'):'';
+    var sig=ps.map(function(p){return p.symbol}).join(',');
+    if(sig!==SPOT_SIG){SPOT_SIG=sig;renderSpotPosFull(ps,el)}
+    else{updateSpotPos(ps)}
+  }catch(e){}
+}
+function renderSpotPosFull(ps,el){
     if(!ps.length){
       el.innerHTML='<div class="dim small" style="padding:6px 2px">暂无现货持仓 — 交易屏现货通道买入后显示</div>';
       return;
@@ -1736,25 +1778,64 @@ async function loadSpotInPos(){
         +'<div style="display:flex;justify-content:space-between;align-items:center">'
         +'<div><b style="font-size:13px">'+(SYM_CN[p.symbol]||'')+' '+esc(p.symbol)+'</b> <span class="badge blue">现货</span>'
         +'<div class="xs muted">持仓 '+num(p.qty,6)+' 枚 · 均价 '+fmtPx(p.avg_cost)+'</div></div>'
-        +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
-        +'<div class="xs muted">'+(up?'+':'')+num(chg,2)+'%</div></div></div>'
+        +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'" data-ss="pnl-'+i+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
+        +'<div class="xs muted" data-ss="chg-'+i+'">'+(up?'+':'')+num(chg,2)+'%</div></div></div>'
         +'<div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">'
-        +'<span class="xs muted">现价 <b class="mono">'+fmtPx(p.px)+'</b> · 市值 <b class="mono">'+num(p.value,2)+'$</b></span>'
+        +'<span class="xs muted">现价 <b class="mono" data-ss="px-'+i+'">'+fmtPx(p.px)+'</b> · 市值 <b class="mono" data-ss="val-'+i+'">'+num(p.value,2)+'$</b></span>'
         +'<button class="abtn bad" onclick="confirmSpotClose(\''+esc(p.symbol)+'\')">⛔ 平仓</button></div>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">'
-        +'<span class="xs '+(o?'up':'muted')+'">'+(o?('⛳ 止盈止损: '+sltpTxt):'未设止盈止损')+'</span>'
+        +'<span class="xs '+(o?'up':'muted')+'" data-ss="sltp-'+i+'">'+(o?('⛳ 止盈止损: '+sltpTxt):'未设止盈止损')+'</span>'
         +'<div><button class="abtn ok" onclick="spotSltpSheet(\''+esc(p.symbol)+'\')">'+(o?'✏️ 修改':'⛳ 止盈止损')+'</button>'
         +(o?'<button class="abtn" onclick="spotSltpClear(\''+esc(p.symbol)+'\')">🗑️ 清除</button>':'')
         +'</div></div></div>';
     }
     el.innerHTML=html;
-  }catch(e){}
+}
+function updateSpotPos(ps){
+  /* R14-M9: 数字级刷新 — 只更新 pnl/chg/现价/市值, 不整块重绘 */
+  for(var i=0;i<ps.length;i++){
+    var p=ps[i];
+    var up=(p.pnl||0)>=0;
+    var chg=p.px&&p.avg_cost?((p.px-p.avg_cost)/p.avg_cost*100):0;
+    var set=function(k,txt,cls){
+      var b=document.querySelector('[data-ss="'+k+'-'+i+'"]');
+      if(!b)return;
+      if(b.textContent!==txt)b.textContent=txt;
+      if(cls!==undefined&&b.className!==cls)b.className=cls;
+    };
+    set('pnl',(up?'+':'')+num(p.pnl,3)+'$','mono '+(up?'up':'down'));
+    set('chg',(up?'+':'')+num(chg,2)+'%');
+    set('px',fmtPx(p.px));
+    set('val',num(p.value,2)+'$');
+    var o2=SPOT_SLTP[p.symbol];
+    var sltpTxt=o2?('⛳ 止盈止损: SL '+fmtPx(o2.sl)+' / TP '+fmtPx(o2.tp)):'未设止盈止损';
+    set('sltp',sltpTxt,'xs '+(o2?'up':'muted'));
+  }
 }
 async function loadNativePositions(target){
   var r=await api('/api/native/positions');
   var ps=(r.data&&r.data.positions)||[];
   var el=id(target||'nt-pos');
   if(!el)return;
+  var sig=ps.map(function(p){return p.symbol+'|'+p.side}).join(',');
+  if(sig!==NAT_SIGS[target]){NAT_SIGS[target]=sig;renderNativeFull(ps,el,target)}
+  else{updateNative(ps,target)}
+}
+function updateNative(ps,target){
+  /* R14-M9: 数字级刷新 — 只更新原生仓盈亏 */
+  var scope=(target==='pos-list'?'#pos-list ':'#nt-pos ');
+  for(var i=0;i<ps.length;i++){
+    var p=ps[i];
+    var up=(p.pnl||0)>=0;
+    var b=document.querySelector(scope+'[data-nm="'+i+'"]');
+    if(!b)continue;
+    var txt=(up?'+':'')+num(p.pnl,3)+'$';
+    var cls='mono '+(up?'up':'down');
+    if(b.textContent!==txt)b.textContent=txt;
+    if(b.className!==cls)b.className=cls;
+  }
+}
+function renderNativeFull(ps,el,target){
   if(!ps.length){
     if(target==='pos-list')return;  // 空时保持 pos-list 现状(空态由renderPosCards负责)
     el.innerHTML='<div class="dim xs" style="padding:6px 2px">当前无原生持仓</div>';return
@@ -1767,7 +1848,7 @@ async function loadNativePositions(target){
     html+='<div class="pos-card card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:center">'
       +'<div><b style="font-size:13px">'+esc(p.symbol)+'</b> <span class="badge '+(p.side==='long'?'green':'red')+'">'+(p.side==='long'?'多':'空')+'</span>'
       +'<div class="xs muted">入场 '+fmtPx(p.entry)+' · 名义 '+num(p.notional,0)+'$</div></div>'
-      +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
+      +'<div style="text-align:right"><b class="mono '+(up?'up':'down')+'" data-nm="'+i+'">'+(up?'+':'')+num(p.pnl,3)+'$</b>'
       +'<div><button class="abtn bad" onclick="confirmNativeClose(\''+esc(p.symbol)+'\')">平仓</button></div></div></div></div>';
   }
   el.innerHTML=html;
@@ -1987,7 +2068,7 @@ function startDepth(){
         if(d&&d.books_spot)DEPTH_SPOT=d.books_spot;  // R14: 现货通道盘口
         if(d&&d.trades_spot)DEPTH_TR_SPOT=d.trades_spot;  // R14: 现货通道成交
         if(d&&d.px){  // R14: 现价并入depth流(与盘口/成交同帧, 告别价格SSE依赖)
-          for(var k in d.px){var v=d.px[k];if(v&&typeof v==='object'){PRICES[k]=PRICES[k]||{};PRICES[k].last=v.last;PRICES[k].change_pct=v.chg}}
+          for(var k in d.px){var v=d.px[k];if(v&&typeof v==='object'){PRICES[k]=PRICES[k]||{};PRICES[k].last=v.last;PRICES[k].change_pct=v.chg;PRICES[k].oi=v.oi;PRICES[k].funding=v.funding;PRICES[k].next_funding=v.next_funding}}
         }
         if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}} if(d&&d.basis){for(var bk in d.basis){BASIS[bk]=d.basis[bk]} renderBasis();}
         if(d&&d.kline_snap){KSNAP=d.kline_snap; if(curScreen==='trade')applyKSnap();}  // R14-M7: K线与盘口成交同帧
@@ -2097,14 +2178,20 @@ async function cycleGo(){
   if(r.data&&r.data.ok){toast('✅ 已'+(en?'关闭':'开启'));loadCycle()}else{toast('❌ '+apiErr(r))}
 }
 /* 持仓卡片 */
+var POS_SIG='',SPOT_SIG='',NAT_SIGS={};  // R14-M9: 持仓签名(结构变才全渲染, 否则数字级更新)
 function renderPosCards(d){
-  var html='';
   var ps=d.positions||[];
+  var sig=ps.map(function(p){return p.key+'|'+p.side}).join(';;');
+  if(sig!==POS_SIG){POS_SIG=sig;renderPosCardsFull(ps)}
+  else{updatePosCards(ps)}
+}
+function renderPosCardsFull(ps){
+  var html='';
   if(!ps.length){id('pos-list').innerHTML='<div class="card" style="text-align:center;padding:18px 8px"><div style="font-size:30px;margin-bottom:6px">📭</div><div class="dim small" style="margin-bottom:10px">暂无持仓<br>一键对冲开第一笔，自动挂止盈止损</div><button class="btn accent" style="width:auto;padding:0 24px" onclick="go(\'trade\')">去下单</button></div>';return}
   for(var i=0;i<ps.length;i++){
     var p=ps[i];
     var u=mtm(p);
-    var uhtml=u==null?'':(' <b class="mono '+(u>0?'up':(u<0?'down':''))+'" style="font-size:13px">'+(u>0?'+':'')+num(u,3)+'$</b>');
+    var uhtml=u==null?'':(' <b class="mono '+(u>0?'up':(u<0?'down':''))+'" style="font-size:13px" data-m="'+i+'">'+(u>0?'+':'')+num(u,3)+'$</b>');
     var btns='';
     if(p.live&&p.live.naked){
       btns='<div class="pbtns"><button class="abtn bad" onclick="confirmTrade(\'close_naked\',\''+esc(p.live.symbol)+'\')">平仓</button></div>';
@@ -2126,6 +2213,19 @@ function renderPosCards(d){
       +btns+'</div>';
   }
   id('pos-list').innerHTML=html;
+}
+function updatePosCards(ps){
+  /* R14-M9: 数字级刷新 — 只更新未实现盈亏文本, 不整块重绘 */
+  var els=document.querySelectorAll('#pos-list [data-m]');
+  for(var i=0;i<els.length;i++){
+    if(i>=ps.length)break;
+    var u=mtm(ps[i]);
+    var b=els[i];
+    var txt=u==null?'':((u>0?'+':'')+num(u,3)+'$');
+    var cls='mono '+(u>0?'up':(u<0?'down':''));
+    if(b.textContent!==txt){b.textContent=txt}
+    if(b.className!==cls){b.className=cls}
+  }
 }
 function mtm(p){
   if(!p.live||!p.live.symbol)return null;
