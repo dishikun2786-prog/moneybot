@@ -77,9 +77,50 @@ def fee_c(p):
 
 
 def latest_snapshot():
+    """R13c OOM修复: 只读 CSV 尾部 512KB (曾全量读 52MB→423MB 内存, OOM 杀机)
+    引号字段含逗号须用 csv.reader 逐行解析"""
+    path = _resolve("CSV")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 524288))
+            tail = f.read().decode("utf-8", "ignore")
+    except Exception:
+        return []
+    lines = tail.splitlines()
+    header = None
     rows = []
-    with open(_resolve("CSV"), encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    for ln in lines:
+        if not ln.strip():
+            continue
+        if ln.startswith("ts_utc"):
+            header = next(csv.reader([ln]), None)
+            continue
+        if header is None:
+            continue
+        try:
+            vals = next(csv.reader([ln]), None)
+        except Exception:
+            continue
+        if vals and len(vals) == len(header):
+            rows.append(dict(zip(header, vals)))
+    if header is None and lines:
+        # 尾部无 header: 单读文件头一行补 header
+        try:
+            with open(path, encoding="utf-8") as f:
+                header = next(csv.reader(f), None)
+            for ln in lines:
+                if ln.startswith("ts_utc"):
+                    continue
+                try:
+                    vals = next(csv.reader([ln]), None)
+                except Exception:
+                    continue
+                if vals and len(vals) == len(header):
+                    rows.append(dict(zip(header, vals)))
+        except Exception:
+            return []
     if not rows:
         return []
     last_ts = rows[-1]["ts_utc"]

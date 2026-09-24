@@ -16,13 +16,15 @@ import websocket
 
 BASE = os.path.expanduser("~/polymarket")
 # 深度/微结构标的 (盘口/K线/逐笔/墙/CVD 只对活跃套利标的, 保持 BTC/ETH)
-DEPTH_SYMS = ["BTCUSDT", "ETHUSDT"]
+SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
+    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT").split(",") if s.strip()]
+DEPTH_SYMS = list(SYM_WHITELIST)
 KLINE_TOPICS = [f"kline.1.{s}" for s in DEPTH_SYMS]
 BOOK_TOPICS = [f"orderbook.200.{s}" for s in DEPTH_SYMS]
 TRADE_TOPICS = [f"publicTrade.{s}" for s in DEPTH_SYMS]
 ALL_TOPICS = KLINE_TOPICS + BOOK_TOPICS + TRADE_TOPICS
 SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
-SPOT_PIN_SYMS = [s for s in ("BTCUSDC", "USDTTRY", "ETHUSDC") if s]  # 强制固定订阅
+SPOT_PIN_SYMS = [s for s in () if s]  # R13c: 白名单收敛, 不再固定订阅外围现货
 SPOT_DEPTH_TOPICS = [f"tickers.{s}" for s in list(dict.fromkeys(list(DEPTH_SYMS) + SPOT_PIN_SYMS))]
 SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
@@ -33,8 +35,8 @@ MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
 WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
 BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
 INSTR_FILE = f"{BASE}/logs/bybit_instruments.json"
-STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01}   # 最细聚合档位
-BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0}       # 大单阈值(币)
+STEP_FINE = {"BTCUSDT": 0.1, "ETHUSDT": 0.01, "XAUUSDT": 0.01, "XAGUSDT": 0.01}  # 最细聚合档位(实测tick: XAU/XAG均0.01美元/盎司)
+BIG_TH = {"BTCUSDT": 5.0, "ETHUSDT": 50.0, "XAUUSDT": 200.0, "XAGUSDT": 10000.0}  # 大单阈值(XAU:盎司 XAG:盎司)
 WALL_MULT = 8.0        # 墙: 单档size ≥ 同侧前20档均值×MULT
 WALL_SHARE = 0.25      # 或 ≥ 该侧总量×SHARE
 TICKER_CAP = int(os.environ.get("TICKER_CAP", "0"))  # 0=全部; N=按成交额只取前N (CPU降级)
@@ -46,8 +48,10 @@ def load_ticker_syms():
     try:
         with open(INSTR_FILE, encoding="utf-8") as f:
             d = json.load(f)
-        lin = [r["symbol"] for r in d.get("linear", []) if not r.get("preListing")]
-        spot = [r["symbol"] for r in d.get("spot", [])]
+        # R13c: 白名单收敛 (BTC/ETH/XAU/XAG 4标的), 不再全量订阅
+        lin = [r["symbol"] for r in d.get("linear", [])
+               if not r.get("preListing") and r["symbol"] in SYM_WHITELIST]
+        spot = [r["symbol"] for r in d.get("spot", []) if r["symbol"] in SYM_WHITELIST]
     except Exception as e:
         print(f"[bridge] 目录缓存读取失败({e}), 回退 BTC/ETH", flush=True)
         return list(DEPTH_SYMS), list(DEPTH_SYMS)

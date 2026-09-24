@@ -561,7 +561,8 @@ async def stream_prices(request: Request, __=Depends(require_session)):
 
 @app.get("/api/instruments")
 def api_instruments(__=Depends(require_session)):
-    """Bybit 全标的目录 (P1): {linear:[{symbol,name,turnover24h,tickSize,qtyStep,...}], spot:[...]}"""
+    """R13c: 标的收敛 — 只返回白名单 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT"""
+    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT").split(","))
     try:
         with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),
                   encoding="utf-8") as f:
@@ -569,6 +570,8 @@ def api_instruments(__=Depends(require_session)):
         def _slim(lst):
             out = []
             for it in lst:
+                if it.get("symbol") not in WL:
+                    continue
                 out.append({"symbol": it.get("symbol"), "name": it.get("name", ""),
                             "base": it.get("base", ""), "quote": it.get("quote", "USDT"),
                             "turnover24h": it.get("turnover24h", 0),
@@ -870,6 +873,12 @@ async def api_pm_markets_set(request: Request, __=Depends(require_admin)):
 
 @app.get("/api/pm/tokens")
 def api_pm_tokens(request: Request, __=Depends(require_session)):
+    """R13c: PM 功能已下线, 浏览/搜索接口一律返回空"""
+    return {"ok": True, "rows": [], "total": 0, "cats": [], "off": True}
+
+
+@app.get("/api/pm/tokens_legacy_off")
+def api_pm_tokens_legacy(request: Request, __=Depends(require_session)):
     """P4 token→市场 映射, R8 懒加载: ?cat=&q=&offset=&limit= 服务端过滤分页
     默认只回第一页 (12596 条全量 5.8MB 压垮首载 → 按需加载)"""
     try:

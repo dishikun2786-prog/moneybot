@@ -454,7 +454,9 @@ select.input{appearance:none}
       <div class="tabbody" id="tab-pos">
         <div class="modebar">
           <div class="moderow"><span class="mlabel">现货×永续套利</span><button class="modebtn" id="mode-carry-auto" onclick="confirmMode('carry','auto')">🤖 托管</button><button class="modebtn" id="mode-carry-manual" onclick="confirmMode('carry','manual')">🖐 手动</button></div>
+          <!-- PM-OFF-R13c: 预测市场对冲引擎已下线
           <div class="moderow"><span class="mlabel">预测市场对冲</span><button class="modebtn" id="mode-paper_pm-auto" onclick="confirmMode('paper_pm','auto')">🤖 托管</button><button class="modebtn" id="mode-paper_pm-manual" onclick="confirmMode('paper_pm','manual')">🖐 手动</button></div>
+          -->
           <div class="moderow"><span class="mlabel">循环恢复策略</span><span class="dim xs" id="cycle-status">加载中…</span><button class="modebtn" id="cycle-toggle" onclick="toggleCycle()" style="display:none">—</button></div>
         </div>
         <div id="pos-list"></div>
@@ -644,7 +646,7 @@ select.input{appearance:none}
         <button data-a="audit" onclick="admTab('audit')">📜 审计</button>
         <button data-a="ann" onclick="admTab('ann')">📢 公告</button>
         <button data-a="funds" onclick="admTab('funds')">💸 资金管理</button>
-        <button data-a="pm" onclick="admTab('pm')">🎲 PM标的管理</button>
+        <!-- PM-OFF-R13c <button data-a="pm" onclick="admTab('pm')">🎲 PM标的管理</button> -->
       </div>
       <div id="adm-pane-users">
         <div class="card" style="padding:8px">
@@ -716,7 +718,9 @@ select.input{appearance:none}
   <div id="pull-ind" style="position:fixed;top:0;left:0;right:0;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--accent);font-size:12px;transition:height .2s;z-index:990">下拉刷新</div>
 <div class="tabbar" id="tabbar">
     <button class="on" data-s="markets" onclick="go('markets')"><span class="ico">📈</span>行情</button>
+    <!-- PM-OFF-R13c: PM 功能下线
     <button data-s="pm" onclick="go('pm')"><span class="ico">🎲</span>预测</button>
+    PM-OFF-END -->
     <button data-s="trade" onclick="go('trade')"><span class="ico">⚡</span>交易</button>
     <button data-s="assets" onclick="go('assets')"><span class="ico">💰</span>资产</button>
     <button data-s="profile" onclick="go('profile')"><span class="ico">👤</span>我的</button>
@@ -1163,15 +1167,9 @@ function renderTickers(){
       +'<div class="pr">'+(px?fmtPx(px):'—')+'</div><div class="chg '+(up?'up':'down')+'" style="width:64px">'+(up?'+':'')+num(chg,2)+'%</div></div>';
   }
   id('ticker-list').innerHTML=list;
+  // PM-OFF-R13c: PM 功能下线, 行情屏 PM 机会区关闭
   var pml='';
-  for(var j=0;j<Math.min(PM_ROWS.length,3);j++){
-    var m=PM_ROWS[j];
-    pml+='<div class="market-item" onclick="go(\'pm\')">'
-      +'<div class="mk" style="background:#1c7ed622;color:#4dabf7">PM</div>'
-      +'<div class="nm"><div class="t">'+esc(m.market_zh||m.market)+'</div><div class="s">买一 '+num(m.best_bid,3)+' / 卖一 '+num(m.best_ask,3)+'¢</div></div>'
-      +'<div class="pr accent">价差 '+num(Math.max(Number(m.edge_buy_c)||0,Number(m.edge_sell_c)||0),1)+'¢</div><div class="chg up">机会</div></div>';
-  }
-  id('pm-top-list').innerHTML=pml||'<div class="dim small" style="padding:8px">暂无预测市场数据</div>';
+  id('pm-top-list').innerHTML='';
 }
 async function loadMarkets(){
   renderTickers();
