@@ -73,6 +73,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .kline-live.green::after{content:'实时'}
 .kline-live.gray{color:var(--text-3)}
 .kline-live.gray::after{content:'延迟'}
+.px-hud{font-size:10px;color:#00cc44;margin-top:2px}
+.t-px-wrap{position:relative}
+@keyframes tpflashup{0%{background:rgba(62,189,147,.35)}100%{background:transparent}}
+@keyframes tpflashdown{0%{background:rgba(246,70,93,.35)}100%{background:transparent}}
+#t-px.flash-up{animation:tpflashup .6s ease-out}
+#t-px.flash-down{animation:tpflashdown .6s ease-out}
 .kline-hud{display:flex;gap:10px;flex-wrap:wrap;padding:6px 8px;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:11px;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .kline-hud .up{color:var(--up)}.kline-hud .down{color:var(--down)}
 .kline-hud .lbl{color:var(--text-3)}
@@ -422,7 +428,7 @@ select.input{appearance:none}
     <section class="screen" id="screen-trade">
       <div class="sym-head">
         <div class="l"><div class="n" id="t-sym">BTCUSDT</div><span class="sub" id="t-sub">永续 · 比特币</span></div>
-        <div class="r"><div class="p" id="t-px">—</div><div class="c" id="t-chg">—</div></div>
+        <div class="r"><div class="p" id="t-px">—</div><div class="c" id="t-chg">—</div><div id="px-hud" class="px-hud" style="display:none"></div></div>
       </div>
       <div class="seg catseg" id="t-catseg" style="margin:0 0 10px">
         <button class="on" data-c="linear" onclick="setTradeCat('linear')">永续</button>
@@ -438,7 +444,7 @@ select.input{appearance:none}
       <div class="tabbody on" id="tab-chart">
         <div class="chart">
           <div class="kline-toolbar">
-            <div class="cbar" id="kbar" style="overflow-x:auto"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
+            <div class="cbar" id="kbar" style="overflow-x:auto"><span data-iv="1m">1分</span><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
             <div class="kz"><button onclick="klZoom(-1)" title="缩小">−</button><button onclick="klZoom(1)" title="放大">＋</button></div>
             <span id="kline-live" class="kline-live gray" title="K线数据流状态">●</span>
           </div>
@@ -1477,13 +1483,23 @@ function setTradeCat(cat){
   klStart();  // K线重拉对应分类
   renderOb();renderTrades();
 }
+var TPX_PREV={v:null,ts:0};
 function renderTradePx(){
   var p=priceOf(tradeSym);
   if(!p.last){return}
   var px=TRADE_CAT==='spot'?(p.spot||p.last):p.last;  // R14: 现货模式显示现货价
   var up=p.chg>=0;
-  var el=id('t-px');el.textContent=fmtPx(px);el.className='p '+(up?'up':'down');
+  var el=id('t-px');
+  if(TPX_PREV.v!==null && px!==TPX_PREV.v){  // R14-M7: 价格变化闪烁(让同步可见)
+    el.classList.remove('flash-up','flash-down');
+    void el.offsetWidth;
+    el.classList.add(px>TPX_PREV.v?'flash-up':'flash-down');
+  }
+  TPX_PREV.v=px;TPX_PREV.ts=Date.now();
+  el.textContent=fmtPx(px);el.className='p '+(up?'up':'down');
   var c=id('t-chg');c.textContent=(up?'+':'')+num(p.chg,2)+'%'+(TRADE_CAT==='spot'?' · 现货':' · 永续');c.className='c '+(up?'up':'down');
+  var hu=id('px-hud');  // R14-M7: 顶部实时徽标(每秒刷新证明数据流同步)
+  if(hu){hu.style.display='block';hu.innerHTML='<span class="up">●</span> 实时 · 更新于 '+new Date().toTimeString().slice(0,8);}
 }
 function swTab(b){
   var bt=document.querySelectorAll('#trade-tabs button');
@@ -1726,7 +1742,7 @@ async function loadNativePositions(target){
 }
 /* K线 — R4 专业蜡烛图 (OHLC+量+实时末根) */
 var KL_POLL=null;
-function klIvf(iv){return { '5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D','1w':'W','1M':'M' }[iv]||'15m'}
+function klIvf(iv){return { '1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D','1w':'W','1M':'M' }[iv]||'15m'}
 function renderKlineSVG(bars, iv, live, el){
   if(!bars.length){
     el.innerHTML='<g><text x="170" y="96" font-size="10" fill="#5c6470" text-anchor="middle">K线数据加载中…</text></g>';
@@ -1905,7 +1921,7 @@ id('kbar').addEventListener('click',function(e){
 var DEPTH={},DEPTH_TR={},DEPTH_SPOT={},DEPTH_TR_SPOT={};  // R14: 现货通道数据
 var KSNAP={};  // R14-M7: depth帧附带的K线末根快照
 var KSNAP_TS=0;
-var KL_IV_NUM_MAP={'5m':'5','15m':'15','1h':'60','4h':'240','1d':'D','1w':'W','1M':'M'};
+var KL_IV_NUM_MAP={'1m':'1','5m':'5','15m':'15','1h':'60','4h':'240','1d':'D','1w':'W','1M':'M'};
 function applyKSnap(){
   /* R14-M7: 用 depth 帧的K线末根直接刷新蜡烛 (与盘口/成交同帧1s, 不再依赖3s REST) */
   if(curScreen!=='trade'||!KL_BARS||!KL_BARS.length)return;
