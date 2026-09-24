@@ -513,7 +513,7 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
         cats = (category,) if category else ("linear", "spot")
         for cat in cats:
             url = (f"https://api.bybit.com/v5/market/kline?category={cat}"
-                   f"&symbol={symbol}&interval={iv}&limit=120")
+                   f"&symbol={symbol}&interval={iv}&limit=1000")  # R13g: 120→1000 (K线历史平移需要深历史)
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=10) as r:
                 d = json.loads(r.read().decode())

@@ -58,6 +58,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .badge.green{background:var(--up-soft);color:var(--up)}.badge.red{background:var(--down-soft);color:var(--down)}
 .badge.yellow{background:var(--accent-soft);color:var(--accent)}.badge.gray{background:rgba(154,163,178,.12);color:var(--text-2)}
 .seg{display:flex;background:var(--surface-2);border-radius:8px;padding:3px;gap:3px}
+.kline-toolbar{display:flex;align-items:center;gap:6px;margin-top:2px}
+.kline-toolbar .cbar{flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.kline-toolbar .cbar::-webkit-scrollbar{display:none}
+.kline-toolbar .cbar span{white-space:nowrap}
+.kz{display:flex;gap:3px;flex:none}
+.kz button{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer}
+.kz button:active{border-color:var(--accent);color:var(--accent)}
+.kline-hud{display:flex;gap:10px;flex-wrap:wrap;padding:6px 8px;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:11px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.kline-hud .up{color:var(--up)}.kline-hud .down{color:var(--down)}
+.kline-hud .lbl{color:var(--text-3)}
 .obtabs{display:flex;gap:6px;margin:10px 0 6px;padding:0 4px}
 .obtabs button{flex:1;padding:8px 0;border-radius:8px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-2);font-size:13px;font-weight:600}
 .obtabs button.on{border-color:var(--accent);color:var(--accent);background:var(--surface-2)}
@@ -434,7 +444,7 @@ select.input{appearance:none}
         <div class="r"><div class="p" id="d-px">—</div><div class="c" id="d-chg">—</div></div>
       </div>
       <div class="card">
-        <div class="cbar" id="dbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
+        <div class="cbar" id="dbar" style="overflow-x:auto"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
         <svg id="d-kline" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
         <div class="ct" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏联动</span></div>
         <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
@@ -477,8 +487,12 @@ select.input{appearance:none}
 
       <div class="tabbody on" id="tab-chart">
         <div class="chart">
-          <div class="cbar" id="kbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
-          <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
+          <div class="kline-toolbar">
+            <div class="cbar" id="kbar" style="overflow-x:auto"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span><span data-iv="1w">1周</span><span data-iv="1M">1月</span></div>
+            <div class="kz"><button onclick="klZoom(-1)" title="缩小">−</button><button onclick="klZoom(1)" title="放大">＋</button></div>
+          </div>
+          <div id="kline-hud" class="kline-hud" style="display:none"></div>
+          <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px;touch-action:none"></svg>
         </div>
         <!-- R13e Bybit风格: 蜡烛图下 盘口/成交 切换 -->
         <div class="obtabs" id="obtabs">
@@ -1765,54 +1779,154 @@ async function loadNativePositions(){
 }
 /* K线 — R4 专业蜡烛图 (OHLC+量+实时末根) */
 var KL_POLL=null;
-function klIvf(iv){return { '5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D' }[iv]||'15m'}
+function klIvf(iv){return { '5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'D','1w':'W','1M':'M' }[iv]||'15m'}
 function renderKlineSVG(bars, iv, live, el){
   if(!bars.length){
-    var sk='<g class="skel-wrap">';
-    for(var i=0;i<7;i++){sk+='<rect class="skel" x="'+(8+i*46)+'" y="'+(30+(i%3)*14)+'" width="34" height="86" rx="3" fill="rgba(255,255,255,.05)"/>'}
-    sk+='</g><text x="120" y="132" font-size="10" fill="#5c6470"><tspan class="spin" dy="0">&#8203;</tspan>K线数据加载中…</text>';
-    el.innerHTML=sk;
+    el.innerHTML='<g><text x="170" y="96" font-size="10" fill="#5c6470" text-anchor="middle">K线数据加载中…</text></g>';
     return;
   }
-  var W=340,H=150,VH=36,pad=2, n=bars.length;
+  var W=340,H=150,VH=32,pad=2, n=bars.length;
+  var v=KL_VIEW;
+  var cwBase=(W-pad*2)/n-1;
+  var cw=Math.max(2,cwBase*v.zoom);
+  var viewN=Math.max(3,Math.floor((W-pad*2)/cw));
+  v.off=Math.max(0,Math.min(v.off,n-viewN));
+  var i0=v.off,i1=Math.min(n,v.off+viewN);
   var mn=Infinity,mx=-Infinity,vmx=0;
-  for(var i=0;i<n;i++){
+  for(var i=i0;i<i1;i++){
     mn=Math.min(mn,bars[i].l);mx=Math.max(mx,bars[i].h);
     vmx=Math.max(vmx,bars[i].v||0);
   }
   if(mx===mn)mx=mn+1;
-  var cw=Math.max(1,(W-pad*2)/n-1);
-  var up='#3ebd93',dn='#f6465d';
+  var up='#3ebd93',dn='#f6465d',step=(W-pad*2)/viewN;
   var s='';
-  for(var j=0;j<n;j++){
-    var b=bars[j],x=pad+j*((W-pad*2)/n);
+  for(var j=i0;j<i1;j++){
+    var b=bars[j],x=pad+(j-i0)*step;
     var isUp=b.c>=b.o, col=isUp?up:dn;
     var yO=pad+(H-pad*2)*(1-(b.o-mn)/(mx-mn));
     var yC=pad+(H-pad*2)*(1-(b.c-mn)/(mx-mn));
     var yH=pad+(H-pad*2)*(1-(b.h-mn)/(mx-mn));
     var yL=pad+(H-pad*2)*(1-(b.l-mn)/(mx-mn));
     var bodyTop=Math.min(yO,yC), bodyH=Math.max(1,Math.abs(yC-yO));
-    s+='<line x1="'+(x+cw/2)+'" y1="'+yH+'" x2="'+(x+cw/2)+'" y2="'+yL+'" stroke="'+col+'" stroke-width="0.8"/>';
-    s+='<rect x="'+x+'" y="'+bodyTop+'" width="'+cw+'" height="'+bodyH+'" fill="'+col+'"/>';
+    s+='<line x1="'+(x+step/2)+'" y1="'+yH+'" x2="'+(x+step/2)+'" y2="'+yL+'" stroke="'+col+'" stroke-width="0.8"/>';
+    s+='<rect x="'+x+'" y="'+bodyTop+'" width="'+(Math.max(1,step-1))+'px" height="'+bodyH+'" fill="'+col+'"/>';
     if(vmx>0){
       var vh=(b.v||0)/vmx*(VH-4);
-      s+='<rect x="'+x+'" y="'+(H+VH-vh-2)+'" width="'+cw+'" height="'+vh+'" fill="'+col+'" opacity="0.55"/>';
+      s+='<rect x="'+x+'" y="'+(H+VH-vh-2)+'" width="'+(Math.max(1,step-1))+'px" height="'+vh+'" fill="'+col+'" opacity="0.55"/>';
     }
   }
-  var last=bars[n-1], lp=last.c;
+  var last=bars[i1-1];
+  var lp=(i1>=n&&live)?priceOf(tradeSym).last:last.c;
   var yLp=pad+(H-pad*2)*(1-(lp-mn)/(mx-mn));
   s+='<line x1="'+pad+'" y1="'+yLp+'" x2="'+(W-pad)+'" y2="'+yLp+'" stroke="#8b94a3" stroke-width="0.5" stroke-dasharray="3,3"/>';
-  s+='<text x="'+(W-pad)+'" y="'+(yLp-2)+'" font-size="9" fill="'+ (last.c>=last.o?up:dn) +'" text-anchor="end">'+fmtPx(lp)+'</text>';
-  var t0=new Date(bars[0].t),t1=new Date(last.t);
+  s+='<text x="'+(W-pad)+'" y="'+(yLp-2)+'" font-size="9" fill="'+ (lp>=last.o?up:dn) +'" text-anchor="end">'+fmtPx(lp)+'</text>';
+  var t0=new Date(bars[i0].t),t1=new Date(last.t);
   function hm(d){return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
   s+='<text x="'+pad+'" y="12" font-size="9" fill="#5c6470">'+iv+' · '+hm(t0)+'—'+hm(t1)
-    +(live?' · 实时':'')+' · 高 '+fmtPx(mx)+' 低 '+fmtPx(mn)+'</text>';
+    +(i1>=n?(live?' · 实时':' · 最新'):' · 历史')+' · 高 '+fmtPx(mx)+' 低 '+fmtPx(mn)+'</text>';
+  if(v.hov!=null&&v.hov>=i0&&v.hov<i1){
+    var hx=pad+(v.hov-i0)*step+step/2;
+    s+='<line x1="'+hx+'" y1="4" x2="'+hx+'" y2="'+(H+VH-2)+'" stroke="#8b94a3" stroke-width="0.5" stroke-dasharray="2,2"/>';
+  }
   el.innerHTML=s;
 }
+/* R13g Bybit式K线交互: 拖拽平移/双指缩放/长按十字光标 */
+var KL_VIEW={off:0,zoom:1,hov:null,ptrs:[],drag0:null,longP:null};
+function klZoom(d){
+  KL_VIEW.zoom=Math.max(0.4,Math.min(4,KL_VIEW.zoom*(d>0?1.25:0.8)));
+  renderKlineSVG(KL_BARS,KL_IV,livePx(),id('kline-svg'));
+}
+function klBarsView(){
+  var v=KL_VIEW,n=KL_BARS.length;
+  var cwBase=(340-4)/n-1,cw=Math.max(2,cwBase*v.zoom);
+  var viewN=Math.max(3,Math.floor((340-4)/cw));
+  return {i0:v.off,i1:Math.min(n,v.off+viewN),step:(340-4)/viewN,n:n};
+}
+function klPointer(e){
+  var svg=id('kline-svg');
+  if(!svg||!KL_BARS.length)return null;
+  var r=svg.getBoundingClientRect();
+  var x=(e.clientX-r.left)*(340/r.width);
+  var v=klBarsView();
+  var idx=Math.floor((x-2)/v.step)+v.i0;
+  return {x:x,idx:idx,v:v};
+}
+function klDragStart(e){
+  var p=klPointer(e);if(!p)return;
+  KL_VIEW.drag0={x:e.clientX,off:KL_VIEW.off,px:p.x,idx:p.idx};
+  KL_VIEW.hov=p.idx;
+  KL_VIEW.longP=setTimeout(function(){KL_VIEW.longP=null;klShowHud(p.idx);},350);
+  klRender();
+}
+function klDragMove(e){
+  var svg=id('kline-svg');
+  if(!svg||!KL_VIEW.drag0)return;
+  var r=svg.getBoundingClientRect();
+  var dx=(e.clientX-KL_VIEW.drag0.x)*(340/r.width);
+  var v=klBarsView();
+  var shift=Math.round(dx/v.step);
+  KL_VIEW.off=Math.max(0,Math.min(v.n-Math.max(3,Math.floor((340-4)/(Math.max(2,(340-4)/v.n*KL_VIEW.zoom)))),KL_VIEW.drag0.off+shift));
+  if(KL_VIEW.longP){clearTimeout(KL_VIEW.longP);KL_VIEW.longP=null}
+  var p=klPointer(e);
+  KL_VIEW.hov=p?p.idx:null;
+  if(KL_VIEW.hov!=null)klShowHud(p.idx);
+  klRender();
+}
+function klDragEnd(){
+  if(KL_VIEW.longP){clearTimeout(KL_VIEW.longP);KL_VIEW.longP=null}
+  KL_VIEW.drag0=null;
+}
+function klShowHud(idx){
+  var b=KL_BARS[idx];if(!b)return;
+  var chg=b.o?((b.c-b.o)/b.o*100):0;
+  var d=new Date(b.t);
+  var ts=d.getMonth()+1+'/'+d.getDate()+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
+  var hud=id('kline-hud');
+  hud.style.display='flex';
+  hud.innerHTML='<span class="lbl">'+ts+'</span>'
+    +'<span>开 <b class="mono">'+fmtPx(b.o)+'</b></span>'
+    +'<span>高 <b class="mono">'+fmtPx(b.h)+'</b></span>'
+    +'<span>低 <b class="mono">'+fmtPx(b.l)+'</b></span>'
+    +'<span>收 <b class="mono '+(chg>=0?'up':'down')+'">'+fmtPx(b.c)+'</b></span>'
+    +'<span class="'+(chg>=0?'up':'down')+'">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</span>'
+    +'<span>量 <b class="mono">'+num(b.v||0,1)+'</b></span>';
+}
+function klRender(){renderKlineSVG(KL_BARS,KL_IV,livePx(),id('kline-svg'));}
+function livePx(){return curScreen==='trade'||curScreen==='symbol'}
+function klPinch(e){
+  // 双指缩放
+  if(!e.touches||e.touches.length!==2)return;
+  var t=e.touches;
+  var d=Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  if(!KL_VIEW.pinchD){KL_VIEW.pinchD=d;return}
+  var ratio=d/KL_VIEW.pinchD;
+  KL_VIEW.pinchD=d;
+  KL_VIEW.zoom=Math.max(0.4,Math.min(4,KL_VIEW.zoom*ratio));
+  klRender();
+}
+function klPinchEnd(){KL_VIEW.pinchD=null}
+
+var KL_BARS=[];
 async function loadKline(){
-  var r=await api('/api/klines?symbol='+tradeSym+'&interval='+klIvf(KL_IV)+'&limit=60');
+  var r=await api('/api/klines?symbol='+tradeSym+'&interval='+klIvf(KL_IV)+'&limit=300');
   var bars=(r.data&&r.data.bars)||[];
+  KL_BARS=bars;
+  if(KL_RESET_VIEW){KL_VIEW.off=0;KL_VIEW.zoom=1;KL_VIEW.hov=null;KL_RESET_VIEW=false}
   renderKlineSVG(bars,KL_IV,!!(r.data&&r.data.live),id('kline-svg'));
+}
+var KL_RESET_VIEW=true;
+function klBindSvg(){
+  var svg=id('kline-svg');
+  if(!svg||svg.__klBound)return;
+  svg.__klBound=true;
+  svg.addEventListener('pointerdown',klDragStart);
+  svg.addEventListener('pointermove',klDragMove);
+  svg.addEventListener('pointerup',klDragEnd);
+  svg.addEventListener('pointercancel',klDragEnd);
+  svg.addEventListener('pointerleave',function(){if(!KL_VIEW.drag0)KL_VIEW.hov=null;});
+  svg.addEventListener('touchstart',function(e){if(e.touches.length===2){e.preventDefault();KL_VIEW.pinchD=null}},{passive:false});
+  svg.addEventListener('touchmove',function(e){if(e.touches.length===2){e.preventDefault();klPinch(e)}},{passive:false});
+  svg.addEventListener('touchend',klPinchEnd);
 }
 async function klWatch(){
   try{
@@ -1821,6 +1935,8 @@ async function klWatch(){
 }
 function klStart(){
   if(KL_POLL)clearInterval(KL_POLL);
+  KL_RESET_VIEW=true;
+  klBindSvg();
   klWatch();
   loadKline();
   KL_POLL=setInterval(function(){if(curScreen==='symbol'||curScreen==='trade')loadKline()},3000);  // R13: 激活屏3s/离开屏停
@@ -1829,6 +1945,7 @@ id('kbar').addEventListener('click',function(e){
   var s=e.target.closest('span[data-iv]');
   if(!s)return;
   KL_IV=s.dataset.iv;
+  KL_RESET_VIEW=true;
   klStart();
   var sp=id('kbar').querySelectorAll('span');
   for(var i=0;i<sp.length;i++)sp[i].classList.toggle('on',sp[i]===s);
