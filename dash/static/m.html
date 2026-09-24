@@ -58,6 +58,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .badge.green{background:var(--up-soft);color:var(--up)}.badge.red{background:var(--down-soft);color:var(--down)}
 .badge.yellow{background:var(--accent-soft);color:var(--accent)}.badge.gray{background:rgba(154,163,178,.12);color:var(--text-2)}
 .seg{display:flex;background:var(--surface-2);border-radius:8px;padding:3px;gap:3px}
+.obtabs{display:flex;gap:6px;margin:10px 0 6px;padding:0 4px}
+.obtabs button{flex:1;padding:8px 0;border-radius:8px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-2);font-size:13px;font-weight:600}
+.obtabs button.on{border-color:var(--accent);color:var(--accent);background:var(--surface-2)}
+.tr-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:4px}
+.tr-item.buy .tr-p{color:#3ebd93}.tr-item.sell .tr-p{color:#f6465d}
+.tr-actbar{display:flex;gap:8px;margin-top:12px;padding:8px 4px;border-top:1px solid var(--border)}
+.tr-actbar .btn{padding:13px 0;font-size:15px;font-weight:700}
 .seg button{flex:1;border:none;background:none;color:var(--text-2);font-size:12px;padding:7px 0;border-radius:6px;cursor:pointer;font-family:var(--sans);min-height:32px}
 .seg button.on{background:var(--bg);color:var(--text);font-weight:600}
 .btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:46px;color:#06251a}
@@ -440,13 +447,27 @@ select.input{appearance:none}
         <div class="chart">
           <div class="cbar" id="kbar"><span data-iv="5m">5分</span><span data-iv="15m" class="on">15分</span><span data-iv="1h">1时</span><span data-iv="4h">4时</span><span data-iv="1d">1日</span></div>
           <svg id="kline-svg" viewBox="0 0 340 192" preserveAspectRatio="none" style="margin-top:6px"></svg>
-          <div class="ct" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">盘口深度 <span class="xs muted">卖单在上 · 买单在下 · 与K线同屏</span></div>
+        </div>
+        <!-- R13e Bybit风格: 蜡烛图下 盘口/成交 切换 -->
+        <div class="obtabs" id="obtabs">
+          <button class="on" data-o="ob" onclick="setObTab('ob')">📖 盘口</button>
+          <button data-o="tr" onclick="setObTab('tr')">🔁 成交</button>
+        </div>
+        <div id="ob-pane" style="padding:2px 6px 6px">
           <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">累计</span></div>
           <div id="ob-asks"></div>
           <div class="mid"><span class="p" id="ob-mid">—</span><span class="up xs">↕ 最新成交价</span></div>
           <div id="ob-bids"></div>
         </div>
-        <div class="sectip"><div class="i">📊</div><div class="t"><b>白话：</b>上 K 线下盘口同屏联动。绿=涨段红=跌段；盘口红=卖单挂单、绿=买单挂单，柱越长=挂单越多（墙）。看涨点「下单」开多，看跌开空。</div></div>
+        <div id="tr-pane" style="display:none;padding:0 6px 6px;max-height:38vh;overflow-y:auto">
+          <div style="padding:4px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;font-size:10px;color:var(--text-3);font-family:var(--mono)"><span>价格</span><span style="text-align:right">数量</span><span style="text-align:right">时间</span></div>
+          <div id="tr-list"></div>
+        </div>
+        <!-- 底部常驻买卖 (Bybit风格一页下单) -->
+        <div class="tr-actbar" id="tr-actbar">
+          <button class="btn buy" style="flex:1" onclick="quickTrade('long')">买入 / 开多</button>
+          <button class="btn sell" style="flex:1" onclick="quickTrade('short')">卖出 / 开空</button>
+        </div>
       </div>
 
 
@@ -922,7 +943,7 @@ function applyPrices(){
   var now=Date.now();
   if(curScreen==='markets'&&now-lastPxRender>900)renderTickers();
   if(curScreen==='trade'&&now-lastPxRender>400)renderTradePx();
-  if(now-lastPxRender>1500)renderOb();
+  if(now-lastPxRender>1500){renderOb();renderTrades();}
   lastPxRender=now;
 }
 /* ============ 行情屏 (P1 全标的: 搜索/分类/排序/虚拟滚动/自选) ============ */
@@ -1535,8 +1556,51 @@ function swTab(b){
   var tb=document.querySelectorAll('.tabbody');
   for(var j=0;j<tb.length;j++)tb[j].classList.remove('on');
   id('tab-'+b.dataset.t).classList.add('on');
+  var ab=id('tr-actbar');if(ab)ab.style.display=b.dataset.t==='chart'?'':'none';
   if(b.dataset.t==='pos')loadPositions();
   if(b.dataset.t==='ticket'){renderNativeTicket();loadNativePositions()}
+}
+/* R13e Bybit风格: 盘口/成交切换 + 逐笔成交 + 一页下单 */
+var OB_TAB='ob';
+function setObTab(t){
+  OB_TAB=t;
+  var bs=id('obtabs').querySelectorAll('button');
+  for(var i=0;i<bs.length;i++)bs[i].classList.toggle('on',bs[i].getAttribute('data-o')===t);
+  id('ob-pane').style.display=t==='ob'?'':'none';
+  id('tr-pane').style.display=t==='tr'?'':'none';
+  if(t==='tr')renderTrades();
+}
+function renderTrades(){
+  if(curScreen!=='trade'||OB_TAB!=='tr')return;
+  var list=DEPTH_TR[tradeSym]||[];
+  var el=id('tr-list');
+  if(!list.length){el.innerHTML='<div class="dim small" style="padding:10px 4px">暂无成交推送，等待实时成交…</div>';return}
+  var html='';
+  for(var i=list.length-1;i>=0;i--){
+    var t=list[i],buy=t.S==='Buy';
+    var d=new Date(t.T);
+    var hh=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
+    html+='<div class="tr-item '+(buy?'buy':'sell')+'"><span class="tr-p">'+fmtPx(t.p)+'</span><span style="text-align:right">'+num(t.v,4)+'</span><span style="text-align:right;color:var(--text-3)">'+hh+'</span></div>';
+  }
+  el.innerHTML=html;
+}
+function quickTrade(side){
+  var sym=tradeSym;
+  if(!sym||sym==='—'){toast('请先在上方选择标的');return}
+  var live=LIVE.on;
+  var dirZh=side==='long'?'买入 / 开多 (看涨)':'卖出 / 开空 (看跌)';
+  var px=priceOf(sym).last;
+  openSheet('<h3>'+(live?'🔴 实盘':'纸面')+' '+dirZh+'</h3>'
+    +'<p><b>'+(SYM_CN[sym]||'')+' '+sym+'</b> · 现价 <b class="mono">'+(px?fmtPx(px):'—')+'</b> · '+(SYM_UNIT[sym]||'美元')+'</p>'
+    +'<div class="trow"><span class="k">名义金额 ($)</span><input type="number" id="qt-notional" value="10" min="1" max="200" step="1" style="width:100px"></div>'
+    +'<button class="btn '+(side==='long'?'buy':'sell')+'" style="width:100%" onclick="qtGo(\''+sym+'\',\''+side+'\')">确认开仓</button>');
+}
+async function qtGo(sym,side){
+  var notional=Number(id('qt-notional').value)||10;
+  closeSheet();
+  var r=await api('/api/native/open',{method:'POST',body:JSON.stringify({symbol:sym,side:side,notional:notional,live:!!LIVE.on})});
+  if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadNativePositions()}
+  else{toast('❌ '+apiErr(r))}
 }
 /* ============ 原生交易 (P3) ============ */
 var NT_SIDE='long';
@@ -1700,7 +1764,7 @@ id('kbar').addEventListener('click',function(e){
   loadKline();
 });
 /* 盘口 */
-var DEPTH={};
+var DEPTH={},DEPTH_TR={};
 function startDepth(){
   try{
     var es=new EventSource('/api/stream/depth');
@@ -1708,6 +1772,9 @@ function startDepth(){
       try{
         var d=JSON.parse(ev.data);
         if(d&&d.books)DEPTH=d.books;
+        if(d&&d.trades)DEPTH_TR=d.trades;
+        // R13e: 盘口/成交渲染与 depth SSE 同源 (1s直驱, 不依赖价格SSE)
+        if(curScreen==='trade'){renderOb();renderTrades();}
       }catch(e){}
     };
     es.onerror=function(){};
@@ -1768,8 +1835,9 @@ function renderModes(){
   var pm=MODES.paper_pm==='manual'?'manual':'auto';
   id('mode-carry-auto').className='modebtn'+(carry==='auto'?' on':'');
   id('mode-carry-manual').className='modebtn'+(carry==='manual'?' on':'');
-  id('mode-paper_pm-auto').className='modebtn'+(pm==='auto'?' on':'');
-  id('mode-paper_pm-manual').className='modebtn'+(pm==='manual'?' on':'');
+  // PM-OFF-R13c: PM 模式行已注释, 元素不存在时跳过
+  var pma=id('mode-paper_pm-auto');if(pma)pma.className='modebtn'+(pm==='auto'?' on':'');
+  var pmm=id('mode-paper_pm-manual');if(pmm)pmm.className='modebtn'+(pm==='manual'?' on':'');
 }
 async function confirmMode(strategy,mode){
   openSheet('<h3>切换模式</h3><p>'+(mode==='auto'?'切换后策略自动开平仓（托管）。':'切换后由你手动操作，策略不自动交易。')+'确认？</p>'
