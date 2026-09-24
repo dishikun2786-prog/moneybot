@@ -84,8 +84,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .tr-tag.paper{background:rgba(62,189,147,.15);color:#3ebd93}
 .tr-tag.live{background:rgba(246,70,93,.15);color:#f6465d}
 .tr-detail{background:var(--surface-2);border-top:1px dashed var(--bd);padding:6px 12px}
-.trd-box{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 10px;padding:4px 0}
-.trd-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted rgba(255,255,255,.05);padding:2px 0}
+.trd-box{padding:4px 0}
+.trd-row{display:flex;align-items:baseline;gap:8px;border-bottom:1px dotted rgba(255,255,255,.05);padding:4px 0}
+.trd-k{color:var(--text-2);font-size:12px;flex:none;width:64px}
+.trd-desc{color:var(--text-3);font-size:10px;flex:1;text-align:left;margin-left:auto;opacity:.75}
 #tr-history .tr-item{flex-wrap:wrap}
 .tr-arrow{color:var(--text-3);font-size:10px;margin-left:4px;vertical-align:top}
 #tr-history .tr-item .t-l{flex-basis:calc(100% - 110px)}
@@ -2514,15 +2516,42 @@ function trRow(r){
     +'<div class="tr-detail" id="trd-'+ridx+'" style="display:none">'+trDetail(r)+'</div>';
 }
 function trDetail(r){
-  /* R14-M10: 点击展开完整明细 (所有留痕字段) */
-  var skip={ts:1,mode:1,symbol:1,action:1};
+  /* R14-M11: 点击展开完整明细 — 字段中文标注 + 白话说明 */
+  var F={
+    side:{zh:'方向',desc:'做多=看涨买入, 做空=看跌卖出',fmt:function(v){return v==='long'||v==='Buy'?'做多':(v==='short'||v==='Sell'?'做空':String(v))}},
+    entry:{zh:'开仓价',desc:'建仓时的成交价格',fmt:num4},
+    exit:{zh:'平仓价',desc:'离场时的成交价格',fmt:num4},
+    price:{zh:'成交价',desc:'实际成交的价格',fmt:num4},
+    px:{zh:'成交价',desc:'实际成交的价格',fmt:num4},
+    pnl_usd:{zh:'盈亏',desc:'这笔交易赚/亏多少钱(美元)',fmt:function(v){return (Number(v)>=0?'+':'')+num(Number(v),4)+' $'}},
+    fees:{zh:'手续费',desc:'平台收取的交易费用(美元)',fmt:function(v){return num(Number(v),4)+' $'}},
+    notional:{zh:'名义金额',desc:'下单的总金额(美元)',fmt:function(v){return num(Number(v),2)+' $'}},
+    qty:{zh:'数量',desc:'成交的币数量',fmt:num4},
+    order_id:{zh:'订单号',desc:'实盘交易所的订单编号'},
+    spot:{zh:'现货腿订单',desc:'套利中现货一侧的订单号'},
+    perp:{zh:'合约腿订单',desc:'套利中合约一侧的订单号'},
+    strat:{zh:'策略',desc:'触发这笔交易的策略名称'},
+    key:{zh:'持仓编号',desc:'系统内部持仓标识'},
+    note:{zh:'备注',desc:'交易补充说明'},
+    engine:{zh:'执行方式',desc:'托管引擎自动执行=系统自动下单, 手动执行=您自己下单'},
+    recovery:{zh:'循环恢复',desc:'平仓后自动再开仓的次数'},
+    open_ts:{zh:'开仓时间',desc:'建仓的时间',fmt:fmtT2},
+    close_ts:{zh:'平仓时间',desc:'离场的时间',fmt:fmtT2}
+  };
+  function num4(v){return num(Number(v),4)}
+  function fmtT2(v){try{return fmtT(Number(v))}catch(e){return String(v)}}
+  var skip={ts:1,mode:1,symbol:1,action:1,key_orig:1};
   var rows=[];
+  var shown={};
   for(var k in r){
-    if(skip[k]||k==='key_orig')continue;
+    if(skip[k]||shown[k])continue;
     var v=r[k];
     if(v===null||v===undefined||v==='')continue;
-    if(typeof v==='object'){try{v=JSON.stringify(v)}catch(e){v=String(v)}}
-    rows.push('<div class="trd-row"><span class="dim xs">'+esc(k)+'</span><span class="mono xs">'+esc(String(v).slice(0,60))+'</span></div>');
+    var f=F[k];
+    if(!f)continue;  // 未映射字段不显示, 避免英文暴露
+    shown[k]=1;
+    var val=f.fmt?f.fmt(v):esc(String(v).slice(0,40));
+    rows.push('<div class="trd-row"><span class="trd-k">'+f.zh+'</span><span class="mono xs">'+val+'</span><span class="trd-desc">'+f.desc+'</span></div>');
   }
   return '<div class="trd-box">'+rows.join('')+'</div>';
 }
