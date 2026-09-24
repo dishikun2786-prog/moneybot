@@ -6,6 +6,7 @@
 """
 import glob
 import os
+import shutil
 import sqlite3
 import subprocess
 import tarfile
@@ -41,7 +42,17 @@ try:
 except Exception as e:
     print(f"[备份失败] tenants: {e}")
 
-# 3. 清理 14 天前
+# 3. 机密文件备份 (缺失则无法解密密钥/会话 — R14-M5 补)
+for secret in (".platform_keys.json", ".dash_secret", ".dash_passwd_hash", ".ai_secrets.json"):
+    sp = os.path.join(BASE, secret)
+    if os.path.exists(sp):
+        try:
+            shutil.copy2(sp, os.path.join(OUT, f"{secret}.{STAMP}"))
+            n += 1
+        except Exception as e:
+            print(f"[备份失败] {secret}: {e}")
+
+# 4. 清理 14 天前
 cut = time.time() - 14 * 86400
 removed = 0
 for f in glob.glob(os.path.join(OUT, "*")):

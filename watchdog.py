@@ -70,6 +70,17 @@ def checks(prev_restarts):
                 probs.append(f"资金三方核对差异 {fh['diff']} USDT (Bybit {fh.get('bybit_usdt')} vs 预期 {fh.get('expected')})")
     except Exception:
         pass
+    # R14-M5: 内存水位线告警 (可用 < 300MB)
+    try:
+        with open("/proc/meminfo") as _f:
+            _mi = {k: int(v.split()[0]) for k, v in
+                   (l.split(":") for l in _f if l and ":" in l and l.split(":")[0].strip()
+                    in ("MemAvailable", "MemTotal"))}
+        _avail_mb = _mi.get("MemAvailable", 0) // 1024
+        if 0 < _avail_mb < 300:
+            probs.append(f"内存可用仅 {_avail_mb}MB (<300MB 水位线)")
+    except Exception:
+        pass
     # R14-M1: K线 REST 回源健康 (429限频/失败率告警)
     try:
         import json as _j

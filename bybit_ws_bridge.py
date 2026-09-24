@@ -38,6 +38,18 @@ STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
 DEPTH_FILE = f"{BASE}/logs/orderbook.json"
 TRADES_LOG = f"{BASE}/logs/trades_1s.jsonl"
 MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
+
+
+def _basis_row(sym):
+    """R14-M5: 现货-永续基差 (perp - spot) / spot ×100%, 键给 depth 帧"""
+    p = PRICES.get(sym, {})
+    perp, spot = p.get("last"), p.get("spot")
+    try:
+        perp, spot = float(perp), float(spot)
+        b = (perp - spot) / spot * 100.0 if spot > 0 else None
+    except Exception:
+        b = None
+    return {"perp": perp, "spot": spot, "basis_pct": None if b is None else round(b, 4)}
 WALL_LOG = f"{BASE}/logs/wall_events.jsonl"
 BIG_LOG = f"{BASE}/logs/big_trades.jsonl"
 INSTR_FILE = f"{BASE}/logs/bybit_instruments.json"
@@ -439,6 +451,8 @@ def depth_loop():
                 "px": {s: {"last": PRICES.get(s, {}).get("last"),
                           "chg": PRICES.get(s, {}).get("change_pct", 0)} for s in DEPTH_SYMS},  # R14: 现价+涨跌并入depth流
                 "px_spot": {s: PRICES.get(s, {}).get("spot") for s in SPOT_CH_SYMS},
+                # R14-M5: 现货-永续基差监控 (仅双通道标的, spot-only 无永续腿是假基差)
+                "basis": {s: _basis_row(s) for s in SPOT_CH_SYMS if s not in SPOT_ONLY_SYMS},
                 "big": big_out, "walls": walls_out, "micro": micro_out}
         tmp = DEPTH_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

@@ -398,6 +398,12 @@ select.input{appearance:none}
           <button id="mk-sort-vol" class="mini" onclick="setMkSort('vol')">成交额</button>
           <span class="xs muted" id="mk-count" style="margin-left:auto"></span>
         </div>
+        <!-- R14-M5: 现货-永续基差监控 -->
+        <div class="card" style="margin:8px 0;padding:10px" id="basis-card">
+          <div class="row" style="margin-bottom:6px"><b style="font-size:13px">⚖️ 现货-永续基差</b>
+            <span class="xs muted">永续比现货贵=市场偏看涨（溢价收窄=套利机会）</span></div>
+          <div id="basis-rows" class="grid2"></div>
+        </div>
         <div id="ticker-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch" onscroll="mkScroll()"><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div><div class="skel-row"><div><div class="skel"></div><div class="skel sub"></div></div><div class="skel"></div></div></div>
       </div>
       <!-- PM-OFF-R13c: 预测市场卡片已移除 (R14: 全面清除PM展示残留) -->
@@ -983,6 +989,21 @@ function setMkSort(s){MKSORT=s;MKCUR=0;
   renderTickers();
 }
 var MKROWS_CACHE=null,MKROWS_KEY='',MKROWS_T=0;
+/* R14-M5: 现货-永续基差 */
+var BASIS={};
+function renderBasis(){
+  var html='';
+  for(var s in BASIS){
+    var b=BASIS[s];
+    if(b==null||b.basis_pct==null){continue}
+    var up=b.basis_pct>=0;
+    html+='<div class="row" style="padding:4px 2px"><span class="s t">'+(SYM_CN[s]||s)+'</span>'
+      +'<span class="xs muted" style="flex:1;text-align:center">现货 '+(b.spot!=null?num(b.spot,1):'—')+' → 永续 '+(b.perp!=null?num(b.perp,1):'—')+'</span>'
+      +'<span class="mono xs '+(up?'up':'down')+'">'+(up?'+':'')+num(b.basis_pct,3)+'%</span></div>';
+  }
+  var el=id('basis-rows');
+  if(el)el.innerHTML=html||'<span class="xs muted">等待行情…</span>';
+}
 function mkRows(){
   var chgSort=MKSORT==='chg';
   var key=MKTAB+'|'+MKQ.trim().toUpperCase()+'|'+(chgSort?'chg':'turn');
@@ -1988,7 +2009,7 @@ function startDepth(){
         if(d&&d.px){  // R14: 现价并入depth流(与盘口/成交同帧, 告别价格SSE依赖)
           for(var k in d.px){var v=d.px[k];if(v&&typeof v==='object'){PRICES[k]=PRICES[k]||{};PRICES[k].last=v.last;PRICES[k].change_pct=v.chg}}
         }
-        if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}}
+        if(d&&d.px_spot){for(var k2 in d.px_spot){if(d.px_spot[k2]){PRICES[k2]=PRICES[k2]||{};PRICES[k2].spot=d.px_spot[k2]}}} if(d&&d.basis){for(var bk in d.basis){BASIS[bk]=d.basis[bk]} renderBasis();}
         // R13e: 盘口/成交渲染与 depth SSE 同源 (1s直驱, 不依赖价格SSE)
         if(curScreen==='trade'){renderOb();renderTrades();renderTradePx();}
         if(curScreen==='markets'||curScreen==='assets'){renderTickers();}
