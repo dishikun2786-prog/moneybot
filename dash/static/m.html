@@ -184,9 +184,9 @@ select.input{appearance:none}
 .chart .cbar{display:flex;gap:14px;padding:6px 2px 0;font-size:10px;color:var(--text-3);font-family:var(--mono)}
 .chart .cbar span{cursor:pointer;padding:2px 4px;border-radius:4px}
 .chart .cbar span.on{color:var(--accent);background:var(--accent-soft)}
-.orderbook .ob-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;padding:4px 8px;position:relative;border-radius:4px}
-.orderbook .ob-item .depthbar{position:absolute;right:0;top:0;bottom:0;opacity:.12;border-radius:4px;pointer-events:none}
-.orderbook .mid{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--surface-2);border-radius:8px;margin:6px 0;font-family:var(--mono)}
+.orderbook .ob-item,#ob-pane .ob-item{display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--mono);font-size:11px;padding:4px 8px;position:relative;border-radius:4px}
+.orderbook .ob-item .depthbar,#ob-pane .ob-item .depthbar{position:absolute;right:0;top:0;bottom:0;opacity:.12;border-radius:4px;pointer-events:none}
+.orderbook .mid,#ob-pane .mid{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--surface-2);border-radius:8px;margin:6px 0;font-family:var(--mono)}
 .orderbook .mid .p{font-size:17px;font-weight:700}
 .ticket .dirrow{display:flex;gap:8px;margin-bottom:10px}
 .ticket .dirrow button{flex:1;padding:11px 0;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:46px}
