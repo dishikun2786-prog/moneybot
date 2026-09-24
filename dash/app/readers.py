@@ -629,9 +629,16 @@ def klines(symbol="BTCUSDT", interval="15m", limit=300, category=None):
     now = time.time()
     hit = _KLINE_CACHE.get(key)
     if hit and now - hit[0] < 60:
+        # R14-M6: 缓存命中也要合并 kl_snap 实时根 (否则60s内K线不随盘口成交跳动)
+        bars = hit[1][-limit:]
+        if live_bars and bars:
+            live_min = live_bars[0]["t"]
+            hist = [b for b in bars if b["t"] < live_min]
+            hist.extend([b for b in live_bars if b["t"] >= live_min])
+            bars = hist[-limit:]
         return {"symbol": symbol, "interval": interval,
-                "bars": hit[1][-limit:], "cached": True,
-                "live": _kline_live(hit[1], iv_ms)}  # R14: 缓存分支补 live 判定
+                "bars": bars, "cached": True,
+                "live": bool(live_bars)}
     try:
         import urllib.request
         iv = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240",

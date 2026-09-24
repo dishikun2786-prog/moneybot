@@ -205,6 +205,12 @@ def spot_mkt_loop():
         ws = websocket.WebSocketApp(SPOT_WS, on_message=on_spot_msg,
                                     on_open=_spot_open)
         WS_REF["spot_ws"] = ws
+        # R14-M6: 重连后按需K线恢复 (延迟到连接建立后)
+        def _spot_resub():
+            time.sleep(1)
+            if WS_REF.get("spot_ws") is ws:
+                _resub_kline(ws, "spot")
+        threading.Thread(target=_spot_resub, daemon=True).start()
         try:
             ws.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
@@ -216,6 +222,7 @@ def on_open(ws):
     WS_REF["ws"] = ws
     ws.send(json.dumps({"op": "subscribe", "args": ALL_TOPICS}))
     _batched_sub(ws, [f"tickers.{s}" for s in TICKER_SYMS])
+    _resub_kline(ws, "linear")  # R14-M6: 重连恢复按需K线
     with LOCK:
         SNAP["connected_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -668,6 +675,17 @@ def test_cb_hook():
             return
 
 
+def _resub_kline(ws, cat):
+    """R14-M6: 端点重连后恢复按需K线订阅 (否则重连后只恢复常驻主题, 按需周期永久卡死)"""
+    for sym, (iv, ts, c) in list(KL_WATCH_SUB.items()):
+        if c != cat:
+            continue
+        try:
+            ws.send(json.dumps({"op": "subscribe", "args": [f"kline.{KL_IV_NUM[iv]}.{sym}"]}))
+        except Exception:
+            pass
+
+
 def watch_kline_loop():
     """R4 按需K线: 轮询 kline_watch.json → 订阅 kline.<iv>.<sym>; LRU 退订"""
     while True:
@@ -714,6 +732,14 @@ def watch_kline_loop():
                 old_ws.send(json.dumps({"op": "unsubscribe", "args": [f"kline.{KL_IV_NUM[oiv]}.{oldest}"]}))
             KL_WATCH_SUB.pop(oldest, None)
             KLINES.pop(oldest, None)
+            try:  # R14-M6: 同步清理watch文件, 防下一轮2s重订→再退订风暴
+                with open(KL_WATCH_FILE, encoding="utf-8") as f:
+                    _reqs = json.load(f)
+                _reqs.pop(oldest, None)
+                with open(KL_WATCH_FILE, "w", encoding="utf-8") as f:
+                    json.dump(_reqs, f)
+            except Exception:
+                pass
             print(f"[bridge] LRU退订K线: {oldest}", flush=True)
 
 
