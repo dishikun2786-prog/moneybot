@@ -267,6 +267,77 @@ def api_pnl(su=Depends(require_session_user)):
         return readers.pnl_overview()
 
 
+@app.get("/api/trades")
+def api_trades(mode: str = "all", offset: int = 0, limit: int = 30,
+               su=Depends(require_session_user)):
+    """M8: 交易记录明细 — 合并模拟(carry_trades.jsonl)与实盘(live_orders.jsonl)台账"""
+    with tenants.tenant(su["u"]):
+        import os
+        logs_dir = tenants.logs(su["u"])
+        rows = []
+        # 模拟盘
+        for path, m in (("carry_trades.jsonl", "paper"),):
+            fp = os.path.join(logs_dir, path)
+            try:
+                with open(fp, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except Exception:
+                            continue
+                        rec["mode"] = m
+                        rows.append(rec)
+            except FileNotFoundError:
+                pass
+        # 实盘
+        try:
+            with open(os.path.join(logs_dir, "live_orders.jsonl"), encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    if rec.get("venue") == "pm":
+                        continue  # PM 已下线, 历史 PM 实盘单不展示
+                    rec["mode"] = "live"
+                    rec["symbol"] = rec.get("symbol") or ""
+                    rows.append(rec)
+        except FileNotFoundError:
+            pass
+        # 汇总
+        paper_pnl = 0.0
+        paper_n = live_n = 0
+        live_notional = 0.0
+        for r in rows:
+            if r["mode"] == "paper":
+                paper_n += 1
+                try:
+                    paper_pnl += float(r.get("pnl_usd") or 0)
+                except Exception:
+                    pass
+            else:
+                live_n += 1
+                try:
+                    live_notional += float(r.get("notional") or 0)
+                except Exception:
+                    pass
+        summary = {"paper_pnl": round(paper_pnl, 2), "paper_n": paper_n,
+                   "live_n": live_n, "live_notional": round(live_notional, 2)}
+        rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
+        if mode in ("paper", "live"):
+            rows = [r for r in rows if r["mode"] == mode]
+        total = len(rows)
+        page = rows[offset:offset + limit]
+        return {"ok": True, "total": total, "rows": page, "summary": summary,
+                "has_more": offset + limit < total}
+
+
 @app.get("/api/share/{token}")
 def api_share(token: str):
     if not readers.valid_share(token):
