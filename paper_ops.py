@@ -162,6 +162,56 @@ def _prices():
     return out
 
 
+def _funding_rate(sym):
+    """Bybit 最新 funding rate (REST, 失败返回 None 用 last_fr 兜底)"""
+    import urllib.request
+    try:
+        url = (f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={sym}")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        d = json.load(urllib.request.urlopen(req, timeout=8))
+        if d.get("retCode") == 0 and d["result"]["list"]:
+            return float(d["result"]["list"][0].get("fundingRate") or 0)
+    except Exception:
+        pass
+    return None
+
+
+def _next_funding_boundary(ts=None):
+    """下一个 8h funding 结算点 (UTC 00/08/16)"""
+    ts = ts or time.time()
+    day = int(ts // 86400) * 86400
+    for off in (0, 8, 16):
+        b = day + off * 3600
+        if b > ts:
+            return int(b)
+    return int(day + 86400)
+
+
+def settle_all_funding():
+    """惰性结算全部 carry 持仓 funding (跨8h结算点时按最新rate累计; 幂等)
+    fwd=多现货空永续 → 空永续在正费率时收 funding(+); rev 相反(-)
+    """
+    st = _read(_resolve("CARRY_STATE"), {})
+    changed = False
+    now = time.time()
+    for sym, pos in list((st.get("positions") or {}).items()):
+        nf = pos.get("next_funding_ts") or 0
+        if not nf or nf > now:
+            continue
+        fr = _funding_rate(sym)
+        if fr is None:
+            fr = pos.get("last_fr") or 0.0
+        sign = 1.0 if pos.get("dir") == "fwd" else -1.0
+        pos["funding_acc"] = round((pos.get("funding_acc") or 0.0) + sign * fr * pos.get("notional", 0), 6)
+        pos["last_fr"] = fr
+        pos["next_funding_ts"] = _next_funding_boundary(now)
+        changed = True
+        _audit("settle_funding", sym, {"rate": fr, "acc": pos["funding_acc"]})
+    if changed:
+        _write(_resolve("CARRY_STATE"), st)
+    return st
+
+
 def _latest_carry_row(sym):
     try:
         rows = [json.loads(l) for l in open(_resolve("CARRY_LOG")) if l.strip()]

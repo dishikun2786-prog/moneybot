@@ -336,6 +336,12 @@ def hourly_inspect(uid):
 def tick():
     """每60s扫描全部租户的到期任务 (pm-dash 后台线程调用)"""
     try:
+        # M-S三期: funding 惰性结算 (无请求时也能跨8h结算点累计)
+        try:
+            import paper_ops
+            paper_ops.settle_all_funding()
+        except Exception:
+            pass
         # M-D2: Jev 5分钟决策巡检 (所有付费套餐用户; 超时降级由 jev_engine 自处理)
         global _LAST_JEV
         _now = time.time()

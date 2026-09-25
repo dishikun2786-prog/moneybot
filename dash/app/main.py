@@ -226,6 +226,11 @@ def carry_page():
 @app.get("/api/carry")
 def api_carry(su=Depends(require_session_user)):
     with tenants.tenant(su["u"]):
+        try:
+            import paper_ops
+            paper_ops.settle_all_funding()
+        except Exception:
+            pass
         return readers.cached(f"carry:{su['u']}", 15, readers.carry)
 
 

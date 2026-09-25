@@ -30,6 +30,36 @@ def _db():
     return conn
 
 
+def _tg_alert(text):
+    """客服关键事件 TG 告警 (复用 alert_config.json: bot_token/chat_id)"""
+    try:
+        cfg_path = os.path.join(BASE, "alert_config.json")
+        if not os.path.exists(cfg_path):
+            return
+        cfg = json.load(open(cfg_path, encoding="utf-8"))
+        if not cfg.get("bot_token") or not cfg.get("chat_id"):
+            return
+        import urllib.request
+        url = f"https://api.telegram.org/bot{cfg['bot_token']}/sendMessage"
+        data = json.dumps({"chat_id": int(cfg["chat_id"]), "text": text}).encode()
+        urllib.request.urlopen(urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}), timeout=10)
+    except Exception:
+        pass
+
+
+_last_tg = 0
+
+
+def _notify_new_user_msg(uid):
+    """用户发消息且 admin 未读从 0→1 时 TG 告警 (5 分钟冷却)"""
+    global _last_tg
+    if time.time() - _last_tg < 300:
+        return
+    _last_tg = time.time()
+    _tg_alert(f"💬 新客服消息: 用户 #{uid} 发来反馈, 请登录管理后台处理\nhttps://moneybot.openedskill.com:8443/admin")
+
+
 def _init():
     os.makedirs(UPDIR, exist_ok=True)
     c = _db()
@@ -173,7 +203,10 @@ def register(app):
                 conv_id = conv["id"]
             c.execute("INSERT INTO messages(conv_id,sender,type,content,created_at,read) VALUES(?,?,?,?,?,0)",
                       (conv_id, "user", "text", content, _now()))
+            was_unread = c.execute("SELECT unread_admin FROM conversations WHERE id=?", (conv_id,)).fetchone()[0]
             c.execute("UPDATE conversations SET last_msg_at=?, unread_admin=unread_admin+1 WHERE id=?", (_now(), conv_id))
+            if was_unread == 0:
+                _notify_new_user_msg(su["u"])
         c.commit()
         c.close()
         return {"ok": True, "unread": unread_counts(su)}
@@ -212,7 +245,10 @@ def register(app):
                 conv_id = conv["id"]
             cur = c.execute("INSERT INTO messages(conv_id,sender,type,content,created_at,read) VALUES(?,?,?,?,?,0)",
                             (conv_id, "user", "image", fname, _now()))
+            was_unread = c.execute("SELECT unread_admin FROM conversations WHERE id=?", (conv_id,)).fetchone()[0]
             c.execute("UPDATE conversations SET last_msg_at=?, unread_admin=unread_admin+1 WHERE id=?", (_now(), conv_id))
+            if was_unread == 0:
+                _notify_new_user_msg(su["u"])
         c.commit()
         mid = cur.lastrowid
         c.close()
