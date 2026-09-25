@@ -372,6 +372,14 @@ async def ai_chat(request: Request, su=Depends(require_session_user)):
         return JSONResponse({"error": "bad request"}, status_code=400)
     messages = (body.get("messages") or [])[-20:]
     uid = su["u"]
+    # M-A1: 套餐 gating — 免费版进入对话返回升级引导事件
+    _u = users.get_user(uid)
+    if _u and (_u.get("plan") or "free") == "free":
+        async def gen_upgrade():
+            yield f"data: {json.dumps({'type': 'upgrade', 'text': 'AI 策略助手是专业版/旗舰版专属功能。升级后解锁: 持仓白话分析、策略建议、托管决策辅助、智能定时任务、回测总结。'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(gen_upgrade(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     def tenant_executor(tool, args):
         """工具执行级租户包裹: 仅持锁于单次工具调用, 不阻塞长LLM流"""
@@ -1181,6 +1189,42 @@ async def api_admin_plan(uid: int, request: Request, su=Depends(require_admin)):
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     ok, msg = admin.set_plan(uid, body.get("plan", ""), su["u"], body.get("days"))
     return {"ok": ok, "msg": msg}
+
+
+@app.get("/api/plans")
+def api_plans(su=Depends(require_session_user)):
+    """M-A1: 用户侧套餐列表 (只读, 仅启用套餐) — 升级弹窗用"""
+    try:
+        pls = [p for p in funds.plan_defs() if p.get("active")]
+        return {"ok": True, "plans": pls,
+                "current": users.get_user(su["u"])}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+@app.post("/api/plans/upgrade")
+async def api_plans_upgrade(request: Request, su=Depends(require_session_user)):
+    """M-A1: 用账户余额购买套餐 (扣款+设套餐, 免费版亦可升级)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    code = str(body.get("code", ""))
+    defs = {p["code"]: p for p in funds.plan_defs() if p.get("active")}
+    if code not in defs:
+        return {"ok": False, "msg": "套餐不存在或已下架"}
+    price = float(defs[code]["price"])
+    if price <= 0:
+        return {"ok": False, "msg": "该套餐免费, 无需购买"}
+    bal = float(funds.get_balance(su["u"]) or 0)
+    if bal < price:
+        return {"ok": False, "msg": f"余额不足 (可用 {bal:.2f} USDT, 需 {price:.2f}) — 请先充值"}
+    ok, msg = admin.set_plan(su["u"], code, su["u"])
+    if not ok:
+        return {"ok": False, "msg": msg}
+    funds.add_balance(su["u"], -price, "plan", f"plan:{code}", f"购买套餐 {defs[code]['name']}")
+    users.audit_log(su["u"], "plan_buy", f"购买套餐 {code} 扣 {price} USDT")
+    return {"ok": True, "msg": f"已开通 {defs[code]['name']}, 余额扣 {price:.2f} USDT"}
 
 
 @app.get("/api/admin/plans")

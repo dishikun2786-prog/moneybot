@@ -358,6 +358,23 @@ select.input{appearance:none}
 .skel-line{height:12px;margin:6px 0;border-radius:4px}
 @keyframes spinRot{to{transform:rotate(360deg)}}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.18);border-top-color:var(--accent);border-radius:50%;animation:spinRot .7s linear infinite;vertical-align:-2px;margin-right:5px}
+.ai-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border-2)}
+.ai-head b{font-size:15px}
+#ai-msg{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+#screen-ai{display:flex;flex-direction:column}
+.ai-b{max-width:85%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.65;word-break:break-word}
+.ai-b.u{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.ai-b.a{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border-2);border-bottom-left-radius:4px}
+.ai-wel{align-self:center;text-align:center;padding:30px 10px;color:var(--text-2);font-size:14px}
+.ai-cur{animation:blink 1s infinite}
+@keyframes blink{50%{opacity:0}}
+.ai-tool{font-size:12px;color:var(--text-3);background:var(--surface-3);border-radius:8px;padding:5px 9px;margin:6px 0}
+.ai-up{background:rgba(62,189,147,.08);border:1px solid rgba(62,189,147,.4);border-radius:10px;padding:10px;font-size:13px}
+.ai-up p{color:var(--text-2);font-size:12px;margin:4px 0}
+.ai-input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border-2);background:var(--surface)}
+.ai-input input{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:18px;padding:9px 14px;font-size:14px;color:var(--text);outline:none}
+.up-item{border:1px solid var(--border-2);border-radius:10px;padding:10px}
+.up-item .row{gap:6px}
 </style>
 </head>
 <body>
@@ -655,7 +672,18 @@ select.input{appearance:none}
         <div class="avatar" id="p-avatar">?</div>
         <div style="flex:1"><div class="nm" id="p-name">—</div><div class="plan"><span class="badge yellow" id="p-plan">—</span> <span class="badge gray" id="p-role">—</span></div></div>
       </div>
+      <div class="card" style="margin-bottom:10px;background:linear-gradient(135deg,#1a1030,#0f1a2e)">
+        <div class="row" style="align-items:center;gap:8px">
+          <span style="font-size:22px">💎</span>
+          <div style="flex:1">
+            <div><b id="pl-name">—</b> <span class="xs muted" id="pl-exp">—</span></div>
+            <div class="xs muted" id="pl-sub">—</div>
+          </div>
+          <button class="btn accent" style="padding:6px 14px" onclick="openUpgrade()">升级套餐</button>
+        </div>
+      </div>
       <div class="menulist">
+        <div class="mi" onclick="go('ai')"><span class="ico">🤖</span><span class="t">AI 策略助手<span class="xs muted"> · 流式对话 · 托管决策</span></span><span class="badge green" id="ai-badge">PRO</span><span class="chev">›</span></div>
         <div class="mi" onclick="go('trade')"><span class="ico">⚡</span><span class="t">实盘模式<span class="xs muted"> · 风控限额</span></span><span class="r" id="p-livebadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="toast('密码修改请联系管理员或桌面版操作')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 锁定</span><span class="chev">›</span></div>
         <div class="mi" onclick="openHelp()"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
@@ -667,6 +695,25 @@ select.input{appearance:none}
       <div class="sectip"><div class="i">👤</div><div class="t"><b>白话：</b>实盘由管理员为你开通（平台统一密钥执行交易，你无需自绑任何密钥）。开通后在「我的」页可见实盘模式与风控限额。</div></div>
     </section>
 
+
+    <!-- ===== AI 策略助手 ===== -->
+    <section class="screen" id="screen-ai">
+      <div class="ai-head">
+        <button class="mini" onclick="go('profile')">← 返回</button>
+        <div style="flex:1;text-align:center"><b>🤖 AI 策略助手</b><span class="xs muted" id="ai-plan-tag"></span></div>
+        <button class="mini" onclick="aiClear()">清空</button>
+      </div>
+      <div id="ai-msg"></div>
+      <div class="chips" id="ai-chips" style="padding:8px 10px">
+        <button class="chip" onclick="aiAsk('看一下我目前的持仓和风险情况，用白话解释')">📊 持仓风险</button>
+        <button class="chip" onclick="aiAsk('总结一下我最近的交易盈亏情况')">💰 盈亏总结</button>
+        <button class="chip" onclick="aiAsk('目前市场资金费率和基差情况如何？适不适合做套利？')">🔄 套利行情</button>
+      </div>
+      <div class="ai-input">
+        <input id="ai-q" placeholder="问点什么… 例如: 我的持仓有什么风险?" onkeydown="if(event.key==='Enter')aiSend()">
+        <button class="btn accent" onclick="aiSend()">发送</button>
+      </div>
+    </section>
 
     <!-- ===== 管理后台 ===== -->
     <section class="screen" id="screen-admin">
@@ -770,7 +817,7 @@ function id(x){return document.getElementById(x)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function num(v,d){v=Number(v);return isFinite(v)?v.toFixed(d==null?2:d):'—'}
 function fmtPx(v){v=Number(v);if(!isFinite(v))return'—';return v>=1000?v.toLocaleString('en-US',{maximumFractionDigits:1}):(v>=1?v.toFixed(2):v.toFixed(4))}
-var PLAN_ZH={free:'免费版',pro:'专业版',live:'实盘版'};
+var PLAN_ZH={free:'免费版',pro:'专业版',live:'旗舰版'};
 var tt;
 function toast(m,kind){
   var t=id('toast');t.textContent=m;
@@ -803,8 +850,8 @@ function apiErr(r){
 /* ============ 屏幕路由 ============ */
 var curScreen='login';
 var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,trades:1,profile:1,symbol:1};
-var BACK_MAP={keys:'profile',admin:'profile',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
-var TITLES={login:'交易室',register:'创建账户',markets:'行情',trade:'交易',assets:'资产',trades:'交易记录',profile:'我的',admin:'管理后台',symbol:'标的详情'};
+var BACK_MAP={keys:'profile',admin:'profile',ai:'profile',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
+var TITLES={login:'交易室',register:'创建账户',markets:'行情',trade:'交易',assets:'资产',trades:'交易记录',profile:'我的',ai:'AI 策略助手',admin:'管理后台',symbol:'标的详情'};
 function go(s){
   if(!id('screen-'+s))return;
   curScreen=s;
@@ -819,6 +866,7 @@ function go(s){
   var bt=tb.querySelectorAll('button');
   for(var j=0;j<bt.length;j++)bt[j].classList.toggle('on',bt[j].dataset.s===s);
   closeSheet();
+  if(s==='ai')aiInit();
   if(s==='markets')loadMarkets();
   if(s==='pm'){toast('预测市场已下线');s='markets'}
   if(s==='trade'){loadKline();}
@@ -2588,6 +2636,111 @@ async function loadProfile(){
   id('p-admin-entry').style.display=ME.role==='admin'?'':'none';
   if(LIVE.live_enabled){id('p-livebadge').textContent='✅ 已开通';id('p-livebadge').style.color='var(--up)'}
   else{id('p-livebadge').textContent='未开通'}
+  loadPlanCard();
+}
+async function loadPlanCard(){
+  try{
+    var r=await api('/api/plans');
+    if(!r.data||!r.data.ok){return}
+    var pls=r.data.plans||[];
+    var cur=(r.data.current||ME)||{};
+    var def=pls.find(function(p){return p.code===cur.plan})||{};
+    var nm=def.name||PLAN_ZH[cur.plan]||cur.plan;
+    var exp=cur.plan_expires||0;
+    var expTxt='';
+    if(exp>0){
+      var d=new Date(exp*1000);
+      var days=Math.max(0,Math.ceil((exp*1000-Date.now())/86400000));
+      expTxt='托管至 '+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' (剩'+days+'天)';
+    }else{expTxt='无托管服务'}
+    id('pl-name').textContent=nm;
+    id('pl-exp').textContent=expTxt;
+    var dft=def.duration_days||0;
+    id('pl-sub').textContent=dft>0?('托管 '+dft+' 天 · $'+def.price+'/'+(PERIOD_ZH2[def.billing_period]||'月')):'手动交易';
+    var isFree=(cur.plan==='free');
+    id('ai-badge').textContent=isFree?'免费':'PRO';
+    id('ai-badge').className='badge '+(isFree?'gray':'green');
+    id('ai-plan-tag').textContent=isFree?' (免费版 · 升级解锁全部能力)':' ('+nm+')';
+  }catch(e){}
+}
+var PERIOD_ZH2={month:'月',quarter:'季',year:'年'};
+/* ============ AI 策略助手 ============ */
+var AIMSG=[];
+function aiBubble(role,txt,extra){
+  var d=document.createElement('div');
+  d.className='ai-b '+(role==='user'?'u':'a');
+  if(role==='user'){d.textContent=txt}
+  else{d.innerHTML=txt}
+  if(extra)d.appendChild(extra);
+  id('ai-msg').appendChild(d);
+  id('ai-msg').scrollTop=id('ai-msg').scrollHeight;
+  return d;
+}
+function aiAsk(q){id('ai-q').value=q;aiSend()}
+async function aiSend(){
+  var q=id('ai-q').value.trim();
+  if(!q){return}
+  id('ai-q').value='';
+  aiBubble('user',q);
+  AIMSG.push({role:'user',content:q});
+  var b=aiBubble('a','<span class="ai-cur">▍</span>');
+  var acc='';
+  var upgraded=false;
+  function flush(){b.innerHTML=acc.replace(/\n/g,'<br>')+'<span class="ai-cur">▍</span>';id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+  try{
+    var r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:AIMSG.slice(-20)})});
+    if(!r.ok){var e2=await r.text();b.textContent='请求失败: '+r.status;return}
+    var reader=r.body.getReader();var dec=new TextDecoder();var buf='';
+    while(true){
+      var {done,value}=await reader.read();
+      if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      var parts=buf.split('\n\n');
+      buf=parts.pop();
+      for(var i=0;i<parts.length;i++){
+        var line=parts[i].trim();
+        if(!line.startsWith('data:'))continue;
+        var ev=JSON.parse(line.slice(5));
+        if(ev.type==='delta'){acc+=ev.text||'';flush()}
+        else if(ev.type==='tool_call'){b.innerHTML=acc+'<div class="ai-tool">🔍 '+(ev.name||'查询数据')+'…</div><span class="ai-cur">▍</span>'}
+        else if(ev.type==='tool_result'){b.innerHTML=acc+'<span class="ai-cur">▍</span>'}
+        else if(ev.type==='upgrade'){acc='';upgraded=true;b.innerHTML='<div class="ai-up"><b>💎 升级解锁 AI 策略助手</b><p>'+ (ev.text||'') +'</p><button class="btn accent" style="margin-top:6px" onclick="openUpgrade()">立即升级</button></div>'}
+        else if(ev.type==='error'){b.textContent='出错了: '+(ev.text||'')}
+        else if(ev.type==='done'){if(upgraded)return;b.innerHTML=acc.replace(/\n/g,'<br>');if(ev.content)AIMSG.push({role:'assistant',content:ev.content});return}
+      }
+    }
+  }catch(err){b.textContent='网络错误: '+err.message}
+  finally{id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+}
+function aiClear(){AIMSG=[];id('ai-msg').innerHTML='<div class="ai-wel">🤖 我是你的 AI 策略助手<br><span class="xs muted">可以问我持仓风险、盈亏总结、套利行情等</span></div>'}
+function aiInit(){if(!id('ai-msg').dataset.inited){aiClear();id('ai-msg').dataset.inited='1'}}
+async function openUpgrade(){
+  var r=await api('/api/plans');
+  if(!r.data||!r.data.ok){toast('加载套餐失败',true);return}
+  var pls=r.data.plans||[];
+  var cur=((r.data.current||ME)||{}).plan;
+  var rows=pls.map(function(p){
+    var curFlag=p.code===cur?'<span class="badge green" style="margin-left:6px">当前</span>':'';
+    var act='';
+    if(p.code!==cur){
+      act=(p.price>0
+        ?'<button class="btn accent" style="padding:5px 12px" onclick="doUpgrade(\''+p.code+'\','+p.price+')">$'+p.price+' 购买</button>'
+        :'<button class="btn accent" style="padding:5px 12px" onclick="doUpgrade(\''+p.code+'\',0)">免费开通</button>');
+    }
+    var feat=Array.isArray(p.features)?p.features.join(' · '):(p.features||'');
+    return '<div class="up-item"><div class="row" style="align-items:center"><b>'+p.name+'</b>'+curFlag
+      +'<span class="xs muted">$'+p.price+'/'+(PERIOD_ZH2[p.billing_period]||'月')+'</span><span style="flex:1"></span>'+act+'</div>'
+      +'<div class="xs muted">'+(p.duration_days>0?('托管 '+p.duration_days+' 天'):'无托管')+' · '+(feat||'')+'</div></div>';
+  }).join('');
+  openSheet('<h3>💎 升级套餐</h3><div style="display:flex;flex-direction:column;gap:10px;margin:12px 0">'+rows+'</div>'
+    +'<p class="xs muted">购买用账户余额支付, 立即生效; 套餐差异=对冲套利托管服务时效。</p>');
+}
+async function doUpgrade(code,price){
+  if(price>0&&!confirm('确认用账户余额 $'+price+' 购买该套餐?'))return;
+  var r=await api('/api/plans/upgrade',{method:'POST',body:JSON.stringify({code:code})});
+  toast(r.data&&r.data.ok?(r.data.msg||'已开通'):('失败: '+(r.data&&r.data.msg||r.data.error||'未知')),!r.data||!r.data.ok);
+  closeSheet();
+  if(r.data&&r.data.ok){ME.plan=code;loadProfile();loadPlanCard()}
 }
 /* ============ 密钥屏 ============ */
 async function loadKeys(){
