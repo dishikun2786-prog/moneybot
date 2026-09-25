@@ -27,7 +27,7 @@ OFFICIAL = {
              "XAUUSDT": 0.001, "XAGUSDT": 0.001},
 }
 
-_cache = {"t": 0.0, "cfg": None}
+_cache = {"t": 0, "cfg": None}
 
 
 def _load():
@@ -42,11 +42,11 @@ def _load():
 
 
 def load():
-    """mtime 缓存, 免每次读盘"""
+    """mtime 纳秒缓存, 免每次读盘 — R14-M13: ns 精度保证同秒保存也实时生效"""
     try:
-        mt = os.path.getmtime(CFG_FILE)
+        mt = os.stat(CFG_FILE).st_mtime_ns
     except OSError:
-        mt = 0.0
+        mt = 0
     if _cache["cfg"] is None or mt > _cache["t"]:
         _cache["cfg"] = _load()
         _cache["t"] = mt
