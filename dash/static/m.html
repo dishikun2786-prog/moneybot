@@ -191,6 +191,13 @@ select.input{appearance:none}
 #ai-sheet .ai-input{border-top:1px solid var(--border-2);padding:8px 12px 12px}
 #ai-sheet #ai-chips2{padding:0 12px 6px}
 @media (prefers-reduced-motion:reduce){#ai-fab{animation:none}#ai-sheet{transition:none}}
+/* 桌面宽屏: FAB/浮窗/遮罩 跟随 480px 内容容器 (fixed 相对视口, 需居中偏移) */
+@media (min-width: 500px){
+  #ai-fab{right:calc(50% - 224px)}
+  #ai-sheet{left:50%;right:auto;width:480px;transform:translateX(-50%) translateY(105%)}
+  #ai-sheet.on{transform:translateX(-50%) translateY(0)}
+  #ai-mask{left:50%;right:auto;width:480px;transform:translateX(-50%)}
+}
 .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border-2);border-radius:18px 18px 0 0;padding:18px 16px 24px;z-index:30;transform:translateY(105%);transition:transform .22s ease;max-height:72%;overflow:auto}
 .sheet.on{transform:none}
 .sheet h3{font-size:14px;margin-bottom:10px}
