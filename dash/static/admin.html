@@ -79,6 +79,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <button data-t="funds" style="color:#2dd4bf">💸 资金管理</button>
     <button data-t="fee" style="color:#f7c948">⚙️ 费率配置</button>
     <button data-t="rev" style="color:#3ebd93">📈 营收大盘</button>
+    <button data-t="support" style="color:#f87171">💬 客服中心<span id="sup-badge" style="display:none;background:#f87171;color:#fff;border-radius:9px;padding:1px 7px;font-size:11px;margin-left:4px"></span></button>
     <!-- PM-OFF-R13c: <button data-t="pm" style="color:#a78bfa">🎲 PM 标的管理</button> -->
   </div>
 
@@ -162,6 +163,15 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <table><thead><tr><th>用户</th><th>范围</th><th>标的</th><th>名义</th><th>持仓</th><th>今日盈亏</th></tr></thead>
     <tbody id="ap-tbody"></tbody></table>
   </div>
+  <div class="panel" id="p-support">
+    <div class="cards" id="sup-stats" style="margin-bottom:10px"></div>
+    <div style="display:flex;gap:10px;align-items:stretch;min-height:440px">
+      <div style="width:280px;flex:none;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;overflow-y:auto;max-height:540px" id="sup-list"></div>
+      <div style="flex:1;display:flex;flex-direction:column;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;min-width:0" id="sup-detail">
+        <div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">← 选择左侧会话查看详情</div>
+      </div>
+    </div>
+  </div>
 
   <div class="panel" id="p-audit">
     <div class="row">
@@ -241,6 +251,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   if(b.dataset.t==='funds'){loadFundsPanel();loadPlanDefs()}
   if(b.dataset.t==='fee')loadFeeConfig();
   if(b.dataset.t==='rev'){loadRevenue();loadRevDetail(0)}
+  if(b.dataset.t==='support')loadSupport();
   if(b.dataset.t==='pm')loadPmAdmin(0);
 });
 
@@ -685,6 +696,99 @@ function revExport(){
 }
 
 // ===== M-D6 AI 决策面板 =====
+// ===== M-S2: 客服中心 =====
+var SUP_CUR=0,SUP_ST=null,SUP_Q=[];
+function supFmt(ts){ if(!ts)return ''; var d=new Date(ts+'Z'); return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) }
+function supStatClass(s){ return {open:'#f0b429',pending:'#58a6ff',resolved:'#3ebd93'}[s]||'#8b949e' }
+function supStatZh(s){ return {open:'待处理',pending:'处理中',resolved:'已解决'}[s]||s }
+async function loadSupport(){
+  try{
+    const {d}=await j('GET','/api/support/conv');
+    if(!d.ok)return;
+    var convs=d.conversations||[];
+    SUP_Q=(await j('POST','/api/support/quick',{action:'list'})).d.quicks||[];
+    var un=d.unread&&d.unread.admin||0;
+    var bd=document.getElementById('sup-badge');
+    if(bd){bd.style.display=un>0?'':'none';bd.textContent=un}
+    // 统计卡
+    var openN=convs.filter(c=>c.status!=='resolved').length;
+    var today=convs.filter(c=>c.created_at&&c.created_at.slice(0,10)===new Date().toISOString().slice(0,10)).length;
+    var resN=convs.filter(c=>c.status==='resolved').length;
+    document.getElementById('sup-stats').innerHTML=
+      card(`💬 总会话`,`${convs.length}`,'')+
+      card(`🔴 未读`,`${un}`,'color:#f87171')+
+      card(`📥 今日新增`,`${today}`,'')+
+      card(`⏳ 活跃中`,`${openN}`,'color:#f0b429')+
+      card(`✅ 已解决`,`${resN}`,'color:#3ebd93');
+    // 会话列表
+    document.getElementById('sup-list').innerHTML=convs.length?convs.map(c=>{
+      var u=c.unread_admin>0?`<span style="position:absolute;top:8px;right:8px;background:#f87171;color:#fff;border-radius:9px;padding:1px 7px;font-size:11px">${c.unread_admin}</span>`:'';
+      return `<div onclick="openConv(${c.id})" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;background:${c.id===SUP_CUR?'rgba(62,189,147,.07)':'transparent'}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${supStatClass(c.status)};flex:none"></span>
+          <b>#${c.uid}</b><span class="dim" style="font-size:11px">${supFmt(c.last_msg_at)}</span>${u}
+        </div>
+        <div class="dim" style="font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.subject||'(无主题)').replace(/</g,'&lt;')}</div>
+      </div>`;
+    }).join(''):'<div class="dim" style="padding:16px;font-size:12px;text-align:center">暂无会话</div>';
+  }catch(e){}
+}
+function card(t,n,st){return `<div class="card"><div class="dim">${t}</div><div class="big" ${st?`style="${st}"`:''}>${n}</div></div>`}
+async function openConv(id){
+  SUP_CUR=id;
+  const {d}=await j('GET','/api/support/conv?conv_id='+id);
+  if(!d.ok)return;
+  var c=d.conversation,m=d.messages||[];
+  document.getElementById('sup-detail').innerHTML=
+    `<div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <b>#${c.uid}</b><span class="dim" style="font-size:12px">${(c.subject||'').replace(/</g,'&lt;')}</span>
+      <span style="flex:1"></span>
+      ${['open','pending','resolved'].map(s=>`<button class="btn" style="width:auto;padding:4px 12px;min-height:30px;font-size:12px;${c.status===s?'background:#3ebd93;color:#06251a':''}" onclick="supStatus('${s}')">${supStatZh(s)}</button>`).join('')}
+    </div>
+    <div id="sup-msgs" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:9px;max-height:380px">
+      ${m.map(x=>supMsgHtml(x)).join('')}
+    </div>
+    <div style="padding:6px 14px 8px;display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border)">
+      ${SUP_Q.map(q=>`<button class="btn" style="width:auto;padding:3px 10px;min-height:26px;font-size:11px" onclick="document.getElementById('sup-inp').value=this.textContent;document.getElementById('sup-inp').focus()">${q.text}</button>`).join('')}
+    </div>
+    <div style="padding:8px 14px 12px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border)">
+      <button class="btn" style="width:auto;min-height:34px;padding:0 12px" onclick="document.getElementById('sup-file').click()" title="发图片">📎</button>
+      <input type="file" id="sup-file" accept="image/*" style="display:none" onchange="supUpload(this.files[0])">
+      <input id="sup-inp" placeholder="回复 #${c.uid}…" style="flex:1;background:var(--surface-3);border:1px solid var(--border);border-radius:18px;padding:8px 14px;font-size:13px;color:var(--text);outline:none" onkeydown="if(event.key==='Enter')supSend()">
+      <button class="btn" style="width:auto;min-height:34px;padding:0 16px;background:#3ebd93;color:#06251a" onclick="supSend()">发送</button>
+    </div>`;
+  var box=document.getElementById('sup-msgs');box.scrollTop=box.scrollHeight;
+  loadSupport();
+}
+function supMsgHtml(x){
+  if(x.type==='image'){
+    return `<div style="align-self:${x.sender==='admin'?'flex-end':'flex-start'};max-width:60%;padding:4px;background:var(--surface-3);border:1px solid var(--border);border-radius:12px">
+      <img src="/api/support/img/${x.id}" style="max-width:200px;border-radius:8px;display:block;cursor:pointer" onclick="window.open('/api/support/img/${x.id}','_blank')">
+      <div class="dim" style="font-size:10px;margin-top:3px;text-align:right">${x.sender==='admin'?'客服':'用户'} · ${supFmt(x.created_at)}</div></div>`;
+  }
+  return `<div style="align-self:${x.sender==='admin'?'flex-end':'flex-start'};max-width:60%;padding:8px 12px;border-radius:13px;font-size:13px;line-height:1.6;word-break:break-word;${x.sender==='admin'?'background:rgba(62,189,147,.15);border:1px solid rgba(62,189,147,.3);border-bottom-right-radius:4px':'background:var(--surface-3);border:1px solid var(--border);border-bottom-left-radius:4px'}">
+    ${String(x.content).replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+    <div class="dim" style="font-size:10px;margin-top:3px;text-align:right">${x.sender==='admin'?'客服':'用户'} · ${supFmt(x.created_at)}</div></div>`;
+}
+async function supSend(){
+  var v=document.getElementById('sup-inp').value.trim();
+  if(!v||!SUP_CUR)return;
+  await j('POST','/api/support/msg',{conv_id:SUP_CUR,content:v});
+  await openConv(SUP_CUR);
+}
+async function supUpload(file){
+  if(!file||!SUP_CUR)return;
+  if(file.size>5*1024*1024){alert('图片不能超过 5MB');return}
+  var fd=new FormData();fd.append('file',file);fd.append('conv_id',SUP_CUR);
+  await fetch('/api/support/upload',{method:'POST',body:fd});
+  await openConv(SUP_CUR);
+}
+async function supStatus(s){
+  if(!SUP_CUR)return;
+  await j('POST','/api/support/status',{conv_id:SUP_CUR,status:s});
+  await openConv(SUP_CUR);
+}
+setInterval(function(){ if(document.getElementById('p-support').classList.contains('on'))loadSupport() },15000);
 async function loadApStats(){
   try{
     const {d}=await j('GET','/api/admin/autopilot-stats');
