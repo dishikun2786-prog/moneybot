@@ -328,23 +328,45 @@ def expire_plans():
 
 # ---------- 图形验证码 (内存, 单进程) ----------
 
+def _ensure_captchas(con):
+    """M-S五期: captchas 表 (验证码持久化, pm-dash 重启不失效)"""
+    con.execute("""CREATE TABLE IF NOT EXISTS captchas(
+        id TEXT PRIMARY KEY, code TEXT, exp REAL, tries INTEGER DEFAULT 0)""")
+    con.commit()
+
+
 def captcha_new(code):
-    """登记验证码, 返回 id (调用方生成 code)"""
+    """登记验证码, 返回 id (调用方生成 code) — SQLite 持久化"""
     cid = uuid.uuid4().hex[:12]
     with _lock:
-        _captchas[cid] = {"code": (code or "").upper(), "exp": time.time() + CAPTCHA_TTL,
-                          "tries": 0}
+        con = _db()
+        try:
+            _ensure_captchas(con)
+            con.execute("INSERT INTO captchas(id,code,exp,tries) VALUES(?,?,?,0)",
+                        (cid, (code or "").upper(), time.time() + CAPTCHA_TTL))
+            con.commit()
+        finally:
+            con.close()
     return cid
 
 
 def captcha_check(cid, code):
-    """校验验证码。正确即销毁(一次性); 错5次销毁; 过期销毁"""
+    """校验验证码。正确即销毁(一次性); 错5次销毁; 过期销毁 — SQLite 持久化"""
     with _lock:
-        c = _captchas.get(cid or "")
-        if not c or c["exp"] < time.time():
-            return False
-        c["tries"] += 1
-        ok = c["code"] == (code or "").strip().upper()
-        if ok or c["tries"] >= 5:
-            _captchas.pop(cid, None)
-        return ok
+        con = _db()
+        try:
+            _ensure_captchas(con)
+            row = con.execute("SELECT code, exp, tries FROM captchas WHERE id=?",
+                              (cid or "",)).fetchone()
+            if not row or row["exp"] < time.time():
+                return False
+            tries = int(row["tries"]) + 1
+            ok = row["code"] == (code or "").strip().upper()
+            if ok or tries >= 5:
+                con.execute("DELETE FROM captchas WHERE id=?", (cid or "",))
+            else:
+                con.execute("UPDATE captchas SET tries=? WHERE id=?", (tries, cid or ""))
+            con.commit()
+            return ok
+        finally:
+            con.close()
