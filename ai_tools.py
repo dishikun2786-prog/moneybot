@@ -313,6 +313,14 @@ TOOLS = [
         "description": "用候选入场阈值θ跑现货永续套利回测(近2个月), 供参数对比决策 (只读, 不落地)",
         "parameters": {"type": "object", "properties": {"theta": {
             "type": "number", "description": "入场阈值: 资金费率年化% (0-20, 默认5)"}}, "required": ["theta"]}}},
+    {"type": "function", "function": {"name": "backtest_summary",
+        "description": "跑现货永续套利回测并输出结构化指标(各标的轮数/总盈亏/年化/胜率), 结果自动存档可回溯 (只读, 不落地交易)",
+        "parameters": {"type": "object", "properties": {"theta": {
+            "type": "number", "description": "入场阈值θ: 资金费率年化% (0-20, 默认5)"}}, "required": ["theta"]}}},
+    {"type": "function", "function": {"name": "backtest_history",
+        "description": "读取历史回测记录 (最近N条, 对比不同θ的效果) (只读)",
+        "parameters": {"type": "object", "properties": {"n": {
+            "type": "number", "description": "条数, 默认5, 最大10"}}}}},
     {"type": "function", "function": {"name": "create_task",
         "description": "为用户创建智能定时任务(直接生效): 类型∈fee_watch(费率监控,需threshold年化%阈值)/risk_scan(持仓风险扫描)/backtest_run(回测,需threshold=θ值)/reminder(自定义提醒,需note提醒内容); interval_h=执行间隔小时数(fee_watch/reminder最小1, risk_scan最小2, backtest_run最小6, 最大720); name=任务名称",
         "parameters": {"type": "object", "properties": {
@@ -371,6 +379,56 @@ def t_get_micro():
             "挂单墙出现(2h)": m.get("wall_appear_2h"),
             "挂单墙消失(2h)": m.get("wall_vanish_2h")}
     return out
+
+
+def _bt_parse(out):
+    """解析 carry_backtest.py 汇总行 → 指标 dict"""
+    import re
+    metrics = {}
+    for line in out.strip().splitlines():
+        m = re.search(r"^(\S+) θ_in=([\d.]+)%: (\d+)轮 \| 总PnL ([+-][\d.]+)\$ \| 年化 ([+-][\d.]+)% \| 胜率 (\d+)%",
+                      line)
+        if m:
+            metrics[m.group(1)] = {"θ(%)": float(m.group(2)), "轮数": int(m.group(3)),
+                                   "总盈亏$": float(m.group(4)), "年化%": float(m.group(5)),
+                                   "胜率%": int(m.group(6))}
+    return metrics
+
+
+def t_backtest_summary(args):
+    """M-A5: 跑回测并解析结构化指标 + 持久化历史 (θ 0-20)"""
+    import datetime
+    theta = float((args or {}).get("theta", 5.0))
+    if not (0 < theta <= 20):
+        return {"error": f"θ必须0-20, 收到{theta}"}
+    out = _sh(f"cd {BASE} && ./venv/bin/python carry_backtest.py --theta {theta} --nobasis 2>&1 | tail -30",
+              timeout=240)
+    metrics = _bt_parse(out)
+    if not metrics:
+        return {"theta": theta, "原始输出": out.strip()[-500:], "说明": "回测无汇总行, 可能是数据窗口问题"}
+    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "theta": theta, "metrics": metrics}
+    try:
+        import os as _os
+        f = _os.path.join(tenants.base(tenants.current_uid()), "data", "backtest_results.jsonl")
+        _os.makedirs(_os.path.dirname(f), exist_ok=True)
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return {"θ(%)": theta, "各标的回测": metrics,
+            "白话提示": "这是纸面历史回测, 不代表未来收益; 年化=历史数据外推, 实际受资金费率波动影响"}
+
+
+def t_backtest_history(args):
+    """M-A5: 读取历史回测记录 (最近N条)"""
+    import glob as _g
+    n = min(int((args or {}).get("n", 5)), 10)
+    f = os.path.join(tenants.base(tenants.current_uid()), "data", "backtest_results.jsonl")
+    try:
+        lines = open(f, encoding="utf-8").read().strip().splitlines()
+        return {"历史回测": [json.loads(l) for l in lines[-n:]], "条数": len(lines)}
+    except Exception:
+        return {"历史回测": [], "条数": 0, "说明": "暂无回测历史 (先让AI跑一次 backtest_summary)"}
 
 
 def t_create_task(args):
@@ -443,6 +501,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "get_micro": lambda a: t_get_micro(),
              "my_positions": lambda a: t_my_positions(), "my_balance": lambda a: t_my_balance(),
              "create_task": t_create_task,
+             "backtest_summary": t_backtest_summary, "backtest_history": t_backtest_history,
              "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}

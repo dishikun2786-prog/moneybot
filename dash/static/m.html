@@ -712,6 +712,7 @@ select.input{appearance:none}
         <button class="chip" onclick="aiAsk('总结一下我最近的交易盈亏情况')">💰 盈亏总结</button>
         <button class="chip" onclick="aiAsk('目前市场资金费率和基差情况如何？适不适合做套利？')">🔄 套利行情</button>
         <button class="chip" onclick="aiTasks()">⏰ 我的任务</button>
+        <button class="chip" onclick="aiAsk('跑一次 θ=5 的现货永续套利回测，总结各标的的收益、年化和胜率，并用白话告诉我结果')">📈 回测总结</button>
       </div>
       <div class="ai-input">
         <input id="ai-q" placeholder="问点什么… 例如: 我的持仓有什么风险?" onkeydown="if(event.key==='Enter')aiSend()">
