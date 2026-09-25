@@ -1442,3 +1442,277 @@ async def api_live_order(request: Request, su=Depends(require_session_user)):
     except Exception as e:
         r = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
     return JSONResponse(r, status_code=200 if r.get("ok") else 400)
+
+
+# ================= R14-M12 平台营收体系 (费率配置 + 营收大盘) =================
+_SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
+    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(",") if s.strip()]
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import fee_ops  # noqa: E402
+
+
+def _check_fee_value(v, lo, hi):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not (lo <= v <= hi):
+        return None
+    return v
+
+
+@app.get("/api/admin/fee-config")
+def api_admin_fee_config(request: Request, __=Depends(require_admin)):
+    """当前配置 + 官方费率参考 + 白名单"""
+    cfg = fee_ops.load()
+    out = {"default": cfg.get("default", {}), "symbols": {}}
+    for s in _SYM_WHITELIST:
+        c = (cfg.get("symbols") or {}).get(s, {})
+        out["symbols"][s] = {
+            "perp_mult": c.get("perp_mult", cfg.get("default", {}).get("perp_mult", 1.0)),
+            "spot_mult": c.get("spot_mult", cfg.get("default", {}).get("spot_mult", 1.0)),
+            "spread_bp": c.get("spread_bp", cfg.get("default", {}).get("spread_bp", 0)),
+            "official_perp_bp": round(fee_ops.official("perp", s) * 10000, 2),
+            "official_spot_bp": round(fee_ops.official("spot", s) * 10000, 2),
+        }
+    out["updated_by"] = cfg.get("updated_by", "")
+    out["updated_at"] = cfg.get("updated_at", "")
+    out["whitelist"] = list(_SYM_WHITELIST)
+    return {"ok": True, "data": out}
+
+
+@app.post("/api/admin/fee-config")
+async def api_admin_fee_config_save(request: Request, __=Depends(require_admin)):
+    """保存费率配置 (白名单校验 + 范围钳制 + 审计)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "请求体非法"}, status_code=400)
+    defv = body.get("default") or {}
+    syms = body.get("symbols") or {}
+    if not isinstance(syms, dict):
+        return JSONResponse({"ok": False, "error": "symbols 格式错误"}, status_code=400)
+    cfg = {"default": {}, "symbols": {}}
+    for k, lo, hi in (("perp_mult", 0.5, 5.0), ("spot_mult", 0.5, 5.0), ("spread_bp", 0, 50)):
+        v = _check_fee_value(defv.get(k), lo, hi)
+        if v is None:
+            return JSONResponse({"ok": False, "error": f"默认 {k} 须在 {lo}~{hi}"}, status_code=400)
+        cfg["default"][k] = v
+    for s in _SYM_WHITELIST:
+        row = syms.get(s) or {}
+        item = {}
+        for k, lo, hi in (("perp_mult", 0.5, 5.0), ("spot_mult", 0.5, 5.0), ("spread_bp", 0, 50)):
+            v = _check_fee_value(row.get(k, defv.get(k)), lo, hi)
+            if v is None:
+                return JSONResponse({"ok": False, "error": f"{s} 的 {k} 非法"}, status_code=400)
+            item[k] = v
+        cfg["symbols"][s] = item
+    try:
+        fee_ops.save(cfg, who="admin")
+        _audit_req(request, "fee_config_save", {"symbols": cfg["symbols"], "default": cfg["default"]})
+        return {"ok": True, "msg": "费率配置已保存 (即时生效)"}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}, status_code=500)
+
+
+def _audit_req(request, action, detail):
+    try:
+        from . import users as _u
+        su = auth.session_user(request.cookies.get(config.COOKIE_NAME))
+        if isinstance(detail, (dict, list)):
+            detail = json.dumps(detail, ensure_ascii=False)[:500]
+        _u.audit_log(int((su or {}).get("u", 1)), action, detail,
+                     request.client.host if request.client else "", "")
+    except Exception as _e:
+        try:
+            with open("/tmp/mb_audit_err.log", "a", encoding="utf-8") as _f:
+                _f.write(f"{type(_e).__name__}: {_e}\n")
+        except Exception:
+            pass
+
+
+def _rev_scan(uid, mode):
+    """扫描全部租户留痕, 返回 [(uid, rec, mode)] — mode: all|paper|live"""
+    rows = []
+    uids = [1]
+    try:
+        tdir = os.path.dirname(tenants.base(2))   # ROOT/tenants
+        if os.path.isdir(tdir):
+            for d in os.listdir(tdir):
+                if d.isdigit():
+                    uids.append(int(d))
+    except Exception:
+        pass
+    for u in sorted(set(uids)):
+        base = tenants.base(u)
+        for fname, m in (("carry_trades.jsonl", "paper"), ("live_orders.jsonl", "live")):
+            if mode != "all" and mode != m:
+                continue
+            paths = [os.path.join(base, "logs", fname)]
+            if u == 1:
+                paths.insert(0, os.path.join(base, fname))
+            for p in paths:
+                if not os.path.exists(p):
+                    continue
+                try:
+                    for line in open(p, encoding="utf-8"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except Exception:
+                            continue
+                        if mode == "all" and m == "paper" and rec.get("venue") == "pm":
+                            continue  # PM 历史不展示
+                        rows.append((u, rec, m))
+                except Exception:
+                    pass
+    return rows
+
+
+def _rev_fin(rows, sym_whitelist):
+    """财务口径: 老记录(无platform_rev)按 mult=1 回算: official=user_fee, rev=0"""
+    fin = []
+    for uid, rec, m in rows:
+        fee = rec.get("user_fee", rec.get("fees"))
+        try:
+            fee = float(fee) if fee is not None else 0.0
+        except (TypeError, ValueError):
+            fee = 0.0
+        if rec.get("platform_rev") is not None:
+            off = float(rec.get("official_fee") or 0.0)
+            rev = float(rec.get("platform_rev") or 0.0)
+            spr = float(rec.get("spread_rev") or 0.0)
+        else:
+            # 老记录回算: 历史无加价 → 官方成本=用户费; 但点差收益(spread_rev)可能单独存在
+            spr = float(rec.get("spread_rev") or 0.0)
+            off, rev = fee, spr
+        fin.append({"uid": uid, "mode": m, "rec": rec, "user_fee": fee,
+                    "official_fee": off, "platform_rev": rev, "spread_rev": spr})
+    return fin
+
+
+@app.get("/api/admin/revenue")
+def api_admin_revenue(request: Request, __=Depends(require_admin)):
+    """营收汇总: ?from=ISO&to=ISO&by=symbol|user|action|day"""
+    try:
+        t0 = float(request.query_params.get("from") or 0)
+        t1 = float(request.query_params.get("to") or (time.time() * 1000 + 3600e3))
+        by = request.query_params.get("by") or "day"
+        mode = request.query_params.get("mode") or "paper"
+    except Exception:
+        return JSONResponse({"ok": False, "error": "参数非法"}, status_code=400)
+    rows = _rev_scan(1, "all")
+    fin = _rev_fin(rows, _SYM_WHITELIST)
+    agg = {}
+    total_rev = total_user = total_off = total_spr = 0.0
+    cnt = 0
+    for f in fin:
+        try:
+            ts = f["rec"].get("ts")
+            if isinstance(ts, str):
+                from datetime import datetime
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+            ts = float(ts or 0)
+        except Exception:
+            ts = 0
+        if ts < t0 or ts >= t1:
+            continue
+        if by == "day":
+            key = time.strftime("%Y-%m-%d", time.gmtime(ts / 1000))
+        elif by == "symbol":
+            key = f["rec"].get("symbol") or "?"
+        elif by == "user":
+            key = str(f["uid"])
+        else:
+            key = f["rec"].get("action") or "?"
+        a = agg.setdefault(key, {"rev": 0.0, "user": 0.0, "off": 0.0, "spr": 0.0, "n": 0})
+        a["rev"] += f["platform_rev"]; a["user"] += f["user_fee"]
+        a["off"] += f["official_fee"]; a["spr"] += f["spread_rev"]; a["n"] += 1
+        total_rev += f["platform_rev"]; total_user += f["user_fee"]
+        total_off += f["official_fee"]; total_spr += f["spread_rev"]; cnt += 1
+    items = [{"key": k, **{kk: round(vv, 4) for kk, vv in v.items()}}
+             for k, v in sorted(agg.items(), key=lambda kv: -kv[1]["rev"])]
+    return {"ok": True, "total": {"rev": round(total_rev, 4), "user_fee": round(total_user, 4),
+                                  "official_fee": round(total_off, 4), "spread_rev": round(total_spr, 4),
+                                  "n": cnt}, "items": items}
+
+
+@app.get("/api/admin/revenue/detail")
+def api_admin_revenue_detail(request: Request, __=Depends(require_admin)):
+    """营收明细: ?offset=&limit=&from=&to=&symbol=&uid="""
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+        limit = min(200, max(1, int(request.query_params.get("limit") or 50)))
+        t0 = float(request.query_params.get("from") or 0)
+        t1 = float(request.query_params.get("to") or (time.time() * 1000 + 3600e3))
+        fsym = (request.query_params.get("symbol") or "").upper()
+        fuid = request.query_params.get("uid") or ""
+    except Exception:
+        return JSONResponse({"ok": False, "error": "参数非法"}, status_code=400)
+    rows = _rev_scan(1, "all")
+    fin = _rev_fin(rows, _SYM_WHITELIST)
+    fin.sort(key=lambda f: -(f["rec"].get("ts") if isinstance(f["rec"].get("ts"), (int, float)) else 0))
+    out, seen = [], 0
+    for f in fin:
+        rec = f["rec"]
+        try:
+            ts = rec.get("ts")
+            if isinstance(ts, str):
+                from datetime import datetime
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+            ts = float(ts or 0)
+        except Exception:
+            ts = 0
+        if ts < t0 or ts >= t1:
+            continue
+        if fsym and (rec.get("symbol") or "").upper() != fsym:
+            continue
+        if fuid and str(f["uid"]) != fuid:
+            continue
+        if seen < offset:
+            seen += 1
+            continue
+        out.append({"ts": ts, "uid": f["uid"], "mode": f["mode"],
+                    "symbol": rec.get("symbol"), "action": rec.get("action"),
+                    "side": rec.get("side"), "qty": rec.get("qty"), "notional": rec.get("notional"),
+                    "user_fee": round(f["user_fee"], 6), "official_fee": round(f["official_fee"], 6),
+                    "platform_rev": round(f["platform_rev"], 6), "spread_rev": round(f["spread_rev"], 6)})
+        if len(out) >= limit:
+            break
+    return {"ok": True, "rows": out, "offset": offset, "limit": limit, "has_more": len(out) == limit}
+
+
+@app.get("/api/admin/revenue/export")
+def api_admin_revenue_export(request: Request, __=Depends(require_admin)):
+    """营收明细 CSV 导出"""
+    from io import StringIO
+    try:
+        t0 = float(request.query_params.get("from") or 0)
+        t1 = float(request.query_params.get("to") or (time.time() * 1000 + 3600e3))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "参数非法"}, status_code=400)
+    fin = _rev_fin(_rev_scan(1, "all"), _SYM_WHITELIST)
+    buf = StringIO()
+    buf.write("时间,用户ID,模式,标的,动作,方向,数量,名义,用户实付费,官方成本,平台营收,点差收益\n")
+    for f in fin:
+        rec = f["rec"]
+        try:
+            ts = rec.get("ts")
+            if isinstance(ts, str):
+                from datetime import datetime
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+            ts = float(ts or 0)
+        except Exception:
+            ts = 0
+        if ts < t0 or ts >= t1:
+            continue
+        buf.write(f'{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts / 1000))},{f["uid"]},{f["mode"]},'
+                  f'{(rec.get("symbol") or "")},{(rec.get("action") or "")},{(rec.get("side") or "")},'
+                  f'{rec.get("qty") if rec.get("qty") is not None else ""},{rec.get("notional") if rec.get("notional") is not None else ""},'
+                  f'{round(f["user_fee"], 6)},{round(f["official_fee"], 6)},{round(f["platform_rev"], 6)},{round(f["spread_rev"], 6)}\n')
+    from fastapi.responses import Response
+    return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=revenue.csv"})

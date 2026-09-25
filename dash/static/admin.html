@@ -75,6 +75,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <button data-t="audit">📜 审计流水</button>
     <button data-t="ann">📢 公告管理</button>
     <button data-t="funds" style="color:#2dd4bf">💸 资金管理</button>
+    <button data-t="fee" style="color:#f7c948">⚙️ 费率配置</button>
+    <button data-t="rev" style="color:#3ebd93">📈 营收大盘</button>
     <!-- PM-OFF-R13c: <button data-t="pm" style="color:#a78bfa">🎲 PM 标的管理</button> -->
   </div>
 
@@ -87,6 +89,43 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
       <th>ID</th><th>账号</th><th>邮箱</th><th>角色</th><th>状态</th><th>套餐</th>
       <th>模拟资金$</th><th>持仓</th><th>注册</th><th>最近登录</th><th>操作</th>
     </tr></thead><tbody id="utbody"></tbody></table>
+  </div>
+
+  <div class="panel" id="p-fee">
+    <div class="row" style="margin-bottom:8px"><b style="color:#f7c948">⚙️ 平台费率与点差配置</b>
+      <span class="dim" id="fee-updated"></span></div>
+    <div class="dim" style="margin-bottom:10px;font-size:12px">
+      白话：<b>用户实付费 = 官方费率 × VIP等级乘数 × 加价倍率</b>；加价倍率 &gt;1 的部分是平台营收。<b>点差</b>：买卖成交价各偏移半档，点差全额归平台（只作用于手动交易，不影响行情展示）。官方费率列只读参考。</div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" onclick="feeSetAll(1)">全部倍率 1.0 / 点差 0</button>
+      <button class="btn" onclick="saveFeeConfig()">💾 保存配置</button>
+      <span class="dim" id="fee-msg"></span>
+    </div>
+    <table id="fee-table"><thead><tr>
+      <th>标的</th><th>官方现货 bp</th><th>现货加价倍率</th><th>官方永续 bp</th><th>永续加价倍率</th><th>点差 bp</th><th>用户实付预览</th>
+    </tr></thead><tbody id="fee-tbody"></tbody></table>
+    <div class="dim" style="font-size:12px;margin-top:8px" id="fee-history"></div>
+  </div>
+
+  <div class="panel" id="p-rev">
+    <div class="row" style="margin-bottom:8px"><b style="color:#3ebd93">📈 平台营收大盘</b>
+      <span class="dim" id="rev-updated"></span></div>
+    <div class="cards" id="rev-cards" style="margin-bottom:12px"></div>
+    <div class="row" style="margin-bottom:8px">
+      <select id="rev-by"><option value="day">按日</option><option value="symbol">按标的</option><option value="user">按用户</option><option value="action">按动作</option></select>
+      <button class="btn" onclick="loadRevenue()">刷新</button>
+      <button class="btn" onclick="revExport()">⬇️ 导出明细 CSV</button>
+    </div>
+    <div class="cards" id="rev-rank" style="margin-bottom:12px"></div>
+    <h3>营收明细 <span class="dim" id="rev-dn"></span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <input id="rev-sym" placeholder="标的(如BTCUSDT)" style="width:140px">
+      <input id="rev-uid" placeholder="用户ID" style="width:80px">
+      <button class="btn" onclick="loadRevDetail(0)">查询</button>
+    </div>
+    <table><thead><tr><th>时间</th><th>用户</th><th>模式</th><th>标的</th><th>动作</th><th>用户实付费$</th><th>官方成本$</th><th>平台营收$</th><th>点差$</th></tr></thead>
+    <tbody id="rev-tbody"></tbody></table>
+    <div class="pager" id="rev-pager"></div>
   </div>
 
   <div class="panel" id="p-audit">
@@ -166,6 +205,8 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   if(b.dataset.t==='audit')loadAudit(0);
   if(b.dataset.t==='ann')loadAnn();
   if(b.dataset.t==='funds')loadFundsPanel();
+  if(b.dataset.t==='fee')loadFeeConfig();
+  if(b.dataset.t==='rev'){loadRevenue();loadRevDetail(0)}
   if(b.dataset.t==='pm')loadPmAdmin(0);
 });
 
@@ -412,7 +453,101 @@ async function pmadmSet(state){
   const {d}=await j('POST','/api/admin/pm-markets/set',{keys,state});
   if(d&&d.ok){alert(d.msg||'操作成功');PMADM.checked={};loadPmAdmin(0)}else{alert((d&&d.error)||'操作失败')}
 }
+
+// ===== R14-M12 费率配置 + 营收大盘 =====
+var FEE_CFG=null;
+async function loadFeeConfig(){
+  const {d}=await j('GET','/api/admin/fee-config');
+  if(!d.ok){$('#fee-msg').textContent='加载失败';return}
+  FEE_CFG=d.data;
+  $('#fee-updated').textContent=FEE_CFG.updated_at?('上次保存: '+FEE_CFG.updated_at+' by '+FEE_CFG.updated_by):'';
+  renderFeeConfig();
+}
+function renderFeeConfig(){
+  var syms=FEE_CFG.symbols||{},def=FEE_CFG.default||{},rows='';
+  var W=FEE_CFG.whitelist||[];
+  W.forEach(function(s){
+    var r=syms[s]||{};
+    var pm=r.perp_mult!=null?r.perp_mult:def.perp_mult,sm=r.spot_mult!=null?r.spot_mult:def.spot_mult,sp=r.spread_bp!=null?r.spread_bp:def.spread_bp;
+    var prev='永续 '+numF(r.official_perp_bp*pm)+'bp / 现货 '+numF(r.official_spot_bp*sm)+'bp';
+    rows+='<tr>'
+      +'<td><b>'+s+'</b></td>'
+      +'<td class="num">'+numF(r.official_spot_bp)+'</td>'
+      +'<td><input class="fee-in" data-s="'+s+'" data-k="spot_mult" value="'+sm+'" style="width:70px"></td>'
+      +'<td class="num">'+numF(r.official_perp_bp)+'</td>'
+      +'<td><input class="fee-in" data-s="'+s+'" data-k="perp_mult" value="'+pm+'" style="width:70px"></td>'
+      +'<td><input class="fee-in" data-s="'+s+'" data-k="spread_bp" value="'+sp+'" style="width:60px"></td>'
+      +'<td class="dim">'+prev+'</td>'
+      +'</tr>';
+  });
+  $('#fee-tbody').innerHTML=rows;
+}
+function numF(v){return (Math.round(Number(v)*10000)/10000)}
+function feeSetAll(reset){
+  document.querySelectorAll('#fee-tbody .fee-in').forEach(function(inp){
+    if(reset)inp.value=inp.dataset.k==='spread_bp'?'0':'1.0';
+  });
+}
+async function saveFeeConfig(){
+  var syms={},W=FEE_CFG.whitelist||[];
+  W.forEach(function(s){syms[s]={}});
+  var bad=null;
+  document.querySelectorAll('#fee-tbody .fee-in').forEach(function(inp){
+    var v=parseFloat(inp.value);
+    var lo=inp.dataset.k==='spread_bp'?0:0.5,hi=inp.dataset.k==='spread_bp'?50:5.0;
+    if(isNaN(v)||v<lo||v>hi){bad=inp.dataset.s+' '+inp.dataset.k+' 须在'+lo+'~'+hi;return}
+    syms[inp.dataset.s][inp.dataset.k]=v;
+  });
+  if(bad){$('#fee-msg').textContent='❌ '+bad;return}
+  if(!confirm('确认保存费率配置？保存后即时生效，影响新成交的计费。'))return;
+  var defv=FEE_CFG.default||{};
+  const {d}=await j('POST','/api/admin/fee-config',{default:defv,symbols:syms});
+  $('#fee-msg').textContent=d.ok?('✅ '+d.msg):('❌ '+(d.error||d.detail));
+  if(d.ok)loadFeeConfig();
+}
+var REV_DATA=null,REV_OFF=0;
+async function loadRevenue(){
+  var by=($('#rev-by')||{}).value||'day';
+  const {d}=await j('GET','/api/admin/revenue?by='+by);
+  if(!d.ok){$('#rev-cards').innerHTML='<div class="card">加载失败</div>';return}
+  var t=d.total||{};
+  $('#rev-cards').innerHTML=''
+    +'<div class="card"><div class="lbl">今日/区间平台营收</div><div class="n" style="color:#3ebd93">'+numF(t.rev)+' $</div><div class="dim">'+t.n+' 笔</div></div>'
+    +'<div class="card"><div class="lbl">用户实付合计</div><div class="n">'+numF(t.user_fee)+' $</div><div class="dim">官方成本 '+numF(t.official_fee)+' $</div></div>'
+    +'<div class="card"><div class="lbl">点差收益</div><div class="n">'+numF(t.spread_rev)+' $</div><div class="dim">费率加价 '+numF(t.rev-t.spread_rev)+' $</div></div>'
+    +'<div class="card"><div class="lbl">笔均营收</div><div class="n">'+(t.n?numF(t.rev/t.n):'0')+' $</div><div class="dim">按'+by+'聚合</div></div>';
+  var items=(d.items||[]).slice(0,12);
+  $('#rev-rank').innerHTML='<div class="card" style="flex:1;min-width:300px"><b>按'+by+'排行</b><table style="margin-top:6px"><thead><tr><th>'+by+'</th><th>营收$</th><th>用户费$</th><th>笔数</th></tr></thead><tbody>'
+    +items.map(function(i){return '<tr><td>'+esc(String(i.key))+'</td><td class="num" style="color:#3ebd93">'+numF(i.rev)+'</td><td class="num">'+numF(i.user)+'</td><td class="num">'+i.n+'</td></tr>'}).join('')
+    +'</tbody></table></div>';
+  $('#rev-updated').textContent='更新于 '+new Date().toLocaleTimeString();
+}
+async function loadRevDetail(offset){
+  REV_OFF=offset||0;
+  var q='/api/admin/revenue/detail?offset='+REV_OFF+'&limit=50';
+  var s=($('#rev-sym')||{}).value,u=($('#rev-uid')||{}).value;
+  if(s)q+='&symbol='+encodeURIComponent(s);
+  if(u)q+='&uid='+u;
+  const {d}=await j('GET',q);
+  if(!d.ok){$('#rev-tbody').innerHTML='<tr><td colspan="9">加载失败</td></tr>';return}
+  var rows=(d.rows||[]);
+  $('#rev-dn').textContent='共 '+rows.length+' 条'+(d.has_more?' (+更多)':'');
+  $('#rev-tbody').innerHTML=rows.map(function(r){
+    return '<tr><td>'+new Date(r.ts).toLocaleString('zh-CN',{hour12:false})+'</td>'
+      +'<td>'+r.uid+'</td><td>'+(r.mode==='live'?'实盘':'模拟')+'</td>'
+      +'<td>'+esc(r.symbol||'')+'</td><td>'+esc(r.action||'')+'</td>'
+      +'<td class="num">'+numF(r.user_fee)+'</td>'
+      +'<td class="num">'+numF(r.official_fee)+'</td>'
+      +'<td class="num" style="color:#3ebd93">'+numF(r.platform_rev)+'</td>'
+      +'<td class="num">'+numF(r.spread_rev)+'</td></tr>';
+  }).join('')||'<tr><td colspan="9" class="dim">暂无明细</td></tr>';
+  $('#rev-pager').innerHTML=(d.has_more?'<button class="btn" onclick="loadRevDetail('+(REV_OFF+50)+')">加载更多</button>':'');
+}
+function revExport(){
+  window.open('/api/admin/revenue/export','_blank');
+}
 </script>
+
 </body>
 </html>
 

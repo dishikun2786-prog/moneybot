@@ -52,8 +52,8 @@ FEE_PERP = 0.00055
 # R14-M3: 费率分级乘数 (tier 0=标准1.0 / tier 1=VIP 0.5)
 
 
-def _fee_mult():
-    """R14-M3: 按租户费率等级返回乘数 (延迟导入防环, 失败回退1.0)"""
+def _fee_mult(sym=None, channel="perp"):
+    """R14-M3+M12: 租户VIP乘数 x 标的平台加价倍率 (延迟导入防环, 失败回退1.0)"""
     try:
         import os as _os
         import sys as _s
@@ -62,9 +62,14 @@ def _fee_mult():
         if _sp not in _s.path:
             _s.path.insert(0, _sp)
         from dash.app import users as _u
-        return 0.5 if _u.get_fee_tier(_t.current_uid()) == 1 else 1.0
+        vip = 0.5 if _u.get_fee_tier(_t.current_uid()) == 1 else 1.0
     except Exception:
-        return 1.0
+        vip = 1.0
+    try:
+        import fee_ops as _fo
+        return vip * _fo.sym_mult(sym, channel)
+    except Exception:
+        return vip
 MAX_NAKED = 2
 MAX_NAKED_NOTIONAL = 50.0
 
@@ -110,7 +115,26 @@ def _audit(action, sym, detail):
 
 
 def _log_trade(path, rec):
+    """R14-M12: 统一补营收字段 user_fee/official_fee/platform_rev/spread_rev/mult"""
     rec.setdefault("ts", _now())
+    fees = rec.get("fees")
+    if fees is not None and rec.get("platform_rev") is None:
+        sym = rec.get("symbol")
+        act = rec.get("action", "")
+        chan = "spot" if act.startswith("SPOT") else "perp"
+        mult = 1.0
+        try:
+            mult = _fee_mult(sym, chan)
+        except Exception:
+            pass
+        spread_rev = float(rec.get("spread_rev") or 0.0)
+        official = float(fees) / mult if mult else float(fees)   # 回推官方成本
+        rev = float(fees) - official + spread_rev
+        rec["user_fee"] = round(float(fees), 6)
+        rec["official_fee"] = round(official, 6)
+        rec["platform_rev"] = round(rev, 6)
+        rec["spread_rev"] = round(spread_rev, 6)
+        rec["mult"] = round(mult, 4)
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
@@ -211,6 +235,12 @@ def open_native(sym, side, notional):
     if not px:
         return {"ok": False, "error": f"{sym} 无实时价"}
     entry = px["perp"]
+    _sp_ratio = 0.0
+    try:
+        import fee_ops as _fo
+        entry, _sp_ratio = _fo.spread_apply(entry, sym, side)   # R14-M12: 点差偏移
+    except Exception:
+        pass
     qty = _native_qty(sym, notional, entry)
     if qty <= 0:
         return {"ok": False, "error": "数量过小(精度不足), 请加大名义"}
@@ -224,13 +254,14 @@ def open_native(sym, side, notional):
             return {"ok": False, "error": f"{sym} 已有原生持仓"}
         if len(nat) >= NATIVE_MAX_POS:
             return {"ok": False, "error": f"原生仓位已达上限{NATIVE_MAX_POS}"}
-        fees = NATIVE_FEE * _fee_mult() * notional
+        fees = NATIVE_FEE * _fee_mult(sym, "perp") * notional
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
         st.setdefault("native", {})[sym] = dict(side=side, entry=entry, notional=notional,
                                                 qty=qty, t0=time.time())
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="NATIVE_OPEN",
-                                      side=side, entry=entry, notional=notional, qty=qty))
+                                      side=side, entry=entry, notional=notional, qty=qty,
+                                      spread_rev=round(_sp_ratio * notional, 6)))
         _audit("open_native", sym, {"side": side, "entry": entry, "notional": notional})
         return {"ok": True, "msg": f"已{'做多' if side == 'long' else '做空'} {sym} @{entry:.4f} "
                                    f"(名义{notional}$, {qty}张)"}
@@ -252,16 +283,24 @@ def close_native(sym):
             return {"ok": False, "error": f"{sym} 无原生持仓"}
         entry, n, side = nat["entry"], nat.get("notional", 10.0), nat["side"]
         qty_n = nat.get("qty") or (n / entry)   # R14-M11: 真实数量模型(老仓无qty回退名义/价)
-        pnl = ((px["perp"] - entry) if side == "long" else (entry - px["perp"])) * qty_n
-        fees = NATIVE_FEE * _fee_mult() * n
+        _exit_px = px["perp"]
+        _sp_ratio = 0.0
+        try:
+            import fee_ops as _fo
+            _exit_px, _sp_ratio = _fo.spread_apply(_exit_px, sym, "long" if side == "long" else "short")  # R14-M12
+        except Exception:
+            pass
+        pnl = ((_exit_px - entry) if side == "long" else (entry - _exit_px)) * qty_n
+        fees = NATIVE_FEE * _fee_mult(sym, "perp") * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
         del st["native"][sym]
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="NATIVE_CLOSE",
-                                      side=side, entry=entry, exit=px["perp"], qty=round(qty_n, 6),
-                                      pnl_usd=round(pnl, 4), fees=fees))
-        _audit("close_native", sym, {"exit": px["perp"], "pnl": round(pnl, 4)})
-        return {"ok": True, "msg": f"已平{'多' if side == 'long' else '空'}仓 {sym} @{px['perp']:.4f} "
+                                      side=side, entry=entry, exit=_exit_px, qty=round(qty_n, 6),
+                                      pnl_usd=round(pnl, 4), fees=fees,
+                                      spread_rev=round(_sp_ratio * n, 6)))
+        _audit("close_native", sym, {"exit": _exit_px, "pnl": round(pnl, 4)})
+        return {"ok": True, "msg": f"已平{'多' if side == 'long' else '空'}仓 {sym} @{_exit_px:.4f} "
                                    f"(PnL {pnl:+.4f}$)"}
     finally:
         _unlock(f)
@@ -331,6 +370,12 @@ def open_spot(sym, side, notional):
     if not _spot_allowed(sym):
         return {"ok": False, "error": f"{sym} 不在现货交易白名单 (24h成交额 Top{SPOT_WHITELIST_RANK} 或流动性不足)"}
     px = _spot_px(sym)
+    _sp_ratio = 0.0
+    try:
+        import fee_ops as _fo
+        px, _sp_ratio = _fo.spread_apply(px, sym, side)   # R14-M12: 点差偏移
+    except Exception:
+        pass
     if not px:
         return {"ok": False, "error": f"{sym} 无现货实时价"}
     qty = _spot_qty(sym, notional, px)
@@ -341,7 +386,7 @@ def open_spot(sym, side, notional):
         st = _read(_resolve("CARRY_STATE"), {})
         spot = st.get("spot", {})
         held = spot.get(sym, {}).get("qty", 0.0)
-        fees = SPOT_FEE * notional
+        fees = SPOT_FEE * _fee_mult(sym, "spot") * notional
         if side == "sell":
             if held < qty - 1e-9:
                 return {"ok": False, "error": f"现货持仓不足 (持有 {held} < 卖出 {qty})"}
@@ -355,7 +400,8 @@ def open_spot(sym, side, notional):
                 spot[sym] = dict(qty=new_qty, avg_cost=avg, t0=spot[sym]["t0"])
             _write(_resolve("CARRY_STATE"), st)
             _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_SELL",
-                                          px=px, qty=qty, notional=notional, pnl_usd=round(pnl, 4)))
+                                          px=px, qty=qty, notional=notional, pnl_usd=round(pnl, 4),
+                                          spread_rev=round(_sp_ratio * notional, 6)))
             _audit("open_spot_sell", sym, {"px": px, "qty": qty, "pnl": round(pnl, 4)})
             return {"ok": True, "msg": f"已卖出 {qty} {sym} @{px:.4f} (PnL {pnl:+.4f}$)"}
         # buy: 累加持仓
@@ -367,7 +413,8 @@ def open_spot(sym, side, notional):
         st["spot"] = spot
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_BUY",
-                                      px=px, qty=qty, notional=notional))
+                                      px=px, qty=qty, notional=notional,
+                                      spread_rev=round(_sp_ratio * notional, 6)))
         _audit("open_spot_buy", sym, {"px": px, "qty": qty, "notional": notional})
         return {"ok": True, "msg": f"已买入 {qty} {sym} @{px:.4f} (名义{notional}$)"}
     finally:
@@ -378,6 +425,12 @@ def close_spot(sym):
     """现货全平: 按当前价卖出全部持仓"""
     sym = (sym or "").upper()
     px = _spot_px(sym)
+    _sp_ratio = 0.0
+    try:
+        import fee_ops as _fo
+        px, _sp_ratio = _fo.spread_apply(px, sym, "sell")   # R14-M12: 平仓卖出点差
+    except Exception:
+        pass
     if not px:
         return {"ok": False, "error": f"{sym} 无现货实时价"}
     f = _lock()
@@ -388,12 +441,13 @@ def close_spot(sym):
             return {"ok": False, "error": f"{sym} 无现货持仓"}
         qty, avg = spot["qty"], spot["avg_cost"]
         pnl = (px - avg) * qty
-        fees = SPOT_FEE * px * qty
+        fees = SPOT_FEE * _fee_mult(sym, "spot") * px * qty
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl - fees, 4)
         del st["spot"][sym]
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="SPOT_CLOSE",
-                                      px=px, qty=qty, pnl_usd=round(pnl, 4)))
+                                      px=px, qty=qty, pnl_usd=round(pnl, 4), fees=round(fees, 6),
+                                      spread_rev=round(_sp_ratio * px * qty, 6)))
         _audit("close_spot", sym, {"px": px, "qty": qty, "pnl": round(pnl, 4)})
         return {"ok": True, "msg": f"已平 {sym} 现货 {qty} @{px:.4f} (PnL {pnl:+.4f}$)"}
     finally:
@@ -431,7 +485,7 @@ def native_positions():
         pnl = None
         if cur and entry:
             pnl = ((cur - entry) if nat["side"] == "long" else (entry - cur)) / entry * nat.get("notional", 10.0)
-            pnl = round(pnl - NATIVE_FEE * _fee_mult() * nat.get("notional", 10.0), 4)
+            pnl = round(pnl - NATIVE_FEE * _fee_mult(sym, "perp") * nat.get("notional", 10.0), 4)
         out.append({"symbol": sym, "side": nat["side"], "entry": entry,
                     "notional": nat.get("notional"), "qty": nat.get("qty"),
                     "last": cur, "pnl": pnl, "t0": nat.get("t0")})
@@ -460,7 +514,7 @@ def open_hedge(sym, notional, dir_="fwd"):
                                  "day_pnl": 0.0, "cum_pnl": 0.0, "n_rounds": 0})
         if sym in st.get("positions", {}) or sym in st.get("orphans", {}) or sym in st.get("naked", {}):
             return {"ok": False, "error": f"{sym} 已有持仓/孤儿/裸腿, 先平仓"}
-        fees = (FEE_SPOT + FEE_PERP) * notional
+        fees = (FEE_SPOT * _fee_mult(sym, "spot") + FEE_PERP * _fee_mult(sym, "perp")) * notional
         if dir_ == "rev":
             fees += 0.05 / 365 / 24 * notional  # 空现货借贷成本(5%年化, 预扣1小时)
         st.setdefault("day_pnl", 0.0)
@@ -497,7 +551,7 @@ def close_orphan(sym):
         n = orph.get("notional", 10.0)
         d = orph.get("dir", "fwd")
         pnl = ((px["spot"] - orph["spot_entry"]) if d == "fwd" else
-               (orph["spot_entry"] - px["spot"])) / orph["spot_entry"] * n - FEE_SPOT * _fee_mult() * n
+               (orph["spot_entry"] - px["spot"])) / orph["spot_entry"] * n - FEE_SPOT * _fee_mult(sym, "spot") * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + pnl, 4)
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
@@ -527,7 +581,7 @@ def close_perp_leg(sym):
         n = pos.get("notional", 10.0)
         perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
-        fees = FEE_PERP * _fee_mult() * n
+        fees = FEE_PERP * _fee_mult(sym, "perp") * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
         st.setdefault("orphans", {})[sym] = dict(spot_entry=pos["spot_entry"], t0=pos["t0"],
                                                  next_funding_ts=pos.get("next_funding_ts", 0),
@@ -560,7 +614,7 @@ def close_both(sym):
                     (pos["spot_entry"] - px["spot"])) / pos["spot_entry"] * n
         perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
-        fees = (FEE_SPOT + FEE_PERP) * n
+        fees = (FEE_SPOT * _fee_mult(sym, "spot") + FEE_PERP * _fee_mult(sym, "perp")) * n
         total = spot_pnl + perp_pnl - fees
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + total, 4)
         st.setdefault("n_rounds", 0)
@@ -694,7 +748,7 @@ def close_spot_to_naked(sym, tp, sl):
             return {"ok": False, "error": f"名义{n}$超过裸腿上限{MAX_NAKED_NOTIONAL}$"}
         spot_pnl = ((px["spot"] - pos["spot_entry"]) if d == "fwd" else
                     (pos["spot_entry"] - px["spot"])) / pos["spot_entry"] * n
-        fees = FEE_SPOT * _fee_mult() * n
+        fees = FEE_SPOT * _fee_mult(sym, "spot") * n
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + spot_pnl - fees, 4)
         st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=n, tp=tp, sl=sl,
                                                t0=time.time(), funding_acc=pos.get("funding_acc", 0.0),
@@ -921,7 +975,7 @@ def open_naked(sym, dir_, notional, tp, sl):
         naked = st.get("naked", {})
         if len(naked) >= MAX_NAKED:
             return {"ok": False, "error": f"裸腿数已达上限{MAX_NAKED}"}
-        fees = FEE_PERP * _fee_mult() * notional
+        fees = FEE_PERP * _fee_mult(sym, "perp") * notional
         st["day_pnl"] = round(st.get("day_pnl", 0.0) - fees, 4)
         st.setdefault("naked", {})[sym] = dict(perp_entry=entry, notional=notional, tp=tp, sl=sl,
                                                t0=time.time(), funding_acc=0.0,
