@@ -36,7 +36,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .screen.on{display:block}
 @keyframes slideFade{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
-.tabbar{flex:none;height:60px;display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
+.tabbar{position:relative;z-index:21;flex:none;height:60px;display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
 .tabbar button{flex:1;background:none;border:none;color:var(--text-3);font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--sans);min-height:48px;position:relative;transition:color var(--t-fast) var(--ease)}
 .tabbar button .ico{font-size:19px;line-height:1;transition:transform var(--t-mid) var(--ease)}
 .tabbar button.on{color:var(--accent)}
@@ -160,6 +160,37 @@ select.input{appearance:none}
 .sectip .i{font-size:14px;flex:none;margin-top:1px}
 .sectip .t{font-size:11px;color:#e8c988;line-height:1.6}
 .sectip .t b{color:#f7c948}
+/* ===== M-Q: AI 全局悬浮按钮 + 半屏浮窗 ===== */
+#ai-fab{position:fixed;right:16px;bottom:72px;width:56px;height:56px;border-radius:50%;z-index:20;
+  background:linear-gradient(135deg,#4adea0 0%,#1f9d68 100%);border:1px solid rgba(255,255,255,.25);
+  color:#052e1d;font-size:24px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 20px rgba(61,220,151,.45),0 0 0 0 rgba(61,220,151,.35);animation:fabBreathe 2.6s ease-in-out infinite;
+  transition:transform .15s,opacity .2s}
+#ai-fab:active{transform:scale(.92)}
+#ai-fab.badge::after{content:'';position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--red,#f87171);border:2px solid var(--bg,#0d1117)}
+#ai-fab.hidden{opacity:0;pointer-events:none}
+@keyframes fabBreathe{0%,100%{box-shadow:0 4px 20px rgba(61,220,151,.45),0 0 0 0 rgba(61,220,151,.35)}
+  50%{box-shadow:0 4px 20px rgba(61,220,151,.45),0 0 0 10px rgba(61,220,151,0)}}
+#ai-mask{position:fixed;left:0;right:0;top:0;bottom:60px;background:rgba(1,4,9,.55);z-index:18;opacity:0;pointer-events:none;
+  transition:opacity .25s;backdrop-filter:blur(2px)}
+#ai-mask.on{opacity:1;pointer-events:auto}
+#ai-sheet{position:fixed;left:0;right:0;bottom:60px;z-index:19;height:66vh;background:var(--surface,#0d1117);
+  border-top:1px solid var(--border-2);border-radius:20px 20px 0 0;display:flex;flex-direction:column;
+  transform:translateY(105%);transition:transform .28s cubic-bezier(.32,.72,0,1);
+  box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+#ai-sheet.on{transform:translateY(0)}
+#ai-sheet .handle{display:flex;justify-content:center;padding:8px 0 4px}
+#ai-sheet .handle i{width:36px;height:4px;border-radius:2px;background:var(--border-2)}
+#ai-sheet .ai-head{padding:4px 12px 8px;border-bottom:1px solid var(--border-2);display:flex;align-items:center;gap:8px}
+#ai-sheet .ai-head .dot{width:8px;height:8px;border-radius:50%;background:#3ddc97;box-shadow:0 0 8px rgba(61,220,151,.9);flex:none}
+#ai-sheet .ai-head .sp{flex:1}
+#ai-sheet .sbtn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border-2);background:var(--surface-2);
+  color:var(--muted);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
+#ai-sheet #ai-msg2{flex:1;overflow-y:auto;padding:12px 14px 8px}
+#ai-sheet .ai-input{border-top:1px solid var(--border-2);padding:8px 12px 12px}
+#ai-sheet #ai-chips2{padding:0 12px 6px}
+@media (prefers-reduced-motion:reduce){#ai-fab{animation:none}#ai-sheet{transition:none}}
 .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border-2);border-radius:18px 18px 0 0;padding:18px 16px 24px;z-index:30;transform:translateY(105%);transition:transform .22s ease;max-height:72%;overflow:auto}
 .sheet.on{transform:none}
 .sheet h3{font-size:14px;margin-bottom:10px}
@@ -702,7 +733,7 @@ select.input{appearance:none}
         </div>
       </div>
       <div class="menulist">
-        <div class="mi" onclick="go('ai')"><span class="ico">🤖</span><span class="t">AI 策略助手<span class="xs muted"> · 流式对话 · 托管决策</span></span><span class="badge green" id="ai-badge">PRO</span><span class="chev">›</span></div>
+        <div class="mi" onclick="openAIFab()"><span class="ico">🤖</span><span class="t">AI 策略助手<span class="xs muted"> · 流式对话 · 托管决策</span></span><span class="badge green" id="ai-badge">PRO</span><span class="chev">›</span></div>
         <div class="mi" onclick="go('trade')"><span class="ico">⚡</span><span class="t">实盘模式<span class="xs muted"> · 风控限额</span></span><span class="r" id="p-livebadge">—</span><span class="chev">›</span></div>
         <div class="mi" onclick="toast('密码修改请联系管理员或桌面版操作')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 锁定</span><span class="chev">›</span></div>
         <div class="mi" onclick="openHelp()"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
@@ -716,31 +747,12 @@ select.input{appearance:none}
 
 
     <!-- ===== AI 策略助手 ===== -->
-    <section class="screen" id="screen-ai">
-      <div class="ai-head">
-        <button class="mini" onclick="go('profile')">← 返回</button>
-        <div style="flex:1;text-align:center"><b>🤖 AI 策略助手</b><span class="xs muted" id="ai-plan-tag"></span></div>
-        <button class="mini" onclick="aiClear()">清空</button>
-      </div>
-      <div id="ai-msg"></div>
-      <div class="chips" id="ai-chips" style="padding:8px 10px">
-        <button class="chip" onclick="aiAsk('看一下我目前的持仓和风险情况，用白话解释')">📊 持仓风险</button>
-        <button class="chip" onclick="aiAsk('总结一下我最近的交易盈亏情况')">💰 盈亏总结</button>
-        <button class="chip" onclick="aiAsk('目前市场资金费率和基差情况如何？适不适合做套利？')">🔄 套利行情</button>
-        <button class="chip" onclick="aiTasks()">⏰ 我的任务</button>
-        <button class="chip" onclick="go('autopilot');setTimeout(loadAutopilot,300)" style="background:rgba(61,220,151,.15);border-color:rgba(61,220,151,.4)">🤖 托管中心<span id="ap-run-badge"></span></button>
-        <button class="chip" onclick="aiAsk('跑一次 θ=5 的现货永续套利回测，总结各标的的收益、年化和胜率，并用白话告诉我结果')">📈 回测总结</button>
-      </div>
-      <div class="ai-input">
-        <input id="ai-q" placeholder="问点什么… 例如: 我的持仓有什么风险?" onkeydown="if(event.key==='Enter')aiSend()">
-        <button class="btn accent" onclick="aiSend()">发送</button>
-      </div>
-    </section>
+    <!-- M-Q: AI 屏已移除, 完全替代为全局悬浮浮窗 (FAB + #ai-sheet) -->
 
     <!-- ===== M-P3 托管中心 ===== -->
     <section class="screen" id="screen-autopilot">
       <div class="ai-head">
-        <button class="mini" onclick="go('ai')">← 返回</button>
+        <button class="mini" onclick="go('profile')">← 返回</button>
         <div style="flex:1;text-align:center"><b>🤖 AI 托管中心</b><span class="xs muted">全自动策略托管</span></div>
         <button class="mini" onclick="loadAutopilot()">🔄</button>
       </div>
@@ -846,6 +858,31 @@ select.input{appearance:none}
     <button data-s="profile" onclick="go('profile')"><span class="ico">👤</span>我的</button>
   </div>
 
+  <!-- ===== M-Q: AI 全局悬浮层 (body 级, 切页不销毁) ===== -->
+  <button id="ai-fab" class="badge" title="AI 策略助手" onclick="openAIFab()">✦</button>
+  <div id="ai-mask" onclick="closeAIFab()"></div>
+  <div id="ai-sheet">
+    <div class="handle"><i></i></div>
+    <div class="ai-head">
+      <span class="dot"></span><b>🤖 AI 策略助手</b><span class="xs muted">Jev 在线 · 5min 巡检</span>
+      <span class="sp"></span>
+      <button class="sbtn" onclick="aiTasks()" title="我的任务">⏰</button>
+      <button class="sbtn" onclick="closeAIFab();go('autopilot');setTimeout(loadAutopilot,300)" title="托管中心">🌐</button>
+      <button class="sbtn" onclick="closeAIFab()" title="关闭">✕</button>
+    </div>
+    <div id="ai-msg2"></div>
+    <div class="chips" id="ai-chips2" style="padding:0 12px 6px;display:flex;gap:6px;overflow-x:auto">
+      <button class="chip" onclick="aiAsk('看一下我目前的持仓和风险情况，用白话解释')">💼 我的持仓</button>
+      <button class="chip" onclick="aiAsk('目前市场资金费率和基差情况如何？适不适合做套利？总结今天的策略机会')">📊 今日策略</button>
+      <button class="chip" onclick="aiAsk('帮我开一笔套利，标的你来判断，名义 15U')">🚀 开一笔套利</button>
+      <button class="chip" onclick="closeAIFab();go('autopilot');setTimeout(loadAutopilot,300)">🌐 全托管状态</button>
+    </div>
+    <div class="ai-input">
+      <input id="ai-q2" placeholder="问问 AI…（例如：XRP 现在能开吗？）" onkeydown="if(event.key==='Enter')aiSend()">
+      <button class="btn accent" onclick="aiSend()">发送</button>
+    </div>
+  </div>
+
   <div class="mask" id="mask" onclick="closeSheet()"></div>
   <div class="sheet" id="sheet">
     <button class="close" onclick="closeSheet()">✕</button>
@@ -895,8 +932,8 @@ function apiErr(r){
 /* ============ 屏幕路由 ============ */
 var curScreen='login';
 var TAB_SCREENS={markets:1,pm:1,trade:1,assets:1,trades:1,profile:1,symbol:1};
-var BACK_MAP={keys:'profile',admin:'profile',ai:'profile',autopilot:'ai',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
-var TITLES={login:'交易室',register:'创建账户',markets:'行情',trade:'交易',assets:'资产',trades:'交易记录',profile:'我的',ai:'AI 策略助手',autopilot:'AI 托管中心',admin:'管理后台',symbol:'标的详情'};
+var BACK_MAP={keys:'profile',admin:'profile',ai:'profile',autopilot:'profile',recharge:'assets',withdraw:'assets',plans:'assets',symbol:'markets'};
+var TITLES={login:'交易室',register:'创建账户',markets:'行情',trade:'交易',assets:'资产',trades:'交易记录',profile:'我的',autopilot:'AI 托管中心',admin:'管理后台',symbol:'标的详情'};
 function go(s){
   if(!id('screen-'+s))return;
   curScreen=s;
@@ -911,7 +948,6 @@ function go(s){
   var bt=tb.querySelectorAll('button');
   for(var j=0;j<bt.length;j++)bt[j].classList.toggle('on',bt[j].dataset.s===s);
   closeSheet();
-  if(s==='ai')aiInit();
   if(s==='markets')loadMarkets();
   if(s==='pm'){toast('预测市场已下线');s='markets'}
   if(s==='trade'){loadKline();}
@@ -2711,23 +2747,24 @@ async function loadPlanCard(){
 var PERIOD_ZH2={month:'月',quarter:'季',year:'年'};
 /* ============ AI 策略助手 ============ */
 var AIMSG=[];
+try{var _hist=localStorage.getItem('ai_msg_hist');if(_hist){AIMSG=JSON.parse(_hist)||[]}}catch(e){}
 function aiBubble(role,txt,extra){
   var d=document.createElement('div');
   d.className='ai-b '+(role==='user'?'u':'a');
   if(role==='user'){d.textContent=txt}
   else{d.innerHTML=txt}
   if(extra)d.appendChild(extra);
-  id('ai-msg').appendChild(d);
-  id('ai-msg').scrollTop=id('ai-msg').scrollHeight;
+  id('ai-msg2').appendChild(d);
+  id('ai-msg2').scrollTop=id('ai-msg2').scrollHeight;
   return d;
 }
-function aiAsk(q){id('ai-q').value=q;aiSend()}
+function aiAsk(q){id('ai-q2').value=q;aiSend()}
 async function aiSend(){
-  var q=id('ai-q').value.trim();
+  var q=id('ai-q2').value.trim();
   if(!q){return}
-  id('ai-q').value='';
+  id('ai-q2').value='';
   aiBubble('user',q);
-  AIMSG.push({role:'user',content:q});
+  AIMSG.push({role:'user',content:q});aiPersist();
   var b=aiBubble('a','<div class="ai-body"><span class="ai-cur">▍</span></div>');
   var acc='';
   var upgraded=false;
@@ -2761,11 +2798,11 @@ async function aiSend(){
         }
         else if(ev.type==='upgrade'){acc='';upgraded=true;b.innerHTML='<div class="ai-up"><b>💎 升级解锁 AI 策略助手</b><p>'+ (ev.text||'') +'</p><button class="btn accent" style="margin-top:6px" onclick="openUpgrade()">立即升级</button></div>'}
         else if(ev.type==='error'){b.textContent='出错了: '+(ev.text||'')}
-        else if(ev.type==='done'){if(upgraded)return;body.innerHTML=acc.replace(/\n/g,'<br>');if(ev.content)AIMSG.push({role:'assistant',content:ev.content});return}
+        else if(ev.type==='done'){if(upgraded)return;body.innerHTML=acc.replace(/\n/g,'<br>');if(ev.content){AIMSG.push({role:'assistant',content:ev.content});aiPersist()}return}
       }
     }
   }catch(err){b.textContent='网络错误: '+err.message}
-  finally{id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+  finally{id('ai-msg2').scrollTop=id('ai-msg2').scrollHeight}
 }
 async function aiApprove(aid,ok){
   var r=await api('/api/ai/approve',{method:'POST',body:JSON.stringify({action_id:aid,approve:ok})});
@@ -2944,8 +2981,34 @@ async function apCancel(tid){
   setTimeout(loadAutopilot,600);
 }
 
-function aiClear(){AIMSG=[];id('ai-msg').innerHTML='<div class="ai-wel">🤖 我是你的 AI 策略助手<br><span class="xs muted">可以问我持仓风险、盈亏总结、套利行情等</span></div>'}
-function aiInit(){if(!id('ai-msg').dataset.inited){aiClear();id('ai-msg').dataset.inited='1'}}
+function aiClear(){AIMSG=[];id('ai-msg2').innerHTML='<div class="ai-wel">🤖 我是你的 AI 策略助手<br><span class="xs muted">可以问我持仓风险、盈亏总结、套利行情等</span></div>'}
+function aiInit(){if(!id('ai-msg2').dataset.inited){if(AIMSG.length){aiRestore()}else{aiClear()}id('ai-msg2').dataset.inited='1'}}
+var AI_OPENED=false;
+function openAIFab(){
+  AI_OPENED=true;
+  id('ai-fab').classList.add('hidden');
+  id('ai-sheet').classList.add('on');
+  id('ai-mask').classList.add('on');
+  aiInit();
+  id('ai-fab').classList.remove('badge');
+  setTimeout(function(){id('ai-q2').focus()},350);
+}
+function closeAIFab(){
+  AI_OPENED=false;
+  id('ai-fab').classList.remove('hidden');
+  id('ai-sheet').classList.remove('on');
+  id('ai-mask').classList.remove('on');
+}
+function aiPersist(){try{localStorage.setItem('ai_msg_hist',JSON.stringify(AIMSG.slice(-40)))}catch(e){}}
+function aiRestore(){
+  if(!AIMSG.length)return;
+  var h='';
+  AIMSG.slice(-20).forEach(function(m){
+    h+=m.role==='user'?'<div class="ai-b u">'+esc(m.content)+'</div>':'<div class="ai-b a">'+esc(m.content).replace(/\n/g,'<br>')+'</div>';
+  });
+  id('ai-msg2').innerHTML=h;
+}
+
 async function openUpgrade(){
   var r=await api('/api/plans');
   if(!r.data||!r.data.ok){toast('加载套餐失败',true);return}
