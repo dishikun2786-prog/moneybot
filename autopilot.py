@@ -9,10 +9,12 @@
 import json, os, time
 
 BASE = os.path.expanduser("~/polymarket")
-DUAL_SYMS = ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
+DUAL_SYMS = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")  # carry 套利现货池
+NATIVE_CORE = ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")  # 原生永续池(动态扩)
 
 DEFAULT_RISK = {"max_positions": 3, "notional": 15.0, "daily_loss_cap": 5.0,
-                "theta": 5.0, "freq_min": 5, "auth_level": "A"}
+                "theta": 5.0, "freq_min": 5, "auth_level": "A", "live": False,
+                "min_hold_min": 15}
 AUTH_LEVELS = ("A", "B")
 
 
@@ -54,14 +56,32 @@ def _save_auth(uid, a):
     os.replace(tmp, f)
 
 
-def resolve_symbols(scope):
-    """scope: 'all' | ['BTCUSDT',...] → 合法标的列表"""
+def native_pool():
+    """原生方向可托管池: 实时盘口标的 ∩ 原生白名单 (上线几支自动几支)"""
+    try:
+        ob = json.load(open(os.path.join(BASE, "logs", "orderbook.json"), encoding="utf-8"))
+        px = list((ob.get("px") or {}).keys())
+        if not px:
+            px = list((ob.get("books") or {}).keys())
+    except Exception:
+        px = list(NATIVE_CORE)
+    try:
+        from paper_ops import _native_allowed
+        allowed = [s for s in px if _native_allowed(s)]
+    except Exception:
+        allowed = [s for s in px if s in NATIVE_CORE]
+    return [s for s in allowed if s] or list(NATIVE_CORE)
+
+
+def resolve_symbols(scope, mode="carry"):
+    """scope: 'all' | ['BTCUSDT',...] → 合法标的列表 (native 用原生动态池)"""
     if scope == "all":
-        return list(DUAL_SYMS)
+        return native_pool() if mode == "native" else list(DUAL_SYMS)
+    pool = NATIVE_CORE if mode == "native" else DUAL_SYMS
     syms = []
     for s in (scope or []):
         s = str(s).upper()
-        if s in DUAL_SYMS and s not in syms:
+        if (s in pool or (mode == "native" and s in native_pool())) and s not in syms:
             syms.append(s)
     return syms
 
@@ -80,7 +100,7 @@ def occupied_symbols(uid, exclude_id=None):
 
 def create_task(uid, scope, risk_overrides=None, mode="carry"):
     """创建托管任务: scope='all' 或标的列表; 同标的冲突自动排除; mode=carry|native"""
-    syms = resolve_symbols(scope)
+    syms = resolve_symbols(scope, mode)
     if not syms:
         return {"ok": False, "error": f"无效范围: 仅支持 all 或 {list(DUAL_SYMS)}"}
     occ = occupied_symbols(uid)
@@ -133,10 +153,11 @@ def set_task(uid, tid, **fields):
             if "risk" in fields:
                 rk = fields["risk"] or {}
                 for k, v in rk.items():
-                    if k in t.get("risk", {}):
+                    if k in ("live", "min_hold_min", "max_positions", "notional",
+                             "daily_loss_cap", "theta", "freq_min", "auth_level"):
                         if k == "auth_level" and v not in AUTH_LEVELS:
                             return {"ok": False, "error": "授权分级仅 A/B"}
-                        t["risk"][k] = v
+                        t.setdefault("risk", {})[k] = v
             t["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             _save_tasks(uid, tasks)
             return {"ok": True, "task": t, "msg": f"任务已更新: {tid}"}
@@ -295,26 +316,51 @@ def _exec_native_close(uid, tid, sym, reason, task, live):
                           "error": f"{type(e).__name__}: {str(e)[:120]}"})
 
 
-def _run_native_opens_closes(uid, tid, t, answers, g):
-    """原生方向托管: 方向翻转平仓 + 方向信号开仓 (日损熔断在上层共用)"""
+def _native_pos_with_time(uid):
+    """原生持仓 {sym: side} + {sym: t0} 两视图"""
+    side, t0 = {}, {}
+    for r in (_native_positions(uid) or []):
+        if isinstance(r, dict) and r.get("symbol"):
+            side[r["symbol"]] = r.get("side")
+            if r.get("t0"):
+                t0[r["symbol"]] = float(r["t0"])
+    return side, t0
+
+
+def _run_native_opens_closes(uid, tid, t, answers, g, risk_paused=False, day_pnl=0.0):
+    """原生方向托管: 方向翻转平仓(带最小持有防抖) + 方向信号开仓 (风险暂停只禁开不禁平)"""
     rk = t.get("risk", {})
     max_pos = int(rk.get("max_positions", 3))
     conf_min = float(g.get("conf_min", 0.6))
     live = bool(rk.get("live", False))
+    min_hold_s = max(0.0, float(rk.get("min_hold_min", 15)) * 60.0)
     acted = []
-    pos = _native_positions(uid)
+    pos, t0map = _native_pos_with_time(uid)
     syms = t.get("symbols", [])
+    now = time.time()
     for s in list(pos.keys()):
         if s not in syms:
             continue
         a = answers.get(f"dir_{s}")
         nd = (a.get("choice") if isinstance(a, dict) else None) or "none"
         if nd not in ("long", "short") or nd != pos[s]:
+            # 防抖: 开仓未满最小持有期则本周期不平, 留待下一周期
+            _t0 = t0map.get(s)
+            if _t0 and (now - _t0) < min_hold_s:
+                _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                  "uid": uid, "task_id": tid, "symbol": s,
+                                  "event": "skipped", "reason": f"防抖: 最小持有期未满({int(min_hold_s)}s)"})
+                continue
             _exec_native_close(uid, tid, s, f"方向翻转→{nd}", t, live)
             pos.pop(s, None)
             acted.append({"task": tid, "symbol": s, "event": "native_close", "reason": f"dir→{nd}"})
     for s in syms:
         if s in pos:
+            continue
+        if risk_paused:
+            _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                              "uid": uid, "task_id": tid, "symbol": s,
+                              "event": "skipped", "reason": "风险暂停: 原生整体风险过高禁开新仓"})
             continue
         if len(pos) >= max_pos:
             _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -331,6 +377,8 @@ def _run_native_opens_closes(uid, tid, t, answers, g):
         pos[s] = a["choice"]
         acted.append({"task": tid, "symbol": s, "event": f"native_open_{a['choice']}", "conf": round(conf, 3)})
     t["stats"]["positions"] = pos
+    t["stats"]["today_pnl"] = round(day_pnl, 4)
+    t["stats"]["day"] = time.strftime("%Y-%m-%d", time.gmtime())
     return acted
 
 
@@ -412,7 +460,11 @@ def run_cycle(uid, jev_result=None):
             acted.append({"task": tid, "event": "halt", "detail": t["stats"]["halt_reason"]})
             continue
         if t.get("mode") == "native":
-            acted += _run_native_opens_closes(uid, tid, t, native_answers, g)
+            _ra = native_answers.get("risk_level", {}) if isinstance(native_answers, dict) else {}
+            _rscore = _ra.get("score", 0) if isinstance(_ra, dict) else 0
+            _rp = isinstance(_rscore, (int, float)) and _rscore >= g.get("risk_pause", 2.5)
+            acted += _run_native_opens_closes(uid, tid, t, native_answers, g,
+                                              risk_paused=_rp, day_pnl=day_pnl)
             continue
         t_pos = {s: v for s, v in pos_now.items() if s in t.get("symbols", [])}
         # 闸6: 费率翻转保护 → 平负费率持仓

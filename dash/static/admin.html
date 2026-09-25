@@ -80,6 +80,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <button data-t="fee" style="color:#f7c948">⚙️ 费率配置</button>
     <button data-t="rev" style="color:#3ebd93">📈 营收大盘</button>
     <button data-t="support" style="color:#f87171">💬 客服中心<span id="sup-badge" style="display:none;background:#f87171;color:#fff;border-radius:9px;padding:1px 7px;font-size:11px;margin-left:4px"></span></button>
+    <button data-t="bybit" style="color:#a78bfa">🪙 Bybit 标的管理</button>
     <!-- PM-OFF-R13c: <button data-t="pm" style="color:#a78bfa">🎲 PM 标的管理</button> -->
   </div>
 
@@ -173,6 +174,24 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     </div>
   </div>
 
+  <div class="panel" id="p-bybit">
+    <div class="row" style="margin-bottom:8px"><b style="color:#a78bfa">🪙 Bybit 全品类标的管理</b></div>
+    <div class="dim" style="font-size:12px;margin-bottom:8px">上线的标的才会被行情桥(pm-bridge/Go feed)订阅并可被用户交易/托管；下线仅停止订阅，不影响历史数据。当前默认只上线 7 个标的。保存后自动重启 pm-bridge / pm-aether-feed。</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
+      <input id="bybitadm-q" placeholder="搜索标的(如 BTC)" style="width:180px" oninput="bybitadmDebounce()">
+      <select id="bybitadm-cat" onchange="loadBybitAdm(0)"><option value="">全部分类</option><option value="linear">linear 永续</option><option value="spot">spot 现货</option><option value="inverse">inverse 反向</option></select>
+      <select id="bybitadm-st" onchange="loadBybitAdm(0)"><option value="">全部状态</option><option value="on">已上线</option><option value="off">已下线</option></select>
+      <span class="dim" id="bybitadm-stats"></span>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" onclick="bybitadmCheckAll()">☑ 全选本页</button>
+      <button class="btn" onclick="bybitadmAll()">✅ 全选上线</button>
+      <button class="btn bad" onclick="bybitadmSet('off')">⛔ 批量下线</button>
+      <button class="btn" onclick="bybitadmMore()">加载更多</button>
+    </div>
+    <div id="bybitadm-list"></div>
+  </div>
+
   <div class="panel" id="p-audit">
     <div class="row">
       <input id="a-uid" placeholder="用户ID" style="width:90px">
@@ -252,6 +271,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   if(b.dataset.t==='fee')loadFeeConfig();
   if(b.dataset.t==='rev'){loadRevenue();loadRevDetail(0)}
   if(b.dataset.t==='support')loadSupport();
+  if(b.dataset.t==='bybit')loadBybitAdm(0);
   if(b.dataset.t==='pm')loadPmAdmin(0);
 });
 
@@ -588,6 +608,51 @@ async function pmadmSet(state){
   if(!confirm(`确认${state==='on'?'上线':'下线'} ${keys.length} 个标的？`))return;
   const {d}=await j('POST','/api/admin/pm-markets/set',{keys,state});
   if(d&&d.ok){alert(d.msg||'操作成功');PMADM.checked={};loadPmAdmin(0)}else{alert((d&&d.error)||'操作失败')}
+}
+
+// ---- Bybit 全品类标的管理 ----
+let BYBITADM={offset:0,q:'',cat:'',state:'',rows:[],checked:{}};
+let bybitadmTimer=null;
+function bybitadmDebounce(){clearTimeout(bybitadmTimer);bybitadmTimer=setTimeout(()=>{BYBITADM.q=($('#bybitadm-q')||{}).value?.trim()||'';loadBybitAdm(0)},350)}
+async function loadBybitAdm(offset){
+  if(offset===0){BYBITADM.offset=0;BYBITADM.rows=[];BYBITADM.checked={};}
+  BYBITADM.cat=($('#bybitadm-cat')||{}).value||'';BYBITADM.state=($('#bybitadm-st')||{}).value||'';
+  const qs=new URLSearchParams({q:BYBITADM.q,cat:BYBITADM.cat,state:BYBITADM.state,offset:BYBITADM.offset,limit:200});
+  const {d}=await j('GET','/api/admin/bybit-syms?'+qs);
+  if(!d||!d.rows){$('#bybitadm-list').innerHTML='<div class="dim">加载失败（无管理员权限？）</div>';return}
+  BYBITADM.rows=BYBITADM.rows.concat(d.rows);
+  $('#bybitadm-stats').textContent='共 '+d.total+' 个品类 · 已上线 '+d.n_online+' · 下线 '+d.off_n;
+  renderBybitAdm();
+}
+function renderBybitAdm(){
+  const rows=BYBITADM.rows;
+  if(!rows.length){$('#bybitadm-list').innerHTML='<div class="dim">无匹配标的</div>';return}
+  const catZh={linear:'永续',spot:'现货',inverse:'反向'};
+  $('#bybitadm-list').innerHTML='<table><thead><tr><th style="width:34px">勾</th><th>标的</th><th>品类</th><th>24h成交额$</th><th>状态</th></tr></thead><tbody>'
+    +rows.map(r=>`<tr>
+      <td><input type="checkbox" data-bkey="${escAttr(r.symbol)}" onchange="bybitadmCheck('${escAttr(r.symbol)}',this.checked)"></td>
+      <td><b>${esc(r.symbol)}</b>${r.name&&r.name!==r.symbol?'<div class="dim" style="font-size:11px">'+esc(r.name)+'</div>':''}</td>
+      <td>${catZh[r.cat]||r.cat}</td>
+      <td>${fmtNum(r.turnover24h||0)}</td>
+      <td>${r.state==='off'?'<span style="color:#f87171">⛔ 下线</span>':'<span style="color:#34d399">✅ 上线</span>'} <button class="mini" onclick="bybitadmOne('${escAttr(r.symbol)}','${r.state==='off'?'on':'off'}')">${r.state==='off'?'↻ 上线':'⛔ 下线'}</button></td>
+      </tr>`).join('')+'</tbody></table>';
+  for(const k in BYBITADM.checked){const cb=document.querySelector(`input[data-bkey="${CSS.escape(k)}"]`);if(cb)cb.checked=BYBITADM.checked[k]}
+}
+function bybitadmCheck(k,v){if(v)BYBITADM.checked[k]=1;else delete BYBITADM.checked[k]}
+function bybitadmCheckAll(){const v=!Object.keys(BYBITADM.checked).length;BYBITADM.rows.forEach(r=>{if(v)BYBITADM.checked[r.symbol]=1;else delete BYBITADM.checked[r.symbol]});renderBybitAdm()}
+function bybitadmAll(){BYBITADM.rows.forEach(r=>BYBITADM.checked[r.symbol]=1);renderBybitAdm()}
+async function bybitadmMore(){BYBITADM.offset=BYBITADM.rows.length;await loadBybitAdm()}
+async function bybitadmOne(symbol,state){
+  if(!confirm(`确认${state==='on'?'上线':'下线'} ${symbol}？${state==='on'?'将加入订阅并重启桥':'将停止订阅并重启桥'}`))return;
+  const {d}=await j('POST','/api/admin/bybit-syms/set',{symbols:[symbol],state});
+  if(d&&d.ok){toast(d.msg||'操作成功');loadBybitAdm(0)}else{alert((d&&d.error)||'操作失败')}
+}
+async function bybitadmSet(state){
+  const symbols=Object.keys(BYBITADM.checked);
+  if(!symbols.length){alert('请先勾选标的');return}
+  if(!confirm(`确认${state==='on'?'上线':'下线'} ${symbols.length} 个标的？将重启 pm-bridge/pm-aether-feed`))return;
+  const {d}=await j('POST','/api/admin/bybit-syms/set',{symbols,state});
+  if(d&&d.ok){toast(d.msg||'操作成功');BYBITADM.checked={};loadBybitAdm(0)}else{alert((d&&d.error)||'操作失败')}
 }
 
 // ===== R14-M12 费率配置 + 营收大盘 =====

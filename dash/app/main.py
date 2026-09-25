@@ -1124,6 +1124,99 @@ def _restart_bybit_services():
         pass
 
 
+# ================= Bybit 全品类标的管理 (管理后台一键上/下线) =================
+BYBIT_SYM_DEFAULT = "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT"
+
+
+def _bybit_instrument_catalog():
+    """读 instruments 缓存 → {symbol: {cat, turnover24h, name}} (linear+spot+inverse)"""
+    out = {}
+    p = os.path.join(os.path.expanduser("~/polymarket"), "logs", "bybit_instruments.json")
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception:
+        d = {}
+    for cat in ("linear", "spot", "inverse"):
+        for r in d.get(cat, []) or []:
+            sym = str(r.get("symbol", "")).upper()
+            if not sym or sym in out:
+                continue
+            if r.get("preListing"):
+                continue
+            out[sym] = {"cat": cat,
+                        "turnover24h": float(r.get("turnover24h") or 0),
+                        "name": r.get("name") or sym}
+    return out
+
+
+def _online_bybit_syms():
+    """当前上线标的 set (设置优先, 回退默认)"""
+    try:
+        raw = funds.get_setting("bybit_syms", BYBIT_SYM_DEFAULT)
+    except Exception:
+        raw = BYBIT_SYM_DEFAULT
+    return {s.strip().upper() for s in str(raw).split(",") if s.strip()}
+
+
+@app.get("/api/admin/bybit-syms")
+def api_bybit_syms(request: Request, __=Depends(require_admin)):
+    """Bybit 全品类标的列表 (搜索+分类+状态过滤+分页), 供管理后台一键上下线"""
+    cat = request.query_params.get("cat", "")
+    state = request.query_params.get("state", "")
+    q = (request.query_params.get("q") or "").strip().upper()
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+        limit = max(10, min(int(request.query_params.get("limit") or 200), 500))
+    except Exception:
+        offset, limit = 0, 200
+    online = _online_bybit_syms()
+    rows = []
+    for sym, info in _bybit_instrument_catalog().items():
+        if cat and info["cat"] != cat:
+            continue
+        st = "on" if sym in online else "off"
+        if state and st != state:
+            continue
+        if q and q not in sym:
+            continue
+        rows.append({"symbol": sym, "cat": info["cat"], "turnover24h": info["turnover24h"],
+                     "name": info["name"], "state": st})
+    rows.sort(key=lambda r: -r["turnover24h"])
+    total = len(rows)
+    off_n = sum(1 for r in rows if r["state"] == "off")
+    cats = ["linear", "spot", "inverse"]
+    return {"ok": True, "rows": rows[offset:offset + limit], "total": total,
+            "off_n": off_n, "cats": cats,
+            "online": sorted(online), "n_online": len(online)}
+
+
+@app.post("/api/admin/bybit-syms/set")
+async def api_bybit_syms_set(request: Request, __=Depends(require_admin)):
+    """批量上/下线: {symbols:[...], state:on/off} → 更新 bybit_syms 设置并重启桥"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    syms = body.get("symbols") or []
+    if not isinstance(syms, list) or not syms or len(syms) > 500:
+        return {"ok": False, "error": "symbols 须为 1-500 数组"}
+    state = str(body.get("state") or "")
+    if state not in ("on", "off"):
+        return {"ok": False, "error": "state 须 on/off"}
+    online = _online_bybit_syms()
+    if state == "on":
+        online |= {str(s).strip().upper() for s in syms if str(s).strip()}
+    else:
+        online -= {str(s).strip().upper() for s in syms if str(s).strip()}
+    value = ",".join(sorted(online)) or BYBIT_SYM_DEFAULT
+    r = funds.set_setting("bybit_syms", value)
+    _sync_bybit_syms(value)
+    _restart_bybit_services()
+    r["msg"] = f"已{'上线' if state == 'on' else '下线'} {len(syms)} 个标的, 当前上线 {len(online)} 个, 已触发重启 pm-bridge/pm-aether-feed"
+    r["online"] = sorted(online)
+    return r
+
+
 @app.post("/api/admin/funds/settings")
 async def admin_funds_settings(request: Request, su=Depends(require_admin)):
     try:
