@@ -83,15 +83,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
   </div>
 
   <div class="panel on" id="p-users">
-    <div class="card">
-      <div class="ct">📦 套餐设置 <span class="dim" style="font-size:12px">价格按周期计价 · 托管时长自定义 · 支持新增</span></div>
-      <table class="tb" id="plantab" style="width:100%;font-size:13px">
-        <thead><tr><th style="text-align:left">套餐</th><th>价格</th><th>托管</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody id="plandefs"></tbody>
-      </table>
-      <div class="row" style="margin-top:8px"><button class="btn" onclick="planEdit(null)">＋ 新增套餐</button></div>
-      <p class="dim" style="font-size:12px">价格计价周期: 月/季/年。托管时长=用户设置该套餐后引擎自动代管的有效天数(可对单个用户再自定义)。</p>
-    </div>
     <div class="row">
       <input id="q" placeholder="搜索账号/邮箱..." style="width:220px" oninput="renderUsers()">
       <span class="dim" id="ucount"></span>
@@ -198,14 +189,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
       <input id="fad-note" placeholder="理由(必填)" style="width:180px">
       <button class="btn" onclick="fAdjust()">执行调整</button>
     </div>
-    <h3>套餐管理 <span class="dim">(可增删改, 免费版固定)</span></h3>
-    <table><thead><tr><th>code</th><th>名称</th><th>价格(USDT/月)</th><th>说明</th><th>排序</th><th>启用</th><th>操作</th></tr></thead>
-    <tbody id="fpl-tbody"></tbody></table>
-    <div class="row" style="margin-top:6px">
-      <input id="fpl-code" placeholder="code" style="width:80px"><input id="fpl-name" placeholder="名称" style="width:100px">
-      <input id="fpl-price" placeholder="价格" style="width:90px"><input id="fpl-feat" placeholder="说明" style="width:160px">
-      <input id="fpl-sort" placeholder="排序" style="width:60px"><button class="btn" onclick="fPlanNew()">新增套餐</button>
-    </div>
+    <h3>套餐管理 <span class="dim">(可增删改, 免费版固定 · 价格按周期计价 · 托管时长自定义)</span></h3>
+    <table class="tb" id="plantab" style="width:100%;font-size:13px">
+      <thead><tr><th style="text-align:left">套餐</th><th>价格</th><th>托管</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="plandefs"></tbody>
+    </table>
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="planEdit(null)">＋ 新增套餐</button></div>
+    <p class="dim" style="font-size:12px">价格计价周期: 月/季/年。托管时长=用户设置该套餐后引擎自动代管的有效天数(可对单个用户再自定义)。</p>
     <h3>提现/充值参数</h3>
     <div class="row" id="fset-row"></div>
     <h3>平台 Bybit 密钥 <span class="dim">(统一交易密钥: 全部用户实盘下单+充值对账+提现打款)</span></h3>
@@ -239,7 +229,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   b.classList.add('on');$('#p-'+b.dataset.t).classList.add('on');
   if(b.dataset.t==='audit')loadAudit(0);
   if(b.dataset.t==='ann')loadAnn();
-  if(b.dataset.t==='funds')loadFundsPanel();
+  if(b.dataset.t==='funds'){loadFundsPanel();loadPlanDefs()}
   if(b.dataset.t==='fee')loadFeeConfig();
   if(b.dataset.t==='rev'){loadRevenue();loadRevDetail(0)}
   if(b.dataset.t==='pm')loadPmAdmin(0);
@@ -318,7 +308,8 @@ async function loadPlanDefs(){
       +'<td>'+st+'</td>'
       +'<td>'
       +(locked?'<span class="dim" style="font-size:12px">固定</span>':'<button class="btn" style="padding:4px 10px" onclick="planEdit(\''+p.code+'\')">编辑</button>'
-        +' <button class="btn ghost" style="padding:4px 10px" onclick="planToggle(\''+p.code+'\','+(p.active?0:1)+')">'+(p.active?'停用':'启用')+'</button>')
+        +' <button class="btn ghost" style="padding:4px 10px" onclick="planToggle(\''+p.code+'\','+(p.active?0:1)+')">'+(p.active?'停用':'启用')+'</button>'
+        +((p.code==='pro'||p.code==='live')?'':' <button class="btn bad" style="padding:4px 10px" onclick="planDel(\''+p.code+'\')">删除</button>'))
       +'</td></tr>';
   }).join('');
 }
@@ -354,6 +345,12 @@ async function savePlanEdit(code){
   const {d}=await j('POST',url,body);
   toast(d.ok?'已保存':'失败: '+(d.msg||d.error),!d.ok);
   if(d.ok){mclose();loadPlanDefs()}
+}
+async function planDel(code){
+  if(!confirm('删除套餐 '+code+' ? 已有该套餐的用户不受影响。'))return;
+  const {d}=await j('POST','/api/admin/plans/delete',{code:code});
+  toast(d.ok?'已删除':'失败: '+(d.msg||d.error),!d.ok);
+  if(d.ok){loadPlanDefs()}
 }
 async function planToggle(code,active){
   const {d}=await j('POST','/api/admin/plans/toggle',{code:code,active:active});
@@ -469,13 +466,6 @@ async function loadFundsPanel(){
     <td>#${u.id}</td><td><b>${u.amount_unique}</b> USDT</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${u.txid||''}</td>
     <td>${u.matched_ts||''}</td>
     <td><input id="fuc-uid-${u.id}" placeholder="归属UID" style="width:80px"><button class="btn" onclick="fClaim(${u.id})">认领给该用户</button></td></tr>`).join('')||'<tr><td colspan=5 class="dim">无待认领充值</td></tr>';
-  // 套餐
-  const plans=d.plans||[];
-  $('#fpl-tbody').innerHTML=plans.map(p=>`<tr>
-    <td><b>${p.code}</b></td><td>${p.name}</td><td>${p.price}</td><td style="max-width:200px">${p.features||''}</td>
-    <td>${p.sort}</td><td>${p.active?'✅':'⛔'}</td>
-    <td><button class="btn" onclick="fPlanEdit('${p.code}')">编辑</button>
-        <button class="btn bad" onclick="fPlanDel('${p.code}')">删除</button></td></tr>`).join('');
   // 设置
   const s=d.settings||{};
   $('#fset-row').innerHTML=Object.entries(s).map(([k,v])=>`
@@ -498,24 +488,6 @@ async function fAdjust(){
   if(!uid||!amt||!note){toast('UID/金额/理由都必填',true);return}
   const {d}=await j('POST','/api/admin/funds/adjust',{uid,amount:amt,note});
   toast(d&&d.ok?('已调整, 新余额 '+fmtNum(d.new_balance)):(d&&d.error||'失败'),!d||!d.ok);
-}
-async function fPlanNew(){
-  const b={code:$('#fpl-code').value.trim(),name:$('#fpl-name').value.trim(),price:$('#fpl-price').value,
-    features:$('#fpl-feat').value.trim(),sort:$('#fpl-sort').value||0,active:1,is_new:true};
-  if(!b.code||!b.name){toast('code/名称必填',true);return}
-  const {d}=await j('POST','/api/admin/funds/plan',b);
-  toast(d&&d.ok?'已新增':(d&&d.error||'失败'),!d||!d.ok);loadFundsPanel();
-}
-async function fPlanEdit(code){
-  const price=prompt('价格 (USDT/月)',0),name=prompt('名称'),feat=prompt('说明');
-  if(price==null)return;
-  const {d}=await j('POST','/api/admin/funds/plan',{code,name:name||code,price:Number(price)||0,features:feat||'',sort:0,active:1});
-  toast(d&&d.ok?'已更新':(d&&d.error||'失败'),!d||!d.ok);loadFundsPanel();
-}
-async function fPlanDel(code){
-  if(!confirm('删除套餐 '+code+' ?'))return;
-  const {d}=await j('POST','/api/admin/funds/plan/delete',{code});
-  toast(d&&d.ok?'已删除':(d&&d.error||'失败'),!d||!d.ok);loadFundsPanel();
 }
 async function fSaveSettings(){
   const keys=['withdraw_fee','max_withdraw','min_withdraw','deposit_min','deposit_max'];

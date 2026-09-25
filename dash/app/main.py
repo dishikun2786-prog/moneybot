@@ -1218,6 +1218,18 @@ async def api_admin_plans_add(request: Request, su=Depends(require_admin)):
     return {"ok": ok, "msg": msg}
 
 
+@app.post("/api/admin/plans/delete")
+async def api_admin_plans_delete(request: Request, su=Depends(require_admin)):
+    """R14-M17: 删除套餐"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = funds.del_plan(str(body.get("code", "")))
+    users.audit_log(su["u"], "plan_del", f"删除套餐 {body.get('code')} → {msg}")
+    return {"ok": ok, "msg": msg}
+
+
 @app.post("/api/admin/plans/toggle")
 async def api_admin_plans_toggle(request: Request, su=Depends(require_admin)):
     """R14-M17: 启用/停用套餐"""

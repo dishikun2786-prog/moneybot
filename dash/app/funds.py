@@ -250,6 +250,19 @@ def add_plan(code, name, price, days, billing_period="month", features=""):
         con.close()
 
 
+def del_plan(code):
+    """R14-M17: 删除套餐 (free/pro/live 禁删; 已有用户不受影响)"""
+    if code in ("free", "pro", "live"):
+        return False, "系统套餐不可删除"
+    con = _con()
+    try:
+        r = con.execute("DELETE FROM plans WHERE code=?", (code,))
+        con.commit()
+        return (True, "ok") if r.rowcount else (False, "套餐不存在")
+    finally:
+        con.close()
+
+
 def toggle_plan(code, active):
     """R14-M16: 启用/停用套餐 (free 禁停)"""
     if code == "free":
