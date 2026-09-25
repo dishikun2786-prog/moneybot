@@ -31,6 +31,9 @@ MIN_UNCLAIMED = 1.0            # 低于此金额的未匹配到账忽略
 def _con():
     con = sqlite3.connect(DB_FILE, timeout=15)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=5000")
+    con.execute("PRAGMA synchronous=NORMAL")
     return con
 
 
@@ -566,7 +569,30 @@ def _bybit_withdraw(amount, address):
 
 
 def review_withdraw(admin_uid, order_id, approve, note=""):
-    """管理员审批: approve=True → 自动打款; False → 拒绝并退回余额(含手续费)"""
+    """管理员审批: approve=True → 两阶段打款(锁内读单标记→锁外打款→锁内写终态);
+    False → 拒绝并退回余额(含手续费)"""
+    if not approve:
+        with LOCK:
+            con = _con()
+            try:
+                con.execute("BEGIN IMMEDIATE")
+                o = con.execute("SELECT * FROM withdraw_orders WHERE id=? AND status='pending_review'",
+                                (int(order_id),)).fetchone()
+                if not o:
+                    con.rollback()
+                    return {"ok": False, "error": "订单不存在或已处理"}
+                con.execute("UPDATE withdraw_orders SET status='rejected', admin_note=?, reviewed_ts=? "
+                            "WHERE id=?", (str(note)[:200], _now(), int(order_id)))
+                con.execute("UPDATE balance SET usdt=usdt+? WHERE uid=?", (o["amount"] + o["fee"], o["uid"]))
+                _add_tx(con, o["uid"], "withdraw_refund", o["amount"] + o["fee"], str(order_id),
+                        f"提现被拒退回 ({note})")
+                _add_tx(con, admin_uid, "admin", 0, str(order_id), "拒绝提现单")
+                con.commit()
+                return {"ok": True, "msg": f"已拒绝 #%d 并退回余额" % int(order_id)}
+            finally:
+                con.close()
+
+    # 阶段1: 锁内读单并标记 processing (防重复打款)
     with LOCK:
         con = _con()
         try:
@@ -576,20 +602,24 @@ def review_withdraw(admin_uid, order_id, approve, note=""):
             if not o:
                 con.rollback()
                 return {"ok": False, "error": "订单不存在或已处理"}
-            if not approve:
-                con.execute("UPDATE withdraw_orders SET status='rejected', admin_note=?, reviewed_ts=? "
-                            "WHERE id=?", (str(note)[:200], _now(), int(order_id)))
-                con.execute("UPDATE balance SET usdt=usdt+? WHERE uid=?", (o["amount"] + o["fee"], o["uid"]))
-                _add_tx(con, o["uid"], "withdraw_refund", o["amount"] + o["fee"], str(order_id),
-                        f"提现被拒退回 ({note})")
-                _add_tx(con, admin_uid, "admin", 0, str(order_id), "拒绝提现单")
-                con.commit()
-                return {"ok": True, "msg": f"已拒绝 #%d 并退回余额" % int(order_id)}
-            # 打款前二次确认额度 (金额一致才打)
-            ok, msg, txid = _bybit_withdraw(float(o["amount"]), o["address"])
+            con.execute("UPDATE withdraw_orders SET status='processing', admin_note=?, reviewed_ts=? "
+                        "WHERE id=?", (str(note)[:200], _now(), int(order_id)))
+            _add_tx(con, admin_uid, "admin", 0, str(order_id), "开始提现打款审批")
+            con.commit()
+        finally:
+            con.close()
+
+    # 阶段2: 锁外 HTTP 打款 (不阻塞其它资金操作)
+    ok, msg, txid = _bybit_withdraw(float(o["amount"]), o["address"])
+
+    # 阶段3: 锁内写终态 (processing → paid/failed)
+    with LOCK:
+        con = _con()
+        try:
+            con.execute("BEGIN IMMEDIATE")
             if not ok:
                 con.execute("UPDATE withdraw_orders SET status='failed', admin_note=?, reviewed_ts=? "
-                            "WHERE id=?", (f"打款失败: {msg}"[:200], _now(), int(order_id)))
+                            "WHERE id=? AND status='processing'", (f"打款失败: {msg}"[:200], _now(), int(order_id)))
                 con.execute("UPDATE balance SET usdt=usdt+? WHERE uid=?", (o["amount"] + o["fee"], o["uid"]))
                 _add_tx(con, o["uid"], "withdraw_refund", o["amount"] + o["fee"], str(order_id),
                         f"打款失败退回 ({msg})")
@@ -597,7 +627,7 @@ def review_withdraw(admin_uid, order_id, approve, note=""):
                 con.commit()
                 return {"ok": False, "error": f"打款失败已退回余额: {msg}"}
             con.execute("UPDATE withdraw_orders SET status='paid', txid=?, admin_note=?, reviewed_ts=?, paid_ts=? "
-                        "WHERE id=?", (str(txid), str(note)[:200], _now(), _now(), int(order_id)))
+                        "WHERE id=? AND status='processing'", (str(txid), str(note)[:200], _now(), _now(), int(order_id)))
             _add_tx(con, admin_uid, "admin", 0, str(order_id), f"提现打款审批通过 txid={txid}")
             con.commit()
             return {"ok": True, "msg": f"已打款 {o['amount']} USDT → {o['address'][:8]}… (Bybit id {txid})"}
@@ -625,7 +655,7 @@ def reconcile_balance_check():
     con = _con()
     try:
         total = con.execute("SELECT COALESCE(SUM(usdt),0) FROM balance").fetchone()[0]
-        frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending_review','submitting','paid')").fetchone()[0]
+        frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending_review','submitting','processing','paid')").fetchone()[0]
         pend_dep = con.execute("SELECT COALESCE(SUM(amount_unique),0) FROM deposit_orders WHERE status='pending'").fetchone()[0]
     finally:
         con.close()

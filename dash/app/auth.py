@@ -11,10 +11,21 @@ from . import config
 from . import users
 
 _fails = []  # 每 IP 5次/分钟 (登录端点级限流)
+_SECRET = None
+_SECRET_MTIME = 0
 
 
 def _serializer():
-    return URLSafeTimedSerializer(open(config.SECRET_FILE).read().strip())
+    global _SECRET, _SECRET_MTIME
+    try:
+        mt = os.stat(config.SECRET_FILE).st_mtime_ns
+    except OSError:
+        mt = 0
+    if _SECRET is None or mt != _SECRET_MTIME:
+        with open(config.SECRET_FILE) as f:
+            _SECRET = f.read().strip()
+        _SECRET_MTIME = mt
+    return URLSafeTimedSerializer(_SECRET)
 
 
 def make_session(uid, role):
@@ -57,10 +68,13 @@ def record_fail():
 
 def change_password(uid, old_pw, new_pw):
     """校验旧密码+强度; 成功则写新哈希并轮换签名密钥(吊销所有旧会话)"""
+    global _SECRET, _SECRET_MTIME
     ok, msg = users.change_password(uid, old_pw, new_pw)
     if not ok:
         return False, msg
     with open(config.SECRET_FILE, "w") as f:
         f.write(secrets.token_hex(32))
     os.chmod(config.SECRET_FILE, 0o600)
+    _SECRET = None
+    _SECRET_MTIME = 0
     return True, "ok"

@@ -8,42 +8,39 @@
 import json
 import os
 import shutil
-import threading
+import contextvars
 from contextlib import contextmanager
 
 ROOT = os.environ.get("PAPER_BASE") or os.path.expanduser("~/polymarket")
-_LOCK = threading.RLock()
-_CUR = 1  # 默认租户 = admin
+_CUR = contextvars.ContextVar("tenant_uid", default=1)  # 默认租户 = admin
 
 
 def current_uid():
     """R14-M3: 当前租户上下文 uid (费率分级等按租户配置读取用)"""
-    return int(_CUR if _CUR is not None else 1)
+    return int(_CUR.get())
 
 
 @contextmanager
 def tenant(uid):
-    """在当前租户上下文中执行 (嵌套安全, 退出恢复)"""
-    global _CUR
-    with _LOCK:
-        old = _CUR
-        _CUR = int(uid or 1)
-        try:
-            yield
-        finally:
-            _CUR = old
+    """在当前租户上下文中执行 (嵌套安全, 退出恢复)
+    全局变量+RLock → contextvars: 线程/协程各自隔离, 多用户操作不再互串行"""
+    tok = _CUR.set(int(uid or 1))
+    try:
+        yield
+    finally:
+        _CUR.reset(tok)
 
 
 def current():
-    return _CUR
+    return _CUR.get()
 
 
 def is_admin():
-    return _CUR == 1
+    return _CUR.get() == 1
 
 
 def base(uid=None):
-    u = int(_CUR if uid is None else uid)
+    u = int(_CUR.get() if uid is None else uid)
     return ROOT if u == 1 else os.path.join(ROOT, "tenants", str(u))
 
 

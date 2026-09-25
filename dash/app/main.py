@@ -3,6 +3,7 @@ import os
 import re
 import json
 import time
+import logging
 import base64
 from collections import defaultdict, deque
 from pathlib import Path
@@ -25,6 +26,17 @@ from . import funds  # noqa: E402
 from . import pm_admin  # noqa: E402
 
 app = FastAPI(title="moneybot dash")
+logger = logging.getLogger("pm-dash")
+_bg_exc_last = 0.0
+
+
+def _log_bg_exc():
+    """后台循环异常留痕 (60s 节流, 防轮询文件瞬时缺失刷屏)"""
+    global _bg_exc_last
+    now = time.time()
+    if now - _bg_exc_last > 60:
+        _bg_exc_last = now
+        logger.exception("background loop exception (throttled 60s)")
 
 
 def _ai_task_tick():
@@ -36,7 +48,7 @@ def _ai_task_tick():
             try:
                 _at.tick()
             except Exception:
-                pass
+                _log_bg_exc()
             time.sleep(60)
     threading.Thread(target=loop, daemon=True, name="ai-task-tick").start()
 
@@ -882,7 +894,7 @@ async def stream_prices(request: Request, __=Depends(require_session)):
                     last_send = time.time()
                     yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
             except Exception:
-                pass
+                _log_bg_exc()
             if time.time() - last_send > 15:
                 last_send = time.time()
                 yield ": ping\n\n"  # 心跳注释行, 防超时
@@ -1319,7 +1331,7 @@ async def stream_pm(request: Request, __=Depends(require_session)):
                         yield f"data: {json.dumps({'ts': data.get('ts'), 'prices': delta, 'delta': True}, ensure_ascii=False)}\n\n"
                         last_send = time.time()
             except Exception:
-                pass
+                _log_bg_exc()
             if time.time() - last_send > 15:
                 last_send = time.time()
                 yield ": ping\n\n"
@@ -1349,7 +1361,7 @@ async def stream_depth(request: Request, __=Depends(require_session)):
                     last_send = time.time()
                     yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
             except Exception:
-                pass
+                _log_bg_exc()
             if time.time() - last_send > 15:
                 last_send = time.time()
                 yield ": ping\n\n"
@@ -1462,7 +1474,7 @@ async def api_plans_upgrade(request: Request, su=Depends(require_session_user)):
             try:
                 funds.add_balance(su["u"], +price, "plan", f"refund:{code}", f"套餐开通失败退回 {price} USDT")
             except Exception:
-                pass
+                _log_bg_exc()
             return {"ok": False, "msg": msg}
         users.audit_log(su["u"], "plan_buy", f"购买套餐 {code} 扣 {price} USDT")
         return {"ok": True, "msg": f"已开通 {defs[code]['name']}, 余额扣 {price:.2f} USDT"}

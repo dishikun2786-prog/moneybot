@@ -29,8 +29,10 @@ _captchas = {}  # id -> {"code", "exp", "tries"}
 
 def _db():
     os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(DB_FILE, timeout=10)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=5000")
     return con
 
 
