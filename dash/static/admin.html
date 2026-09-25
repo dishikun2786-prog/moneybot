@@ -157,6 +157,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <div class="row" style="margin-bottom:8px"><b>最近决策</b></div>
     <table><thead><tr><th>时间</th><th>用户</th><th>开仓信号</th><th>风险暂停</th><th>延迟</th></tr></thead>
     <tbody id="jev-tbody"></tbody></table>
+    <h3 style="margin-top:16px">🚀 全托管运行中 <span class="dim" id="ap-updated"></span></h3>
+    <div class="cards" id="ap-cards" style="margin-bottom:10px"></div>
+    <table><thead><tr><th>用户</th><th>范围</th><th>标的</th><th>名义</th><th>持仓</th><th>今日盈亏</th></tr></thead>
+    <tbody id="ap-tbody"></tbody></table>
   </div>
 
   <div class="panel" id="p-audit">
@@ -639,6 +643,7 @@ async function saveFeeConfig(){
 var REV_DATA=null,REV_OFF=0;
 async function loadRevenue(){
   loadJevStats();
+  loadApStats();
   var by=($('#rev-by')||{}).value||'day';
   const {d}=await j('GET','/api/admin/revenue?by='+by);
   if(!d.ok){$('#rev-cards').innerHTML='<div class="card">加载失败</div>';return}
@@ -680,6 +685,31 @@ function revExport(){
 }
 
 // ===== M-D6 AI 决策面板 =====
+async function loadApStats(){
+  try{
+    const {d}=await j('GET','/api/admin/autopilot-stats');
+    if(!d.ok) return;
+    const cards=[
+      ['👤 托管用户', d.users+' 人'],
+      ['📋 任务总数', d.tasks+' 个'],
+      ['▶ 运行中', d.running+' 个'],
+      ['⛔ 已熔断', d.halted+' 个'],
+      ['🔑 已授权', d.authorized+' 人'],
+      ['📈 托管开仓', (d.actions.open||0)+' 次'],
+      ['📉 托管平仓', (d.actions.close||0)+' 次'],
+      ['🛑 闸门拦截', (d.actions.skipped||0)+' 次'],
+    ];
+    document.getElementById('ap-cards').innerHTML=cards.map(c=>
+      `<div class="card"><div class="dim">${c[0]}</div><div class="big">${c[1]}</div></div>`).join('');
+    document.getElementById('ap-tbody').innerHTML=(d.recent||[]).map(x=>{
+      var pos=Object.keys(x.positions||{}).length;
+      return `<tr><td>#${x.uid}</td><td>${x.scope}</td><td>${(x.symbols||[]).slice(0,3).join(',')}${(x.symbols||[]).length>3?'…':''}</td>`+
+      `<td>${x.notional}U</td><td>${pos}</td>`+
+      `<td style="color:${(x.pnl||0)>=0?'#3ebd93':'#f87171'}">${(x.pnl||0)>=0?'+':''}${(x.pnl||0).toFixed(3)}$</td></tr>`;
+    }).join('')||'<tr><td colspan="6" class="dim">暂无运行中的托管任务</td></tr>';
+    document.getElementById('ap-updated').textContent='更新于 '+new Date().toLocaleTimeString();
+  }catch(e){}
+}
 async function loadJevStats(){
   try{
     const {d}=await j('GET','/api/admin/jev-stats');

@@ -258,10 +258,20 @@ def hourly_inspect(uid):
             pos = st.get("positions") or {}
         except Exception:
             pass
+        ap_tasks = []
+        try:
+            import autopilot as _ap
+            for t in _ap.get_tasks(uid):
+                ap_tasks.append({"id": t.get("id"), "status": t.get("status"),
+                                 "symbols": t.get("symbols"), "risk": t.get("risk"),
+                                 "stats": t.get("stats")})
+        except Exception:
+            pass
         prompt = ("你是量化巡检官。这是1小时巡检素材(JSON)。请用简体中文白话输出巡检报告, 300字内, "
-                  "格式: ①市场状态(费率regime) ②Jev决策摘要(开仓信号/风险) ③持仓风险 ④是否建议调整门控参数"
-                  "(如需调整, 用一行[SUGGEST]列出参数名和目标值, 供用户在AI对话中批准)。\n"
-                  f"素材: {json.dumps({'Jev最近决策': jev_tail, '各标的年化费率%': mkt, '持仓': pos}, ensure_ascii=False)}")
+                  "格式: ①市场状态(费率regime) ②Jev决策摘要(开仓信号/风险) ③持仓与托管任务风险 "
+                  "④是否建议调整门控参数(如需调整, 用一行[SUGGEST]列出, 格式: [SUGGEST] 参数名=目标值, 参数仅限"
+                  " open_p(0.5-0.95)/no_p(0.5-0.95)/conf_min(0.5-0.9)/risk_pause(1-4)/l1_and_mode(0或1))。\n"
+                  f"素材: {json.dumps({'Jev最近决策': jev_tail, '各标的年化费率%': mkt, '持仓': pos, '托管任务': ap_tasks}, ensure_ascii=False)}")
         body = json.dumps({"model": ai_client.MODEL,
                            "messages": [{"role": "user", "content": prompt}],
                            "stream": False, "max_tokens": 800}).encode()
@@ -271,6 +281,41 @@ def hourly_inspect(uid):
                                               "Authorization": "Bearer " + ai_client._secrets["deepseek_api_key"]})
         d = json.load(urllib.request.urlopen(req, timeout=120))
         text = (d.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        # M-P4: B级授权用户, [SUGGEST] 自动应用 (白名单校验后写租户 jev_gate.json)
+        try:
+            import re as _re
+            import autopilot as _ap2
+            auth = _ap2.auth_state(uid)
+            if auth and auth.get("level") == "B":
+                whitelist = {"open_p": (0.5, 0.95), "no_p": (0.5, 0.95), "conf_min": (0.5, 0.9),
+                             "risk_pause": (1.0, 4.0), "l1_and_mode": (0.0, 1.0)}
+                applied = []
+                # 支持一行多参数: [SUGGEST] a=1, b=2
+                for m in _re.finditer(r"\[SUGGEST\]\s*([^\n]+)", text):
+                    for _p in _re.finditer(r"(\w+)\s*=\s*([\d.]+)", m.group(1)):
+                        k, v = _p.group(1), float(_p.group(2))
+                        _lo, _hi = whitelist.get(k, (None, None))
+                        if _lo is None or not (_lo <= v <= _hi):
+                            continue
+                        applied.append((k, v))
+                # 去重后写入
+                seen = set()
+                applied = [p for p in applied if not (p[0] in seen or seen.add(p[0]))]
+                for k, v in applied:
+                    import os as _os
+                    gf = _os.path.join(_os.path.expanduser("~/polymarket"), "tenants", str(uid), "data", "jev_gate.json")
+                    _os.makedirs(_os.path.dirname(gf), exist_ok=True)
+                    cur = {}
+                    try:
+                        cur = json.load(open(gf, encoding="utf-8"))
+                    except Exception:
+                        pass
+                    cur[k] = v
+                    json.dump(cur, open(gf, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+                if applied:
+                    text += f"\n\n⚙️ [B级授权] 已自动应用门控微调: {', '.join(f'{k}={v}' for k, v in applied)} (白名单校验通过)"
+        except Exception:
+            pass
         # 写入 daily 文件 hourly 字段
         f = os.path.join(tenants.logs(uid), "..", "data", f"ai_daily_{uid}.json")
         cur = {}

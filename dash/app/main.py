@@ -550,6 +550,71 @@ async def api_autopilot_set(request: Request, su=Depends(require_session_user)):
         return _ap.set_task(su["u"], str(body.get("id", "")), **fields)
 
 
+@app.get("/api/admin/autopilot-stats")
+def api_autopilot_stats(__=Depends(require_session), su=Depends(require_session_user)):
+    """M-P5: 托管维度统计 (管理员)"""
+    import json as _j
+    if su["r"] != "admin":
+        return JSONResponse({"ok": False, "error": "仅管理员"}, status_code=403)
+    base = "/home/ubuntu/polymarket"
+    out = {"users": 0, "tasks": 0, "running": 0, "halted": 0, "authorized": 0,
+           "actions": {"open": 0, "close": 0, "skipped": 0, "halt": 0, "error": 0},
+           "recent": []}
+    try:
+        import glob as _g
+        for f in _g.glob(f"{base}/data/autopilot_*.json"):
+            try:
+                ts = _j.load(open(f, encoding="utf-8"))
+            except Exception:
+                continue
+            if not ts:
+                continue
+            out["users"] += 1
+            out["tasks"] += len(ts)
+            for t in ts:
+                if t.get("status") == "running":
+                    out["running"] += 1
+                if t.get("stats", {}).get("halt_reason"):
+                    out["halted"] += 1
+                try:
+                    uid = int(f.rsplit("_", 1)[1].split(".")[0])
+                    if t.get("status") == "running":
+                        out["recent"].append({"uid": uid, "id": t.get("id"),
+                                              "scope": "全策略" if t.get("scope") == "all" else "单标的",
+                                              "symbols": t.get("symbols"),
+                                              "notional": (t.get("risk") or {}).get("notional"),
+                                              "pnl": t.get("stats", {}).get("today_pnl"),
+                                              "positions": t.get("stats", {}).get("positions")})
+                except Exception:
+                    pass
+        try:
+            import autopilot as _ap
+            for f in _g.glob(f"{base}/tenants/*/data/autopilot_auth.json"):
+                try:
+                    a = _j.load(open(f, encoding="utf-8"))
+                    if a and not a.get("revoked_ts"):
+                        out["authorized"] += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            lines = open(f"{base}/data/autopilot_actions.jsonl", encoding="utf-8").read().strip().splitlines()
+            for l in lines[-200:]:
+                d = _j.loads(l)
+                ev = d.get("event", "")
+                if ev in out["actions"]:
+                    out["actions"][ev] += 1
+                elif ev.endswith("_error"):
+                    out["actions"]["error"] += 1
+        except Exception:
+            pass
+        out["recent"] = out["recent"][-12:]
+    except Exception:
+        pass
+    return {"ok": True, **out}
+
+
 @app.post("/api/ai/approve")
 async def ai_approve(request: Request, su=Depends(require_session_user)):
     try:
