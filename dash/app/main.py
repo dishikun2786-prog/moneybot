@@ -90,11 +90,6 @@ def edge_page():
     return FileResponse(STATIC / "edge.html")
 
 
-@app.get("/analysis")
-def an_page():
-    return FileResponse(STATIC / "analysis.html")
-
-
 @app.get("/system")
 def sys_page():
     return FileResponse(STATIC / "system.html")
@@ -199,9 +194,7 @@ def api_market(key: str, hours: int = 24, __=Depends(require_session)):
     return readers.series(key, hours)
 
 
-@app.get("/api/analysis")
-def api_analysis(__=Depends(require_session)):
-    return readers.cached("analysis", 60, readers.analysis)
+
 
 
 @app.get("/api/paper")
@@ -256,9 +249,7 @@ def trade_proto_page():
     return FileResponse(STATIC / "trade_proto.html")
 
 
-@app.get("/share/{token}")
-def share_page(token: str):
-    return FileResponse(STATIC / "share.html")
+
 
 
 @app.get("/api/pnl")
@@ -338,26 +329,7 @@ def api_trades(mode: str = "all", offset: int = 0, limit: int = 30,
                 "has_more": offset + limit < total}
 
 
-@app.get("/api/share/{token}")
-def api_share(token: str):
-    if not readers.valid_share(token):
-        raise HTTPException(status_code=404, detail="分享链接无效或已撤销")
-    with tenants.tenant(1):  # 分享页 = 平台主账户(admin)展示盘
-        return readers.share_view()
 
-
-@app.post("/api/share/generate")
-def api_gen(__=Depends(require_admin)):
-    return {"token": readers.generate_share()}
-
-
-@app.post("/api/share/revoke")
-async def api_revoke(request: Request, __=Depends(require_admin)):
-    try:
-        body = await request.json()
-    except Exception:
-        return {"ok": False}
-    return {"ok": readers.revoke_share(body.get("token", ""))}
 
 
 @app.post("/api/password/change")
@@ -1480,6 +1452,15 @@ def api_admin_fee_config(request: Request, __=Depends(require_admin)):
     out["updated_at"] = cfg.get("updated_at", "")
     out["whitelist"] = list(_SYM_WHITELIST)
     return {"ok": True, "data": out}
+
+
+@app.get("/api/admin/fee-config/history")
+def api_admin_fee_history(__=Depends(require_admin)):
+    """R14-M12: 费率配置变更历史 (最近10次)"""
+    try:
+        return {"ok": True, "items": admin.fee_history(10)}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}, status_code=500)
 
 
 @app.post("/api/admin/fee-config")

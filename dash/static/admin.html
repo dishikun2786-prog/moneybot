@@ -462,6 +462,16 @@ async function loadFeeConfig(){
   FEE_CFG=d.data;
   $('#fee-updated').textContent=FEE_CFG.updated_at?('上次保存: '+FEE_CFG.updated_at+' by '+FEE_CFG.updated_by):'';
   renderFeeConfig();
+  loadFeeHistory();
+}
+async function loadFeeHistory(){
+  const {d}=await j('GET','/api/admin/fee-config/history');
+  if(!d.ok){return}
+  var items=d.items||[];
+  $('#fee-history').innerHTML=items.length
+    ?('<b>变更历史（最近'+items.length+'次）</b><br>'
+      +items.map(function(h){var full=esc(h.detail);var short=full.length>90?full.slice(0,90)+'…':full;return '<div title="'+full+'"><span class="dim">'+new Date(h.ts*1000).toLocaleString('zh-CN',{hour12:false})+'</span> '+short+'</div>'}).join(''))
+    :'<span class="dim">暂无变更记录（保存后在此显示）</span>';
 }
 function renderFeeConfig(){
   var syms=FEE_CFG.symbols||{},def=FEE_CFG.default||{},rows='';

@@ -191,3 +191,19 @@ def announce_toggle(aid, active, admin_uid):
             con.close()
     users.audit_log(int(admin_uid), "announce_toggle", f"公告#{aid} {'启用' if active else '停用'}", "", "")
     return True, "ok"
+
+
+def fee_history(limit=10):
+    """R14-M12: 费率配置变更历史 (audit 表 fee_config_save)"""
+    try:
+        con = users._db()
+        rows = con.execute(
+            "SELECT ts, detail FROM audit WHERE action='fee_config_save' "
+            "ORDER BY rowid DESC LIMIT ?", (limit,)).fetchall()
+        out = []
+        for ts, detail in rows:
+            item = {"ts": ts, "detail": (detail or "")[:300]}
+            out.append(item)
+        return out
+    except Exception:
+        return []
