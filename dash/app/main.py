@@ -27,9 +27,24 @@ from . import pm_admin  # noqa: E402
 app = FastAPI(title="moneybot dash")
 
 
+def _ai_task_tick():
+    """M-A4: AI 定时任务调度线程 (每60s)"""
+    import threading
+    import ai_tasks as _at
+    def loop():
+        while True:
+            try:
+                _at.tick()
+            except Exception:
+                pass
+            time.sleep(60)
+    threading.Thread(target=loop, daemon=True, name="ai-task-tick").start()
+
+
 @app.on_event("startup")
 def _startup():
     """启动即建用户表; 首次启动执行单用户→admin 迁移"""
+    _ai_task_tick()
     users.init_db()
     admin.init_announce()
     keys.init_db()
@@ -430,6 +445,33 @@ async def ai_approve(request: Request, su=Depends(require_session_user)):
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     with tenants.tenant(su["u"]):
         return ai_tools.apply_pending(str(body.get("action_id", "")), bool(body.get("approve", False)))
+
+
+@app.get("/api/ai/tasks")
+def ai_tasks_list(su=Depends(require_session_user)):
+    """M-A4: 我的定时任务列表"""
+    import ai_tasks as _at
+    return {"ok": True, "tasks": _at.list_tasks(su["u"])}
+
+
+@app.post("/api/ai/tasks/toggle")
+async def ai_tasks_toggle(request: Request, su=Depends(require_session_user)):
+    import ai_tasks as _at
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return _at.toggle(su["u"], str(body.get("id", "")), bool(body.get("enabled")))
+
+
+@app.post("/api/ai/tasks/delete")
+async def ai_tasks_delete(request: Request, su=Depends(require_session_user)):
+    import ai_tasks as _at
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    return _at.delete(su["u"], str(body.get("id", "")))
 
 
 @app.post("/api/spot/open")

@@ -313,6 +313,15 @@ TOOLS = [
         "description": "用候选入场阈值θ跑现货永续套利回测(近2个月), 供参数对比决策 (只读, 不落地)",
         "parameters": {"type": "object", "properties": {"theta": {
             "type": "number", "description": "入场阈值: 资金费率年化% (0-20, 默认5)"}}, "required": ["theta"]}}},
+    {"type": "function", "function": {"name": "create_task",
+        "description": "为用户创建智能定时任务(直接生效): 类型∈fee_watch(费率监控,需threshold年化%阈值)/risk_scan(持仓风险扫描)/backtest_run(回测,需threshold=θ值)/reminder(自定义提醒,需note提醒内容); interval_h=执行间隔小时数(fee_watch/reminder最小1, risk_scan最小2, backtest_run最小6, 最大720); name=任务名称",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "任务类型"},
+            "name": {"type": "string", "description": "任务名称(中文)"},
+            "interval_h": {"type": "number", "description": "间隔小时数"},
+            "note": {"type": "string", "description": "reminder类型必填: 提醒内容"},
+            "threshold": {"type": "number", "description": "fee_watch=费率阈值年化%, backtest_run=θ值"}},
+            "required": ["type", "name", "interval_h"]}}},
     {"type": "function", "function": {"name": "my_positions",
         "description": "查询当前登录用户的持仓: 现货持仓+合约纸面持仓(数量/均价/现价/浮动盈亏) (只读)",
         "parameters": {"type": "object", "properties": {}}}},
@@ -362,6 +371,18 @@ def t_get_micro():
             "挂单墙出现(2h)": m.get("wall_appear_2h"),
             "挂单墙消失(2h)": m.get("wall_vanish_2h")}
     return out
+
+
+def t_create_task(args):
+    """M-A4: AI 创建智能定时任务 (提醒类无资金风险, 直接生效)"""
+    try:
+        import ai_tasks
+    except Exception:
+        return {"error": "任务模块不可用"}
+    uid = tenants.current_uid()
+    return ai_tasks.create(uid, str(args.get("type", "")), str(args.get("name", "")),
+                           float(args.get("interval_h") or 0), str(args.get("note", "")),
+                           args.get("threshold"))
 
 
 def t_my_positions():
@@ -421,6 +442,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "get_pnl": lambda a: t_get_pnl(), "git_log": lambda a: t_git_log(),
              "get_micro": lambda a: t_get_micro(),
              "my_positions": lambda a: t_my_positions(), "my_balance": lambda a: t_my_balance(),
+             "create_task": t_create_task,
              "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
