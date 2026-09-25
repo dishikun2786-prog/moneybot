@@ -17,9 +17,24 @@ threading.excepthook = lambda args: print(f"[bridge] 线程异常: {args.exc_val
 import websocket
 
 BASE = os.path.expanduser("~/polymarket")
+
+
+def _load_bybit_syms():
+    """标的清单: 优先读 web 管理后台同步的配置文件, 回退环境变量, 再回退默认"""
+    conf = os.path.join(BASE, "data", "bybit_syms.txt")
+    try:
+        if os.path.exists(conf):
+            syms = [s.strip().upper() for s in open(conf, encoding="utf-8").read().split(",") if s.strip()]
+            if syms:
+                return syms
+    except Exception:
+        pass
+    return [s.strip().upper() for s in os.environ.get(
+        "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(",") if s.strip()]
+
+
 # 深度/微结构标的 (盘口/K线/逐笔/墙/CVD 只对活跃套利标的, 保持 BTC/ETH)
-SYM_WHITELIST = [s.strip().upper() for s in os.environ.get(
-    "BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(",") if s.strip()]  # R14-M2: +SOL/NEAR/XRP 双通道标的
+SYM_WHITELIST = _load_bybit_syms()  # R14-M2: +SOL/NEAR/XRP 双通道标的
 DEPTH_SYMS = list(SYM_WHITELIST)
 SPOT_ONLY_SYMS = [s for s in SYM_WHITELIST if s in ("XAUTUSDT",)]  # R14: 现货独占标的
 LINEAR_SYMS = [s for s in DEPTH_SYMS if s not in SPOT_ONLY_SYMS]    # 主连接(linear)只订合约标的

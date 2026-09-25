@@ -118,7 +118,8 @@ def init_db():
             except Exception:
                 pass
             for k, v in [("withdraw_fee", "1"), ("max_withdraw", "500"),
-                         ("min_withdraw", "5"), ("deposit_min", "5"), ("deposit_max", "10000")]:
+                         ("min_withdraw", "5"), ("deposit_min", "5"), ("deposit_max", "10000"),
+                         ("bybit_syms", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT")]:
                 con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
             con.commit()
         finally:

@@ -501,9 +501,12 @@ async function loadFundsPanel(){
     <td><input id="fuc-uid-${u.id}" placeholder="归属UID" style="width:80px"><button class="btn" onclick="fClaim(${u.id})">认领给该用户</button></td></tr>`).join('')||'<tr><td colspan=5 class="dim">无待认领充值</td></tr>';
   // 设置
   const s=d.settings||{};
-  $('#fset-row').innerHTML=Object.entries(s).map(([k,v])=>`
-    <span style="white-space:nowrap">${k} <input id="fset-${k}" value="${v}" style="width:70px"></span>`).join('')
-    +`<button class="btn" onclick="fSaveSettings()">保存参数</button>`;
+  $('#fset-row').innerHTML=Object.entries(s).map(([k,v])=>{
+    const w=(k==='bybit_syms')?'width:340px':'width:70px';
+    return `<span style="white-space:nowrap">${k} <input id="fset-${k}" value="${v}" style="${w}"></span>`;
+  }).join('')
+    +`<button class="btn" onclick="fSaveSettings()">保存参数</button>
+    <span class="dim" style="font-size:11px">bybit_syms 保存后需重启 pm-bridge / pm-aether-feed 生效</span>`;
 }
 async function fReview(id,approve){
   const note=approve?'':(prompt('拒绝理由 (将全额退回用户)')||'拒绝');
@@ -523,7 +526,7 @@ async function fAdjust(){
   toast(d&&d.ok?('已调整, 新余额 '+fmtNum(d.new_balance)):(d&&d.error||'失败'),!d||!d.ok);
 }
 async function fSaveSettings(){
-  const keys=['withdraw_fee','max_withdraw','min_withdraw','deposit_min','deposit_max'];
+  const keys=['withdraw_fee','max_withdraw','min_withdraw','deposit_min','deposit_max','bybit_syms'];
   let done=0;
   for(const k of keys){
     const el=$('#fset-'+k);if(!el)continue;

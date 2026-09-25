@@ -1097,6 +1097,22 @@ async def admin_funds_adjust(request: Request, su=Depends(require_admin)):
     return {"ok": True, "new_balance": bal}
 
 
+def _sync_bybit_syms(value):
+    """把 bybit_syms 设置同步到共享配置文件 (供 bybit_ws_bridge.py 与 Go feed 读取)"""
+    try:
+        syms = ",".join(s.strip().upper() for s in str(value).split(",") if s.strip())
+        if not syms:
+            return
+        p = os.path.join(os.path.expanduser("~/polymarket"), "data", "bybit_syms.txt")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(syms)
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
 @app.post("/api/admin/funds/settings")
 async def admin_funds_settings(request: Request, su=Depends(require_admin)):
     try:
@@ -1104,9 +1120,13 @@ async def admin_funds_settings(request: Request, su=Depends(require_admin)):
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     key = str(body.get("key", ""))
-    if key not in ("withdraw_fee", "max_withdraw", "min_withdraw", "deposit_min", "deposit_max"):
+    if key not in ("withdraw_fee", "max_withdraw", "min_withdraw", "deposit_min", "deposit_max",
+                  "bybit_syms"):
         return {"ok": False, "error": "不支持的设置项"}
-    return funds.set_setting(key, body.get("value"))
+    r = funds.set_setting(key, body.get("value"))
+    if key == "bybit_syms" and r.get("ok"):
+        _sync_bybit_syms(str(body.get("value", "")))
+    return r
 
 
 @app.post("/api/admin/funds/plan")
