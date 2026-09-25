@@ -22,6 +22,7 @@ DEFAULT_GATE = {
     "no_p": 0.65,          # P ≤ 1-此值 判为明确否定
     "conf_min": 0.6,       # choice/score confidence 下限
     "risk_pause": 2.5,     # 风险 score ≥ 此值 → 暂停新开仓建议
+    "micro_pause": 0.8,    # M-D5: 微观结构风险分 ≥ 此值 → open 降级 uncertain (代码双重检验)
     "l1_and_mode": False,  # True = Jev 否定时拦截 L1 开仓 (默认观测)
 }
 
@@ -93,14 +94,30 @@ def run_cycle(uid=None):
         return rec
     ans = r.get("answers", {})
     gates = {}
-    opens, nos, uncertain = [], [], []
     for s in syms:
         a = ans.get(f"open_{s}")
         if not a:
             continue
         sig, grip = _noul_signal(a["noul"], g)
         gates[s] = {"P": round(a["noul"], 3), "signal": sig, "grip": grip}
-        (opens if sig == "open" else nos if sig == "no" else uncertain).append(s)
+    # M-D5: 确定性微观结构双重检验 (模型判断 + 代码门控, 铁律: 模型永不直接触钱)
+    try:
+        import microstructure as _ms
+        micro = _ms.features(syms)
+    except Exception:
+        micro = {}
+    micro_risk = {}
+    for s, m in micro.items():
+        mr = m.get("risk")
+        if mr is None:
+            continue
+        micro_risk[s] = mr
+        if gates.get(s, {}).get("signal") == "open" and mr >= g.get("micro_pause", 0.8):
+            gates[s]["signal"] = "uncertain"
+            gates[s]["blocked_by_micro"] = True
+    opens = [s for s in syms if gates.get(s, {}).get("signal") == "open"]
+    nos = [s for s in syms if gates.get(s, {}).get("signal") == "no"]
+    uncertain = [s for s in syms if gates.get(s, {}).get("signal") == "uncertain"]
     risk_a = ans.get("risk_level", {})
     risk_score = risk_a.get("score", 0) if risk_a else 0
     risk_paused = isinstance(risk_score, (int, float)) and risk_score >= g["risk_pause"]
@@ -110,7 +127,7 @@ def run_cycle(uid=None):
     if best_a:
         gates["_best"] = {"choice": best_a.get("choice"), "conf": best_a.get("confidence"),
                           "prob": (best_a.get("probabilities") or {}).get(best_a.get("choice"))}
-    rec.update({"answers": ans, "gates": gates, "signals": {
+    rec.update({"answers": ans, "gates": gates, "micro_risk": micro_risk, "signals": {
         "open": opens, "no": nos, "uncertain": uncertain,
         "risk_paused": risk_paused},
         "latency_ms": r.get("_latency_ms"),

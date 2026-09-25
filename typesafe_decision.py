@@ -154,15 +154,29 @@ def build_state(uid=None):
         st["回测"] = bt
     ob = _read_json(f"{BASE}/logs/orderbook.json", {})
     px = ob.get("px") or {}
+    basis = ob.get("basis") or {}
     mkt = {}
     for sym, d in px.items():
         if not isinstance(d, dict):
             continue
-        mkt[sym] = {
+        row = {
             "年化费率%": round(float(d.get("funding") or 0) * 3 * 365 * 100, 2),
             "未平仓量OI": d.get("OI"),
             "价格": d.get("last"),
         }
+        b = basis.get(sym)
+        if isinstance(b, dict) and b.get("basis_pct") is not None:
+            row["基差bp"] = round(float(b["basis_pct"]) * 100.0, 2)
+        mkt[sym] = row
+    # M-D5: 注入确定性微观结构特征 (点差/不平衡/墙压/流不平衡/风险分)
+    try:
+        import microstructure as _ms
+        feats = _ms.features(list(mkt.keys()))
+    except Exception:
+        feats = {}
+    for sym, f in feats.items():
+        if sym in mkt and isinstance(f, dict):
+            mkt[sym]["微观"] = f
     if mkt:
         st["行情"] = mkt
     h = _read_holdings(uid)
