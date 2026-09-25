@@ -204,6 +204,22 @@ def decide_open(state, symbols, theta=5.0):
     return system_one(state, qs)
 
 
+def decide_native(state, symbols):
+    """原生(单边永续)方向决策: 每标的 choice(long/short/none) + 整体风险 score"""
+    qs = {}
+    for s in symbols:
+        qs[f"dir_{s}"] = {
+            "type": "choice",
+            "instructions": f"标的 {s} 当前原生单边永续的方向判断 (动量+基差+资金费率+订单簿微观结构)?",
+            "criteria": {
+                "long": "动量向上, 基差/费率/订单簿支持做多",
+                "short": "动量向下, 基差/费率/订单簿支持做空",
+                "none": "无明确方向或风险过高, 观望"}}
+    qs["risk_level"] = {"type": "score", "instructions": "当前原生交易整体风险等级?",
+                        "criteria": ["低", "正常", "偏高", "高危"]}
+    return system_one(state, qs)
+
+
 def decide_position_action(state, symbol):
     """持仓动作: 持有/加仓/减仓/平仓/紧急平仓"""
     qs = {

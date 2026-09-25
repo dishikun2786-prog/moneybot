@@ -78,8 +78,8 @@ def occupied_symbols(uid, exclude_id=None):
     return occ
 
 
-def create_task(uid, scope, risk_overrides=None):
-    """创建托管任务: scope='all' 或标的列表; 同标的冲突自动排除"""
+def create_task(uid, scope, risk_overrides=None, mode="carry"):
+    """创建托管任务: scope='all' 或标的列表; 同标的冲突自动排除; mode=carry|native"""
     syms = resolve_symbols(scope)
     if not syms:
         return {"ok": False, "error": f"无效范围: 仅支持 all 或 {list(DUAL_SYMS)}"}
@@ -95,6 +95,8 @@ def create_task(uid, scope, risk_overrides=None):
                 risk[k] = v
     if risk.get("auth_level") not in AUTH_LEVELS:
         risk["auth_level"] = "A"
+    if mode not in ("carry", "native"):
+        mode = "carry"
     if not (1 <= float(risk["notional"]) <= 50):
         return {"ok": False, "error": "名义金额须 1-50 USDT"}
     if not (1 <= int(risk["max_positions"]) <= 10):
@@ -102,7 +104,7 @@ def create_task(uid, scope, risk_overrides=None):
     if not (0.5 <= float(risk["daily_loss_cap"]) <= 50):
         return {"ok": False, "error": "日损熔断须 0.5-50 USDT"}
     t = {"id": f"ap{int(time.time()*1000)}", "scope": "all" if scope == "all" else kept,
-         "symbols": kept, "risk": risk, "status": "running",
+         "symbols": kept, "risk": risk, "mode": mode, "status": "running",
          "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
          "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
          "stats": {"today_pnl": 0.0, "actions_today": 0, "last_action": None,
@@ -113,7 +115,8 @@ def create_task(uid, scope, risk_overrides=None):
     _save_tasks(uid, tasks)
     return {"ok": True, "task": t, "msg": ("托管任务已创建: " +
             (f"全策略 {len(kept)} 标的" if scope == "all" else f"单标的 {kept}") +
-            (f" (冲突自动排除: {dropped})" if dropped else ""))}
+            (f" · 模式 {'原生方向' if mode == 'native' else '基差套利'}" +
+             (f" (冲突自动排除: {dropped})" if dropped else "")))}
 
 
 def set_task(uid, tid, **fields):
@@ -229,6 +232,108 @@ def _carry_positions(uid):
         return {}
 
 
+def _native_positions(uid):
+    """原生纸面持仓 → {sym: side}"""
+    try:
+        import tenants as _tn
+        import paper_ops
+        with _tn.tenant(uid):
+            rows = paper_ops.native_positions()
+        out = {}
+        for r in (rows or []):
+            if isinstance(r, dict) and r.get("symbol"):
+                out[r["symbol"]] = r.get("side")
+        return out
+    except Exception:
+        return {}
+
+
+def _exec_native_open(uid, tid, sym, side, notional, conf, task, live):
+    try:
+        if live:
+            import live_exec
+            r = live_exec.bybit_open_native(uid, {"symbol": sym, "side": side, "notional": notional})
+        else:
+            import tenants as _tn
+            import paper_ops
+            with _tn.tenant(uid):
+                r = paper_ops.open_native(sym, side, notional)
+        ok = not (isinstance(r, dict) and r.get("ok") is False)
+        task["stats"]["actions_today"] = task["stats"].get("actions_today", 0) + 1
+        task["stats"]["last_action"] = {"ts": time.strftime("%H:%M:%SZ", time.gmtime()),
+                                        "sym": sym, "act": f"native_open_{side}", "ok": ok}
+        _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                          "uid": uid, "task_id": tid, "symbol": sym, "event": f"native_open_{side}",
+                          "conf": round(conf, 3), "notional": notional, "live": live,
+                          "ok": ok, "result": str(r)[:200]})
+    except Exception as e:
+        _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                          "uid": uid, "task_id": tid, "symbol": sym, "event": "native_open_error",
+                          "error": f"{type(e).__name__}: {str(e)[:120]}"})
+
+
+def _exec_native_close(uid, tid, sym, reason, task, live):
+    try:
+        if live:
+            import live_exec
+            r = live_exec.bybit_close_native(uid, {"symbol": sym})
+        else:
+            import tenants as _tn
+            import paper_ops
+            with _tn.tenant(uid):
+                r = paper_ops.close_native(sym)
+        ok = not (isinstance(r, dict) and r.get("ok") is False)
+        task["stats"]["actions_today"] = task["stats"].get("actions_today", 0) + 1
+        task["stats"]["last_action"] = {"ts": time.strftime("%H:%M:%SZ", time.gmtime()),
+                                        "sym": sym, "act": "native_close", "ok": ok}
+        _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                          "uid": uid, "task_id": tid, "symbol": sym, "event": "native_close",
+                          "reason": reason, "live": live, "ok": ok, "result": str(r)[:200]})
+    except Exception as e:
+        _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                          "uid": uid, "task_id": tid, "symbol": sym, "event": "native_close_error",
+                          "error": f"{type(e).__name__}: {str(e)[:120]}"})
+
+
+def _run_native_opens_closes(uid, tid, t, answers, g):
+    """原生方向托管: 方向翻转平仓 + 方向信号开仓 (日损熔断在上层共用)"""
+    rk = t.get("risk", {})
+    max_pos = int(rk.get("max_positions", 3))
+    conf_min = float(g.get("conf_min", 0.6))
+    live = bool(rk.get("live", False))
+    acted = []
+    pos = _native_positions(uid)
+    syms = t.get("symbols", [])
+    for s in list(pos.keys()):
+        if s not in syms:
+            continue
+        a = answers.get(f"dir_{s}")
+        nd = (a.get("choice") if isinstance(a, dict) else None) or "none"
+        if nd not in ("long", "short") or nd != pos[s]:
+            _exec_native_close(uid, tid, s, f"方向翻转→{nd}", t, live)
+            pos.pop(s, None)
+            acted.append({"task": tid, "symbol": s, "event": "native_close", "reason": f"dir→{nd}"})
+    for s in syms:
+        if s in pos:
+            continue
+        if len(pos) >= max_pos:
+            _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                              "uid": uid, "task_id": tid, "symbol": s,
+                              "event": "skipped", "reason": "闸3: 单标的持仓已达上限"})
+            continue
+        a = answers.get(f"dir_{s}")
+        if not isinstance(a, dict) or a.get("choice") not in ("long", "short"):
+            continue
+        conf = float(a.get("confidence") or 0)
+        if conf < conf_min:
+            continue
+        _exec_native_open(uid, tid, s, a["choice"], float(rk.get("notional", 15)), conf, t, live)
+        pos[s] = a["choice"]
+        acted.append({"task": tid, "symbol": s, "event": f"native_open_{a['choice']}", "conf": round(conf, 3)})
+    t["stats"]["positions"] = pos
+    return acted
+
+
 def run_cycle(uid, jev_result=None):
     """托管执行周期 (ai_tasks.tick 调用, jev_result 复用 Jev 巡检结果避免重复调用)
     七闸: ①授权有效 ②任务运行+标的白名单 ③单标的持仓上限 ④总持仓上限
@@ -269,6 +374,22 @@ def run_cycle(uid, jev_result=None):
         pass
     import jev_engine as _je
     g = _je.gate(uid)
+    # M-D6: 有 native 托管任务时, 补跑一次方向决策 (复用富特征 state)
+    native_tasks = [x for x in tasks if x.get("mode") == "native"]
+    native_answers = answers
+    if native_tasks:
+        try:
+            import typesafe_decision as _tsd
+            _nsyms = []
+            for _nt in native_tasks:
+                for _s in _nt.get("symbols", []):
+                    if _s not in _nsyms:
+                        _nsyms.append(_s)
+            _nr = _tsd.decide_native(_tsd.build_state(uid), _nsyms)
+            if isinstance(_nr, dict) and "_error" not in _nr:
+                native_answers = _nr.get("answers") or {}
+        except Exception:
+            pass
     pos_now = _carry_positions(uid)
     day_pnl = _carry_day_pnl(uid)
     acted = []
@@ -289,6 +410,9 @@ def run_cycle(uid, jev_result=None):
                               "detail": t["stats"]["halt_reason"]})
             _tg_alert(f"⚠️ AI托管熔断 uid={uid}: {t['stats']['halt_reason']} — 任务已自动暂停")
             acted.append({"task": tid, "event": "halt", "detail": t["stats"]["halt_reason"]})
+            continue
+        if t.get("mode") == "native":
+            acted += _run_native_opens_closes(uid, tid, t, native_answers, g)
             continue
         t_pos = {s: v for s, v in pos_now.items() if s in t.get("symbols", [])}
         # 闸6: 费率翻转保护 → 平负费率持仓

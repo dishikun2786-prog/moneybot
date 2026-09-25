@@ -7,15 +7,38 @@
 """
 import hashlib
 import hmac
+import http.client
 import json
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 API = "https://api.bybit.com"
+API_HOST = "api.bybit.com"
 RECV = 5000
 UA = "moneybot/1.0"
+
+_conns = threading.local()
+
+
+def _conn():
+    c = getattr(_conns, "conn", None)
+    if c is None or c.sock is None:
+        c = http.client.HTTPSConnection(API_HOST, timeout=10)
+        _conns.conn = c
+    return c
+
+
+def _reset_conn():
+    c = getattr(_conns, "conn", None)
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
+        _conns.conn = None
 
 
 def _req(key, secret, method, path, params=None, body=None, timeout=10):
@@ -27,19 +50,31 @@ def _req(key, secret, method, path, params=None, body=None, timeout=10):
     headers = {"X-BAPI-API-KEY": key, "X-BAPI-TIMESTAMP": ts, "X-BAPI-SIGN": sign,
                "X-BAPI-RECV-WINDOW": str(RECV), "Content-Type": "application/json",
                "User-Agent": UA}
-    url = API + path + (("?" + qs) if qs else "")
-    req = urllib.request.Request(url, method=method, headers=headers,
-                                 data=body_s.encode() if body_s else None)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
+    url = path + (("?" + qs) if qs else "")
+    body_bytes = body_s.encode() if body_s else None
+    for attempt in (0, 1):
         try:
-            return json.loads(e.read().decode())
-        except Exception:
-            return {"retCode": e.code, "retMsg": "HTTP %d" % e.code}
-    except Exception as e:
-        return {"retCode": -1, "retMsg": f"网络错误: {type(e).__name__}"}
+            conn = _conn()
+            conn.request(method, url, body=body_bytes, headers=headers)
+            r = conn.getresponse()
+            raw = r.read()
+            if r.status == 200:
+                return json.loads(raw.decode())
+            # 非200: 尝试解析 Bybit 错误体; 连接状态不明则重置
+            try:
+                d = json.loads(raw.decode())
+                if isinstance(d, dict) and d.get("retCode") is not None:
+                    return d
+            except Exception:
+                pass
+            _reset_conn()
+            return {"retCode": r.status, "retMsg": "HTTP %d" % r.status}
+        except Exception as e:
+            _reset_conn()
+            if attempt == 0:
+                continue  # 陈旧 keep-alive 连接 → 重置后重试一次
+            return {"retCode": -1, "retMsg": f"网络错误: {type(e).__name__}"}
+    return {"retCode": -1, "retMsg": "网络错误"}
 
 
 def get_api_key_info(key, secret):
