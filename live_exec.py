@@ -277,6 +277,19 @@ def bybit_open_hedge(uid, body):
     if not ok:
         return {"ok": False, "error": err}
     s = _platform_bybit()
+    # 铁律: 双腿对冲前先查已有持仓, 防止重复开仓 (与 bybit_open_naked 同源)
+    _d = bybit_live.positions(s["key"], s["secret"], category="linear", symbol=sym)
+    if _d.get("retCode") == 0:
+        for _p in _d["result"]["list"]:
+            if float(_p.get("size") or 0) != 0:
+                return {"ok": False, "error": f"{sym} 已有实盘永续持仓, 先平仓再开对冲"}
+    if dir_ == "fwd":
+        # fwd=买现货: 已有现货余额即孤儿腿, 再买会放大现货敞口 (rev=卖现货, 允许有现货)
+        _d = bybit_live.positions(s["key"], s["secret"], category="spot", symbol=sym)
+        if _d.get("retCode") == 0:
+            for _p in _d["result"]["list"]:
+                if float(_p.get("size") or 0) != 0:
+                    return {"ok": False, "error": f"{sym} 已有现货持仓(孤儿腿), 先平仓再开对冲"}
     px = _last_price(sym)
     if not px:
         return {"ok": False, "error": "价格快照不可用"}
@@ -366,22 +379,30 @@ def _finish_bybit(uid, r, action, sym, side, qty, notional, body):
         if _sp not in _s.path:
             _s.path.insert(0, _sp)
         import fee_ops as _fo
-        from dash.app import users as _u
         chan = "spot" if action.startswith("spot") else "perp"
         n = float(notional or 0.0)
         official = _fo.official(chan, sym) * n
-        vip = 0.5 if _u.get_fee_tier(uid) == 1 else 1.0
-        mult = vip * _fo.sym_mult(sym, chan)
+        # M-S四期: 已取消 VIP 费率, 全平台统一标准费率 (与 paper_ops._fee_mult 口径一致)
+        mult = _fo.sym_mult(sym, chan)
         user_fee = official * mult
         spread_rev = n * _fo.spread_bp(sym) / 10000.0
         rev = user_fee - official + spread_rev
         rec.update({"user_fee": round(user_fee, 6), "official_fee": round(official, 6),
                     "platform_rev": round(rev, 6), "spread_rev": round(spread_rev, 6),
                     "mult": round(mult, 4)})
-        if user_fee + spread_rev > 0:   # 用户账面扣费 = 平台营收真实来源
+        fee_total = round(user_fee + spread_rev, 6)
+        if fee_total > 0:   # 用户账面扣费 = 平台营收真实来源
             from dash.app import funds as _fd
-            _fd.add_balance(uid, -(user_fee + spread_rev), "live_fee",
-                            f"#{oid}", "实盘手续费+点差")
+            # 铁律7: 扣款先校验余额, 绝不扣成负数 (余额不足按可用额实扣并留痕)
+            bal = float(_fd.get_balance(uid) or 0.0)
+            charge = round(min(fee_total, bal), 6)
+            if charge > 0:
+                _fd.add_balance(uid, -charge, "live_fee", f"#{oid}", "实盘手续费+点差")
+            if charge + 1e-9 < fee_total:
+                users.audit_log(uid, "live_fee_shortfall",
+                                f"实盘扣费不足: {sym} #{oid} 应扣 {fee_total:.6f} 实扣 {charge:.6f} "
+                                f"(可用余额 {bal:.4f})")
+            rec["fee_charged"] = charge
     except Exception:
         pass
     _append(uid, rec)
