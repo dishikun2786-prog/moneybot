@@ -133,7 +133,9 @@ def _exec(uid, task):
             import sys
             sys.path.insert(0, os.path.join(tenants.ROOT, "dash"))
             import ai_tools
-            r = ai_tools.t_run_backtest({"theta": float(task.get("threshold") or 5)})
+            import tenants as _tn
+            with _tn.tenant(uid):  # 审查修复: 租户隔离 (原回测落在 admin 目录)
+                r = ai_tools.t_run_backtest({"theta": float(task.get("threshold") or 5)})
             if isinstance(r, dict) and r.get("error"):
                 return f"回测失败: {r['error'][:100]}"
             s = json.dumps(r, ensure_ascii=False)
@@ -301,17 +303,22 @@ def hourly_inspect(uid):
                 # 去重后写入
                 seen = set()
                 applied = [p for p in applied if not (p[0] in seen or seen.add(p[0]))]
-                for k, v in applied:
+                if applied:
+                    # 审查修复: 单次原子写 (原逐参数直接写文件, 半写风险 + ~/polymarket 硬编码路径)
                     import os as _os
-                    gf = _os.path.join(_os.path.expanduser("~/polymarket"), "tenants", str(uid), "data", "jev_gate.json")
+                    gf = _os.path.join(tenants.base(uid), "data", "jev_gate.json")
                     _os.makedirs(_os.path.dirname(gf), exist_ok=True)
                     cur = {}
                     try:
                         cur = json.load(open(gf, encoding="utf-8"))
                     except Exception:
                         pass
-                    cur[k] = v
-                    json.dump(cur, open(gf, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+                    for k, v in applied:
+                        cur[k] = v
+                    _tmp = gf + ".tmp"
+                    with open(_tmp, "w", encoding="utf-8") as _fo:
+                        json.dump(cur, _fo, ensure_ascii=False, indent=1)
+                    _os.replace(_tmp, gf)
                 if applied:
                     text += f"\n\n⚙️ [B级授权] 已自动应用门控微调: {', '.join(f'{k}={v}' for k, v in applied)} (白名单校验通过)"
         except Exception:
@@ -337,9 +344,17 @@ def tick():
     """每60s扫描全部租户的到期任务 (pm-dash 后台线程调用)"""
     try:
         # M-S三期: funding 惰性结算 (无请求时也能跨8h结算点累计)
+        # 审查修复: 逐租户 tenant 包裹 (原全局上下文只结算 admin 的 carry 持仓)
         try:
             import paper_ops
-            paper_ops.settle_all_funding()
+            from dash.app import users as _t_users
+            import tenants as _tenants
+            for _tu in _t_users.list_users():
+                try:
+                    with _tenants.tenant(_tu["id"]):
+                        paper_ops.settle_all_funding()
+                except Exception:
+                    pass
         except Exception:
             pass
         # M-D2: Jev 5分钟决策巡检 (所有付费套餐用户; 超时降级由 jev_engine 自处理)

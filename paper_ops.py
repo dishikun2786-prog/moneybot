@@ -189,26 +189,36 @@ def _next_funding_boundary(ts=None):
 def settle_all_funding():
     """惰性结算全部 carry 持仓 funding (跨8h结算点时按最新rate累计; 幂等)
     fwd=多现货空永续 → 空永续在正费率时收 funding(+); rev 相反(-)
+    审查修复: 持文件锁(防与手动操作竞态) + 遍历 positions/naked/orphans 全部腿
     """
-    st = _read(_resolve("CARRY_STATE"), {})
-    changed = False
-    now = time.time()
-    for sym, pos in list((st.get("positions") or {}).items()):
-        nf = pos.get("next_funding_ts") or 0
-        if not nf or nf > now:
-            continue
-        fr = _funding_rate(sym)
-        if fr is None:
-            fr = pos.get("last_fr") or 0.0
-        sign = 1.0 if pos.get("dir") == "fwd" else -1.0
-        pos["funding_acc"] = round((pos.get("funding_acc") or 0.0) + sign * fr * pos.get("notional", 0), 6)
-        pos["last_fr"] = fr
-        pos["next_funding_ts"] = _next_funding_boundary(now)
-        changed = True
-        _audit("settle_funding", sym, {"rate": fr, "acc": pos["funding_acc"]})
-    if changed:
-        _write(_resolve("CARRY_STATE"), st)
-    return st
+    try:
+        f = _lock()
+    except Exception:
+        f = None
+    try:
+        st = _read(_resolve("CARRY_STATE"), {})
+        changed = False
+        now = time.time()
+        for grp in ("positions", "naked", "orphans"):
+            for sym, pos in list((st.get(grp) or {}).items()):
+                nf = pos.get("next_funding_ts") or 0
+                if not nf or nf > now:
+                    continue
+                fr = _funding_rate(sym)
+                if fr is None:
+                    fr = pos.get("last_fr") or 0.0
+                sign = 1.0 if pos.get("dir") == "fwd" else -1.0
+                pos["funding_acc"] = round((pos.get("funding_acc") or 0.0) + sign * fr * pos.get("notional", 0), 6)
+                pos["last_fr"] = fr
+                pos["next_funding_ts"] = _next_funding_boundary(now)
+                changed = True
+                _audit("settle_funding", f"{grp}:{sym}", {"rate": fr, "acc": pos["funding_acc"]})
+        if changed:
+            _write(_resolve("CARRY_STATE"), st)
+        return st
+    finally:
+        if f:
+            _unlock(f)
 
 
 def _latest_carry_row(sym):
@@ -631,7 +641,7 @@ def close_perp_leg(sym):
         perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
         fees = FEE_PERP * _fee_mult(sym, "perp") * n
-        st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees + pos.get("funding_acc", 0.0), 4)
         st.setdefault("orphans", {})[sym] = dict(spot_entry=pos["spot_entry"], t0=pos["t0"],
                                                  next_funding_ts=pos.get("next_funding_ts", 0),
                                                  notional=n, dir=d)
@@ -664,7 +674,7 @@ def close_both(sym):
         perp_pnl = ((pos["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - pos["perp_entry"])) / pos["perp_entry"] * n
         fees = (FEE_SPOT * _fee_mult(sym, "spot") + FEE_PERP * _fee_mult(sym, "perp")) * n
-        total = spot_pnl + perp_pnl - fees
+        total = spot_pnl + perp_pnl - fees + pos.get("funding_acc", 0.0)
         st["day_pnl"] = round(st.get("day_pnl", 0.0) + total, 4)
         st.setdefault("n_rounds", 0)
         st["n_rounds"] += 1
@@ -833,7 +843,7 @@ def close_naked(sym):
         perp_pnl = ((nk["perp_entry"] - px["perp"]) if d == "fwd" else
                     (px["perp"] - nk["perp_entry"])) / nk["perp_entry"] * n
         fees = FEE_PERP * _fee_mult() * n
-        st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees, 4)
+        st["day_pnl"] = round(st.get("day_pnl", 0.0) + perp_pnl - fees + nk.get("funding_acc", 0.0), 4)
         del st["naked"][sym]
         _write(_resolve("CARRY_STATE"), st)
         _log_trade(_resolve("CARRY_TRADES"), dict(symbol=sym, action="MANUAL_CLOSE_NAKED",

@@ -345,12 +345,12 @@ def create_deposit(uid, base_amount):
     dmax = float(get_setting("deposit_max", "10000"))
     if not (dmin <= base <= dmax):
         return {"ok": False, "error": f"充值金额须 {dmin:g}~{dmax:g} USDT"}
-    amt = _unique_amount(base)
-    addr = platform_address()
-    now = _now()
-    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                            time.gmtime(time.time() + DEPOSIT_TTL_H * 3600))
     with LOCK:
+        amt = _unique_amount(base)
+        addr = platform_address()
+        now = _now()
+        expires = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                time.gmtime(time.time() + DEPOSIT_TTL_H * 3600))
         con = _con()
         try:
             cur = con.execute(
@@ -625,7 +625,7 @@ def reconcile_balance_check():
     con = _con()
     try:
         total = con.execute("SELECT COALESCE(SUM(usdt),0) FROM balance").fetchone()[0]
-        frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending','paid','submitting')").fetchone()[0]
+        frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending_review','submitting','paid')").fetchone()[0]
         pend_dep = con.execute("SELECT COALESCE(SUM(amount_unique),0) FROM deposit_orders WHERE status='pending'").fetchone()[0]
     finally:
         con.close()
@@ -753,7 +753,20 @@ def buy_plan(uid, code):
             con.commit()
         finally:
             con.close()
-    _extend_plan(uid, code, plan["name"])
+    # 审查修复: _extend_plan 失败时回滚扣款, 避免钱扣了套餐没开通
+    try:
+        _extend_plan(uid, code, plan["name"])
+    except Exception as e:
+        with LOCK:
+            con = _con()
+            try:
+                con.execute("BEGIN IMMEDIATE")
+                con.execute("UPDATE balance SET usdt=usdt+? WHERE uid=?", (price, uid))
+                _add_tx(con, uid, "plan", +price, "refund:" + code, f"套餐开通失败退回 {price} USDT")
+                con.commit()
+            finally:
+                con.close()
+        return {"ok": False, "error": f"套餐开通失败已退款: {e}"}
     return {"ok": True, "msg": f"套餐已生效: {plan['name']} (扣 {price} USDT)"}
 
 

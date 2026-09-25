@@ -182,6 +182,21 @@ def auth_state(uid):
 ACTIONS = os.path.join(BASE, "data", "autopilot_actions.jsonl")
 
 
+def _tg_alert(text):
+    """M-P4: 熔断/关键事件 TG 告警 (复用 watchdog 的 alert_config.json)"""
+    try:
+        cfg = json.load(open(os.path.join(BASE, "alert_config.json"), encoding="utf-8"))
+        if not cfg.get("bot_token"):
+            return
+        import urllib.request
+        url = f"https://api.telegram.org/bot{cfg['bot_token']}/sendMessage"
+        data = json.dumps({"chat_id": int(cfg["chat_id"]), "text": text}).encode()
+        urllib.request.urlopen(urllib.request.Request(url, data=data,
+            headers={"Content-Type": "application/json"}), timeout=10)
+    except Exception:
+        pass
+
+
 def _log_action(uid, rec):
     try:
         os.makedirs(os.path.dirname(ACTIONS), exist_ok=True)
@@ -195,6 +210,10 @@ def _carry_day_pnl(uid):
     try:
         st = json.load(open(os.path.join(BASE, "tenants", str(uid), "logs", "carry_state.json"),
                             encoding="utf-8"))
+        # 审查修复: day_pnl 跨天未重置则视为 0 (防止隔夜旧值误触发日损熔断)
+        day_tag = time.strftime("%Y-%m-%d")
+        if st.get("day") and st.get("day") != day_tag:
+            return 0.0
         return float(st.get("day_pnl") or 0.0)
     except Exception:
         return 0.0
@@ -222,6 +241,17 @@ def run_cycle(uid, jev_result=None):
     tasks = [t for t in all_tasks if t.get("status") == "running"]
     if not tasks:
         return None
+    # 审查修复: 每日滚动重置 actions_today (原持续累加虚高)
+    _today = time.strftime("%Y-%m-%d")
+    _dirty = False
+    for t in all_tasks:
+        stt = t.get("stats") or {}
+        if stt.get("day") != _today:
+            stt["day"] = _today
+            stt["actions_today"] = 0
+            _dirty = True
+    if _dirty:
+        _save_tasks(uid, all_tasks)
     # Jev 信号 (复用巡检结果, 缺则自己调)
     if jev_result is None or jev_result.get("event") != "cycle":
         import jev_engine
@@ -257,6 +287,7 @@ def run_cycle(uid, jev_result=None):
             _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                               "uid": uid, "task_id": tid, "event": "halt",
                               "detail": t["stats"]["halt_reason"]})
+            _tg_alert(f"⚠️ AI托管熔断 uid={uid}: {t['stats']['halt_reason']} — 任务已自动暂停")
             acted.append({"task": tid, "event": "halt", "detail": t["stats"]["halt_reason"]})
             continue
         t_pos = {s: v for s, v in pos_now.items() if s in t.get("symbols", [])}
@@ -282,7 +313,7 @@ def run_cycle(uid, jev_result=None):
                                   "uid": uid, "task_id": tid, "symbol": s,
                                   "event": "skipped", "reason": "闸3: 单标的持仓已达上限"})
                 continue
-            if sum(1 for v in pos_now.values() if v > 0) >= total_max:
+            if len(t_pos) >= total_max:  # 审查修复: 统计任务内持仓 (原 pos_now 全局跨任务污染)
                 _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                   "uid": uid, "task_id": tid, "symbol": s,
                                   "event": "skipped", "reason": "闸4: 总持仓已达上限"})
@@ -344,7 +375,8 @@ def _exec_close(uid, tid, sym, reason, task):
 
 def cancel_with_close(uid, tid):
     """取消任务并平掉其托管持仓 (默认自动平仓)"""
-    t = next((x for x in _load_tasks(uid) if x.get("id") == tid), None)
+    tasks = _load_tasks(uid)
+    t = next((x for x in tasks if x.get("id") == tid), None)
     if t is None:
         return {"ok": False, "error": f"任务不存在: {tid}"}
     pos = _carry_positions(uid)
@@ -354,7 +386,7 @@ def cancel_with_close(uid, tid):
             _exec_close(uid, tid, s, "取消托管自动平仓", t)
             closed.append(s)
     t["status"] = "cancelled"
-    _save_tasks(uid, _load_tasks(uid))
+    _save_tasks(uid, tasks)  # 审查修复: 保存同一引用 (原 _load_tasks 重读磁盘丢弃内存修改 → 取消失效)
     return {"ok": True, "msg": f"任务已取消, 自动平仓 {closed if closed else '无持仓'}"}
 
 

@@ -1447,16 +1447,28 @@ async def api_plans_upgrade(request: Request, su=Depends(require_session_user)):
     if code not in defs:
         return {"ok": False, "msg": "套餐不存在或已下架"}
     price = float(defs[code]["price"])
-    ok, msg = admin.set_plan(su["u"], code, su["u"])
-    if not ok:
-        return {"ok": False, "msg": msg}
     if price > 0:
         bal = float(funds.get_balance(su["u"]) or 0)
         if bal < price:
             return {"ok": False, "msg": f"余额不足 (可用 {bal:.2f} USDT, 需 {price:.2f}) — 请先充值"}
-        funds.add_balance(su["u"], -price, "plan", f"plan:{code}", f"购买套餐 {defs[code]['name']}")
+        # 审查修复: 先扣款成功再设套餐, 扣款失败则不开通 (原顺序可零成本拿高级套餐)
+        try:
+            funds.add_balance(su["u"], -price, "plan", f"plan:{code}", f"购买套餐 {defs[code]['name']}")
+        except Exception as e:
+            return {"ok": False, "msg": f"扣款失败: {e}"}
+        ok, msg = admin.set_plan(su["u"], code, su["u"])
+        if not ok:
+            # 设套餐失败 → 回滚扣款
+            try:
+                funds.add_balance(su["u"], +price, "plan", f"refund:{code}", f"套餐开通失败退回 {price} USDT")
+            except Exception:
+                pass
+            return {"ok": False, "msg": msg}
         users.audit_log(su["u"], "plan_buy", f"购买套餐 {code} 扣 {price} USDT")
         return {"ok": True, "msg": f"已开通 {defs[code]['name']}, 余额扣 {price:.2f} USDT"}
+    ok, msg = admin.set_plan(su["u"], code, su["u"])
+    if not ok:
+        return {"ok": False, "msg": msg}
     users.audit_log(su["u"], "plan_buy", f"免费开通套餐 {code}")
     return {"ok": True, "msg": f"已开通 {defs[code]['name']} (免费)"}
 

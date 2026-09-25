@@ -1038,6 +1038,8 @@ function go(s){
   /* R14-M1: symbol屏已下线 if(s==='symbol')loadSpotCard(); */
   if(s==='plans')loadPlans();
   if(s==='profile')loadProfile();
+  if(s==='support')loadSupportConv();
+  if(s==='autopilot'){if(typeof loadAutopilot==='function')loadAutopilot()}
   /* R14-M6: keys 屏已下线(统一密钥由管理员后台维护, 用户端不展示) */
   if(s==='admin')loadAdmin();
   if(s==='register'&&!capIds.reg)loadCaptcha('reg');
@@ -1453,7 +1455,7 @@ function startPmStream(){
         }
       }catch(e){}
     };
-    es.onerror=function(){};
+    /* 审查修复: 删除空 onerror 覆盖 (保留前面的 setSse('retry')) */
   }catch(e){}
 }
 var PM_TOKENS=[];  // 已加载的 token 分页累积 (懒加载)
@@ -2364,6 +2366,7 @@ function renderOb(){
   html='';
   for(i=0;i<bids.length;i++){
     var b=bids[i];sz=Number(b[1])||0;sumB+=sz;
+    fl=OB_PX_PREV[tradeSym]&&OB_PX_PREV[tradeSym]!==String(b[0])?'px-flash':'';
     html+='<div class="ob-item '+fl+'"><span class="up ob-px" onclick="obFillPrice('+b[0]+')">'+fmtPx(b[0])+'</span><span style="text-align:right">'+num(sz,3)+'</span><span style="text-align:right">'+num(sumB,2)+'</span><div class="depthbar" style="background:#3ebd93;width:'+(maxB?Math.round(sz/maxB*100):0)+'%"></div></div>';
   }
   id('ob-bids').innerHTML=html;
@@ -2675,7 +2678,7 @@ async function loadPlans(){
 }
 function buyPlan(code){
   openSheet('<h3>购买套餐</h3><p>余额支付 <b>'+code+'</b> 套餐（30天），当前余额 '+num(FD.bal,2)+' USDT。确认？</p>'
-    +'<button class="btn accent" onclick="buyPlanGo('+code+')">确认购买</button>');
+    +'<button class="btn accent" onclick="buyPlanGo(\''+code+'\')">确认购买</button>');
 }
 async function buyPlanGo(code){
   closeSheet();
@@ -2859,7 +2862,7 @@ async function loadPlanCard(){
     var isFree=(cur.plan==='free');
     id('ai-badge').textContent=isFree?'免费':'PRO';
     id('ai-badge').className='badge '+(isFree?'gray':'green');
-    id('ai-plan-tag').textContent=isFree?' (免费版 · 升级解锁全部能力)':' ('+nm+')';
+    var _pt=id('ai-plan-tag');if(_pt)_pt.textContent=isFree?' (免费版 · 升级解锁全部能力)':' ('+nm+')';
   }catch(e){}
 }
 var PERIOD_ZH2={month:'月',quarter:'季',year:'年'};
@@ -2888,7 +2891,7 @@ async function aiSend(){
   var acc='';
   var upgraded=false;
   var body=b.querySelector('.ai-body')||b;
-  function flush(){body.innerHTML=acc.replace(/\n/g,'<br>')+'<span class="ai-cur">▍</span>';id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+  function flush(){body.innerHTML=acc.replace(/\n/g,'<br>')+'<span class="ai-cur">▍</span>';var _a2=id('ai-msg2');if(_a2){_a2.scrollTop=_a2.scrollHeight}}
   try{
     var r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:AIMSG.slice(-20)})});
     if(!r.ok){var e2=await r.text();b.textContent='请求失败: '+r.status;return}
@@ -3148,6 +3151,7 @@ async function loadSupportConv(){
   id('sup-msgs').scrollTop=id('sup-msgs').scrollHeight;
   var dot=id('sup-dot');
   var un=r.data.conversation?(r.data.conversation.unread_user||0):0;
+  var dot=id('sup-dot');if(dot){dot.style.display=un>0?'':'none';dot.textContent=un>0?un:''}
 }
 function supStripHtml(s){
   var map={open:['待处理','yellow'],pending:['处理中','blue'],resolved:['已解决','green']};
@@ -3206,7 +3210,7 @@ function supConnect(){
     SUP_ES.onclose=function(){ setTimeout(supConnect,5000) };
   }catch(e){}
 }
-supConnect();
+if(typeof ME!=='undefined'&&ME)supConnect(); // 审查修复: 未登录不建客服SSE
 
 function aiRestore(){
   if(!AIMSG.length)return;
@@ -3417,10 +3421,10 @@ async function loadAdmFunds(){
   id('fs-dmin').value=st.deposit_min||'';
   id('fs-dmax').value=st.deposit_max||'';
 }
-async function admFuc(id){
-  var uid=Number(id('fuc-uid-'+id).value)||0;
+async function admFuc(orderId){
+  var uid=Number(id('fuc-uid-'+orderId).value)||0;
   if(!uid){toast('请输入归属用户UID');return}
-  var r=await api('/api/admin/funds/claim',{method:'POST',body:JSON.stringify({id:id,uid:uid})});
+  var r=await api('/api/admin/funds/claim',{method:'POST',body:JSON.stringify({id:orderId,uid:uid})});
   if(r.data&&r.data.ok){toast('✅ 已认领给 UID '+uid);loadAdmFunds()}else{toast('❌ '+apiErr(r))}
 }
 async function admFplToggle(code,active){
@@ -3483,6 +3487,7 @@ async function loadAdmin(){
       +(u.role!=='admin'?'<button class="'+(u.status==='active'?'bad':'')+'" onclick="admStatus('+u.id+')">'+(u.status==='active'?'禁用':'启用')+'</button>':'')
       +'<button onclick="admPwd('+u.id+')">改密</button>'
       +'<button onclick="admLimits('+u.id+')">限额</button>'
+      +'</div></div>'  // 审查修复: 补 .ops/.user-item 闭合 (原缺闭导致 DOM 嵌套错乱)
   }
   if(more)html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadMoreUsers()">加载更多用户</button>';
   id('admin-users').innerHTML=html||'<div class="dim small" style="padding:8px">暂无用户</div>';
@@ -3578,7 +3583,7 @@ function tick(){
 var PULL={y0:0,active:false,armed:false};
 document.addEventListener('touchstart',function(e){
   if(['markets','pm','assets'].indexOf(curScreen)<0)return;
-  PULL.y0=e.touches[0].clientY;PULL.active=(window.scrollY||document.documentElement.scrollTop)<=0;
+  PULL.y0=e.touches[0].clientY;var _bd=document.querySelector('.body');PULL.active=(_bd?_bd.scrollTop:0)<=0;
 });
 document.addEventListener('touchmove',function(e){
   if(!PULL.active||['markets','pm','assets'].indexOf(curScreen)<0)return;
