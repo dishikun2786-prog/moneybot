@@ -1414,21 +1414,6 @@ async def api_admin_status(uid: int, request: Request, su=Depends(require_admin)
     return {"ok": ok, "msg": msg}
 
 
-@app.post("/api/admin/user/{uid}/fee-tier")
-async def api_admin_fee_tier(uid: int, request: Request, su=Depends(require_admin)):
-    """R14-M3: 设置用户费率等级 0=标准 1=VIP(减半)"""
-    try:
-        body = await request.json()
-    except Exception:
-        return {"ok": False, "error": "bad request"}
-    tier = int(body.get("tier", 0))
-    if tier not in (0, 1):
-        return {"ok": False, "error": "tier 仅支持 0/1"}
-    users.set_fee_tier(uid, tier)
-    users.audit_log(int(su["u"]), "fee_tier", f"用户{uid}费率等级改为 tier={tier}", "", f"admin:{su['u']}")
-    return {"ok": True, "msg": f"已设置 tier={tier} (标准/VIP)"}
-
-
 @app.post("/api/admin/user/{uid}/plan")
 async def api_admin_plan(uid: int, request: Request, su=Depends(require_admin)):
     try:
@@ -1462,17 +1447,50 @@ async def api_plans_upgrade(request: Request, su=Depends(require_session_user)):
     if code not in defs:
         return {"ok": False, "msg": "套餐不存在或已下架"}
     price = float(defs[code]["price"])
-    if price <= 0:
-        return {"ok": False, "msg": "该套餐免费, 无需购买"}
-    bal = float(funds.get_balance(su["u"]) or 0)
-    if bal < price:
-        return {"ok": False, "msg": f"余额不足 (可用 {bal:.2f} USDT, 需 {price:.2f}) — 请先充值"}
     ok, msg = admin.set_plan(su["u"], code, su["u"])
     if not ok:
         return {"ok": False, "msg": msg}
-    funds.add_balance(su["u"], -price, "plan", f"plan:{code}", f"购买套餐 {defs[code]['name']}")
-    users.audit_log(su["u"], "plan_buy", f"购买套餐 {code} 扣 {price} USDT")
-    return {"ok": True, "msg": f"已开通 {defs[code]['name']}, 余额扣 {price:.2f} USDT"}
+    if price > 0:
+        bal = float(funds.get_balance(su["u"]) or 0)
+        if bal < price:
+            return {"ok": False, "msg": f"余额不足 (可用 {bal:.2f} USDT, 需 {price:.2f}) — 请先充值"}
+        funds.add_balance(su["u"], -price, "plan", f"plan:{code}", f"购买套餐 {defs[code]['name']}")
+        users.audit_log(su["u"], "plan_buy", f"购买套餐 {code} 扣 {price} USDT")
+        return {"ok": True, "msg": f"已开通 {defs[code]['name']}, 余额扣 {price:.2f} USDT"}
+    users.audit_log(su["u"], "plan_buy", f"免费开通套餐 {code}")
+    return {"ok": True, "msg": f"已开通 {defs[code]['name']} (免费)"}
+
+
+@app.get("/api/paper/balance")
+def api_paper_balance(su=Depends(require_session_user)):
+    """模拟余额 = admin可调的 paper_balance + carry 累计盈亏"""
+    pb = users.get_paper_balance(su["u"])
+    cum = 0.0
+    try:
+        with tenants.tenant(su["u"]):
+            import paper_ops
+            st = paper_ops._read(paper_ops._resolve("CARRY_STATE"), {})
+            cum = float(st.get("cum_pnl") or 0)
+    except Exception:
+        pass
+    return {"ok": True, "paper_balance": pb, "carry_pnl": round(cum, 4),
+            "total": round(pb + cum, 4)}
+
+
+@app.post("/api/admin/paper-balance")
+async def api_admin_paper_balance(request: Request, su=Depends(require_admin)):
+    """M-S四期: admin 调整用户模拟余额 {uid, amount(直接设置)}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    uid = int(body.get("uid") or 0)
+    amount = float(body.get("amount"))
+    if not uid or amount < 0:
+        return {"ok": False, "msg": "参数无效 (uid>0, amount≥0)"}
+    ok, msg = users.set_paper_balance(uid, amount)
+    users.audit_log(int(su["u"]), "paper_balance", f"用户{uid}模拟余额设为 {amount}", "", f"admin:{su['u']}")
+    return {"ok": ok, "msg": msg}
 
 
 @app.get("/api/admin/plans")

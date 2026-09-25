@@ -61,8 +61,7 @@ def _fee_mult(sym=None, channel="perp"):
         _sp = _os.path.join(_t.base(), "dash")
         if _sp not in _s.path:
             _s.path.insert(0, _sp)
-        from dash.app import users as _u
-        vip = 0.5 if _u.get_fee_tier(_t.current_uid()) == 1 else 1.0
+        vip = 1.0  # M-S四期: 取消VIP费率, 全平台统一标准费率
     except Exception:
         vip = 1.0
     try:

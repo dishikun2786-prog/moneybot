@@ -267,6 +267,19 @@ async function loadStats(){
     <div class="card"><div class="l">套餐分布</div><div class="n" style="font-size:14px">免费${free} · 专业${pro} · 实盘${live}</div></div>`;
 }
 let UOFF=0,UHAS_MORE=false;
+async function userPaperBal(uid){
+  var u=(USERS||[]).find(function(x){return x.id===uid})||{};
+  var cur=u.paper_balance;
+  modal(`<h3>💰 调整模拟余额 #${uid}</h3><p class="dim" style="font-size:13px">当前模拟余额: <b>${cur??'—'} USDT</b>（直接设置新值）</p>
+    <div class="row"><input id="pb-amt" type="number" min="0" step="1" value="${cur??100}" style="flex:1"></div>
+    <div class="row" style="margin-top:10px"><button class="btn" onclick="doPaperBal(${uid})">确认设置</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
+}
+async function doPaperBal(uid){
+  var v=document.getElementById('pb-amt').value;
+  var r=await j('POST','/api/admin/paper-balance',{uid:uid,amount:parseFloat(v)});
+  alert(r.d.ok?(r.d.msg||'已设置'):('失败: '+(r.d.msg||r.d.error)));
+  mclose();loadUsers(true);
+}
 async function loadUsers(reset=true){
   if(reset){UOFF=0;USERS=[]}
   const {d}=await j('GET','/api/admin/users?offset='+UOFF+'&limit=50');
@@ -286,13 +299,13 @@ function renderUsers(){
       <td><span class="tag ${u.role}">${u.role==='admin'?'管理员':'用户'}</span></td>
       <td><span class="tag ${u.status}">${u.status==='active'?'正常':'已禁用'}</span></td>
       <td><span class="tag ${u.plan}">${u.plan_zh||u.plan}</span></td>
-      <td><span class="tag ${u.fee_tier?'vip':''}" title="费率等级">${u.fee_tier?'VIP费率(减半)':'标准费率'}</span></td>
+      <td><span class="tag">标准费率</span></td>
       <td class="num">${fmtNum(s.capital)}</td><td class="num">${s.positions||0}</td>
       <td class="dim">${fmtTs(u.created_at)}</td><td class="dim">${fmtTs(u.last_login_at)}</td>
       <td>
         ${u.role!=='admin'?`
         <button class="mini" onclick="userPlan(${u.id},'${u.plan}')">套餐</button>
-        <button class="mini" onclick="userFeeTier(${u.id},${u.fee_tier||0})">${u.fee_tier?'降标准':'升VIP'}</button>
+        <button class="mini" onclick="userPaperBal(${u.id})">💰模拟余额</button>
         <button class="mini" onclick="userPw(${u.id})">重置密码</button>
         ${u.status==='active'
           ?`<button class="mini danger" onclick="userStatus(${u.id},'disabled')">禁用</button>`

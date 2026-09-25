@@ -736,7 +736,8 @@ select.input{appearance:none}
     <section class="screen" id="screen-withdraw">
       <div class="card">
         <div class="ct">USDT 提现 <span class="xs muted">管理员审核后自动打款</span></div>
-        <div class="trow"><span class="k">可用余额</span><span class="v" id="wd-bal">—</span></div>
+        <div class="trow" id="pb-line"><span class="k">模拟余额</span><span class="v">—</span></div>
+<div class="trow"><span class="k">可用余额</span><span class="v" id="wd-bal">—</span></div>
         <div class="trow"><span class="k">提现金额 (USDT)</span><input type="number" id="wd-amount" value="10" min="5" step="1" style="width:110px"></div>
         <div class="field"><label>TRC20 收款地址（T开头34位）</label><input class="input" id="wd-addr" placeholder="粘贴你的 TRC20 USDT 地址"></div>
         <div class="dim xs" id="wd-hint" style="margin-bottom:8px"></div>
@@ -2657,8 +2658,21 @@ async function buyPlanGo(code){
   if(r.data&&r.data.ok){toast('✅ '+r.data.msg);loadPlans();loadFunds()}
   else{toast('❌ '+(r.data&&r.data.error||apiErr(r)))}
 }
+async function loadPaperBal(){
+  for(var i=0;i<2;i++){
+    try{
+      var r=await api('/api/paper/balance');
+      var el=id('pb-line');
+      if(r.data&&r.data.ok&&el){
+        el.innerHTML='<span class="k">模拟余额</span><span class="v">'+num(r.data.total,2)+' USDT <span class="xs muted">(本金 '+num(r.data.paper_balance,2)+' + 盈亏 '+num(r.data.carry_pnl,2)+')</span></span>';
+      }
+      return;
+    }catch(e){ if(i===1)return; }
+  }
+}
 async function loadAssets(){
-  var r=await api('/api/pnl');
+    loadPaperBal();
+var r=await api('/api/pnl');
   if(!r.data){return}
   var d=r.data;
   id('a-capital').textContent=num(d.capital,2);
@@ -3387,17 +3401,6 @@ async function admFsetSave(){
   if(r.data&&r.data.ok){toast('✅ 参数已保存');loadAdmFunds()}else{toast('❌ '+apiErr(r))}
 }
 var ADMA={offset:0,rows:[]};
-async function admFeeTier(uid,cur){
-  /* R14-M3: 费率等级切换 (0=标准 1=VIP减半) */
-  var t=cur?0:1;
-  openSheet('<h3>费率等级 #'+uid+'</h3><p class="xs muted">'+(t?'VIP：全部交易费率减半（现货0.05%）':'标准：默认费率（现货0.1%）')+'</p>'
-    +'<button class="btn accent" onclick="admFeeTierGo('+uid+','+t+')">确认'+(t?'升VIP':'降标准')+'</button>');
-}
-async function admFeeTierGo(uid,t){
-  var r=await api('/api/admin/user/'+uid+'/fee-tier',{method:'POST',body:JSON.stringify({tier:t})});
-  if(r.data&&r.data.ok){closeSheet();toast('✅ 费率已更新');loadAdmin()}
-  else{toast('❌ '+(r.data&&r.data.error||'失败'))}
-}
 async function loadAdmAudit(offset){
   if(offset===0){ADMA.offset=0;ADMA.rows=[];}
   var r=await api('/api/admin/audit?offset='+ADMA.offset+'&limit=30');
@@ -3443,7 +3446,6 @@ async function loadAdmin(){
       +(u.role!=='admin'?'<button class="'+(u.status==='active'?'bad':'')+'" onclick="admStatus('+u.id+')">'+(u.status==='active'?'禁用':'启用')+'</button>':'')
       +'<button onclick="admPwd('+u.id+')">改密</button>'
       +'<button onclick="admLimits('+u.id+')">限额</button>'
-      +'<button onclick="admFeeTier('+u.id+','+(u.fee_tier||0)+')">'+(u.fee_tier?'降标准':'升VIP')+'</button></div></div>';
   }
   if(more)html+='<button class="btn dim" style="width:100%;margin-top:4px" onclick="loadMoreUsers()">加载更多用户</button>';
   id('admin-users').innerHTML=html||'<div class="dim small" style="padding:8px">暂无用户</div>';

@@ -90,6 +90,36 @@ def get_user(uid):
             con.close()
 
 
+def _ensure_paper_balance(con):
+    """M-S四期: users 表加 paper_balance 列 (模拟余额, 默认100), 幂等"""
+    cols = [r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
+    if "paper_balance" not in cols:
+        con.execute("ALTER TABLE users ADD COLUMN paper_balance REAL NOT NULL DEFAULT 100")
+
+
+def get_paper_balance(uid):
+    """模拟余额 (admin 可调)"""
+    con = _db()
+    try:
+        _ensure_paper_balance(con)
+        r = con.execute("SELECT paper_balance FROM users WHERE id=?", (uid,)).fetchone()
+        return float(r[0]) if r else 100.0
+    finally:
+        con.close()
+
+
+def set_paper_balance(uid, amount):
+    """admin 调整模拟余额 (直接设置)"""
+    con = _db()
+    try:
+        _ensure_paper_balance(con)
+        con.execute("UPDATE users SET paper_balance=? WHERE id=?", (float(amount), uid))
+        con.commit()
+        return True, f"模拟余额已设为 {amount} USDT"
+    finally:
+        con.close()
+
+
 def _ensure_fee_tier(con):
     """R14-M3: users 表加 fee_tier 列 (0=标准 1=VIP), 幂等"""
     cols = [r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
@@ -136,9 +166,10 @@ def list_users():
         con = _db()
         try:
             _ensure_fee_tier(con)
+            _ensure_paper_balance(con)
             rows = con.execute(
                 "SELECT id, username, email, role, status, plan, plan_expires, "
-                "created_at, last_login_at, fee_tier FROM users ORDER BY id").fetchall()
+                "created_at, last_login_at, fee_tier, paper_balance FROM users ORDER BY id").fetchall()
             return [dict(r) for r in rows]
         finally:
             con.close()
