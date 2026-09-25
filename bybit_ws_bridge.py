@@ -38,6 +38,7 @@ SNAP_FILE = f"{BASE}/logs/bybit_prices.json"
 PRICE_LOG = f"{BASE}/logs/price_1s.jsonl"
 STATE_FILE = f"{BASE}/logs/bybit_bridge_state.json"
 DEPTH_FILE = f"{BASE}/logs/orderbook.json"
+DEPTH_N = 20  # 每侧落盘前 N 档 (FDTD 深度场回放)
 TRADES_LOG = f"{BASE}/logs/trades_1s.jsonl"
 MICRO_LOG = f"{BASE}/logs/micro_1m.jsonl"
 
@@ -503,6 +504,29 @@ def depth_loop():
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(snap, f, ensure_ascii=False)
         os.replace(tmp, DEPTH_FILE)
+        # 按秒落盘 Bybit L2 深度 (long 格式, 日切文件, 供 FDTD 深度场回放)
+        _dl = []
+        for _sym in DEPTH_SYMS:
+            _bk = books_out.get(_sym)
+            if not _bk:
+                continue
+            _bids = _bk.get("bids", [])[:DEPTH_N]
+            _asks = _bk.get("asks", [])[:DEPTH_N]
+            if not _bids or not _asks:
+                continue
+            for _i, _lv in enumerate(_bids):
+                _dl.append(json.dumps({"ts": ts_s, "symbol": _sym, "side": "bid",
+                                       "level": _i, "price": _lv[0], "size": _lv[1]},
+                                      ensure_ascii=False))
+            for _i, _lv in enumerate(_asks):
+                _dl.append(json.dumps({"ts": ts_s, "symbol": _sym, "side": "ask",
+                                       "level": _i, "price": _lv[0], "size": _lv[1]},
+                                      ensure_ascii=False))
+        if _dl:
+            _df = os.path.join(BASE, "logs",
+                               f"bybit_depth_1s_{time.strftime('%Y%m%d', time.gmtime())}.jsonl")
+            with open(_df, "a", encoding="utf-8") as _f:
+                _f.write("\n".join(_dl) + "\n")
         if not DEPTH_SAID["hello"] and books_out:
             DEPTH_SAID["hello"] = True
             print("[bridge] 盘口+逐笔通道已上线", flush=True)

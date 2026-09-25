@@ -1,0 +1,10 @@
+[Unit]
+Description=Archive Bybit L2 depth JSONL to parquet (book_1s_bybit)
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/polymarket
+ExecStart=/home/ubuntu/polymarket/venv/bin/python /home/ubuntu/polymarket/depth_to_parquet.py
+
+[Install]
+WantedBy=multi-user.target
