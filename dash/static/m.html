@@ -2303,6 +2303,18 @@ function applyKSnap(){
   var hu=id('kline-hud');
   if(hu){hu.style.display='block';hu.innerHTML='<span class="up">●</span> 实时 · 更新于 '+new Date().toTimeString().slice(0,8);}
 }
+var PNL_ES=null;
+function startPnlSSE(){
+  if(PNL_ES)return;
+  try{
+    PNL_ES=new EventSource('/api/stream/pnl');
+    PNL_ES.onmessage=function(){
+      if(curScreen==='trade'||curScreen==='assets'||curScreen==='symbol')loadPositions();
+      if(curScreen==='assets')loadAssets();
+    };
+    PNL_ES.onerror=function(){/* EventSource 自动重连 */};
+  }catch(e){}
+}
 function startDepth(){
   try{
     var es=new EventSource('/api/stream/depth');
@@ -3631,9 +3643,9 @@ id('pm-key').addEventListener('change',updPmHint);
 id('pm-shares').addEventListener('input',updPmHint);
 setPmSide('BUY'); */
 tick();setInterval(tick,30000);
-setInterval(function(){if(curScreen==='trade'||curScreen==='assets'||curScreen==='symbol')loadPositions()},5000); /* R13: 盯盘5s */
+setInterval(function(){if(curScreen==='trade'||curScreen==='assets'||curScreen==='symbol')loadPositions()},60000); /* Phase F: SSE变更驱动, 60s兜底 */
 setInterval(function(){if(curScreen==='support')loadSupportConv()},15000); /* M-S四期: 客服SSE兜底轮询 */
-setInterval(function(){if(curScreen==='assets')loadAssets()},30000);
+setInterval(function(){if(curScreen==='assets')loadAssets()},120000); /* Phase F: SSE变更驱动, 120s兜底 */
 loadCaptcha('login');
 (async function boot(){
   var r=await api('/api/auth/me');
@@ -3646,6 +3658,7 @@ loadCaptcha('login');
   }
 })();
 startDepth();  /* R14-M1: 单流化后只启 depth SSE */
+startPnlSSE();  /* Phase F: 持仓/资产变更驱动 */
 startPmStream();
 </script>
 </body>

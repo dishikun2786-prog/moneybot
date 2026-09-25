@@ -92,6 +92,44 @@ def series(key, hours=24):
             "points": [dict(t=r[0], model=r[1], bid=r[2], ask=r[3], eb=r[4], es=r[5]) for r in rows]}
 
 
+def pnl_overview():
+    """持仓/盈亏聚合 (前端 /api/pnl 数据源; Phase F 修复 404 并补齐持仓卡片)"""
+    from . import users
+    import paper_ops
+    st = paper_ops._read(paper_ops._resolve("CARRY_STATE"), {})
+    positions = []
+    for sym, p in (st.get("positions") or {}).items():
+        positions.append({
+            "key": sym, "side": "买现货+空永续" if p.get("dir", "fwd") == "fwd" else "空现货+多永续",
+            "strat": "现货×永续套利", "entry": p.get("spot_entry"),
+            "note": "资金费率套利", "key_orig": sym,
+            "live": {"symbol": sym, "dir": p.get("dir", "fwd"), "notional": p.get("notional"),
+                     "perp_entry": p.get("perp_entry"), "spot_entry": p.get("spot_entry"),
+                     "funding_acc": p.get("funding_acc", 0)}})
+    for sym, o in (st.get("orphans") or {}).items():
+        positions.append({
+            "key": sym, "side": "孤儿现货腿", "strat": "现货×永续套利", "entry": o.get("spot_entry"),
+            "note": "孤儿现货腿", "key_orig": sym,
+            "live": {"symbol": sym, "dir": o.get("dir", "fwd"), "notional": o.get("notional"),
+                     "spot_entry": o.get("spot_entry"), "funding_acc": 0, "orphan": True}})
+    for sym, n in (st.get("naked") or {}).items():
+        positions.append({
+            "key": sym, "side": "裸腿", "strat": "循环恢复", "entry": n.get("perp_entry"),
+            "note": "裸腿持仓", "key_orig": sym,
+            "live": {"symbol": sym, "dir": n.get("dir", "fwd"), "notional": n.get("notional"),
+                     "perp_entry": n.get("perp_entry"), "spot_entry": n.get("spot_entry"),
+                     "funding_acc": n.get("funding_acc", 0), "naked": True}})
+    uid = tenants.current_uid()
+    pb = users.get_paper_balance(uid)
+    cum = float(st.get("cum_pnl") or 0)
+    return {"capital": round(pb + cum, 2), "realized_total": round(cum, 4),
+            "realized_today": round(float(st.get("day_pnl") or 0), 4),
+            "unrealized": 0.0, "positions": positions,
+            "orphans": len(st.get("orphans") or {}),
+            "cy_rounds": st.get("n_rounds", 0), "pm_trades": 0,
+            "equity": [], "ts": time.strftime("%H:%M:%S", time.gmtime())}
+
+
 def paper():
     st = {}
     try:

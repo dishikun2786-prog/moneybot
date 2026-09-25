@@ -230,6 +230,58 @@ def api_paper(su=Depends(require_session_user)):
         return readers.paper()
 
 
+@app.get("/api/pnl")
+def api_pnl(su=Depends(require_session_user)):
+    """持仓/盈亏聚合 (Phase F: 修复前端 /api/pnl 404)"""
+    with tenants.tenant(su["u"]):
+        return readers.pnl_overview()
+
+
+def _pnl_sig(uid):
+    """持仓/资产变更签名 = 状态文件 mtime + 纸面余额"""
+    sig = []
+    for f in ("carry_state.json", "paper_state.json"):
+        pth = os.path.join(tenants.logs(uid), f)
+        try:
+            sig.append(str(int(os.path.getmtime(pth) * 1000)))
+        except Exception:
+            sig.append("0")
+    try:
+        sig.append(str(users.get_paper_balance(uid)))
+    except Exception:
+        sig.append("0")
+    return "|".join(sig)
+
+
+@app.get("/api/stream/pnl")
+async def stream_pnl(request: Request, su=Depends(require_session_user)):
+    """SSE: 持仓/资产变更推送 (Phase F: 变更驱动, 替代 5s/30s 轮询)"""
+    import asyncio
+
+    async def gen():
+        uid = su["u"]
+        last_sig = None
+        last_send = time.time()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                sig = _pnl_sig(uid)
+                if sig != last_sig:
+                    last_sig = sig
+                    last_send = time.time()
+                    yield "data: " + json.dumps({"v": sig}, ensure_ascii=False) + "\n\n"
+            except Exception:
+                pass
+            if time.time() - last_send > 15:
+                last_send = time.time()
+                yield ": ping\n\n"
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/carry")
 def carry_page():
     return FileResponse(STATIC / "carry.html")
