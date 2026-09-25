@@ -124,6 +124,9 @@ PARAM_SCHEMA = {
                  "max_hold_h": ("float", 1, 72), "max_exposure_usd": ("float", 1, 100),
                  "max_positions": ("int", 1, 10), "max_daily_loss": ("float", 0.5, 50)},
     "monitor": {"cal_sigma_up": ("float", 0.7, 1.5), "cal_sigma_down": ("float", 0.7, 1.5)},
+    "jev": {"open_p": ("float", 0.5, 0.95), "no_p": ("float", 0.5, 0.95),
+            "conf_min": ("float", 0.5, 0.9), "risk_pause": ("float", 1, 4),
+            "l1_and_mode": ("float", 0, 1)},
 }
 ALLOWED_UNITS = ("pm-monitor", "pm-wss", "pm-dash", "pm-carry")
 
@@ -226,12 +229,35 @@ def t_restart_engine(args):
             "message": "重启预览已生成, 等待用户批准"}
 
 
+def _write_jev_gate(diff):
+    """M-D3: jev 组参数写租户级 jev_gate.json (jev_engine.gate 每次读文件, 实时生效)"""
+    f = os.path.join(tenants.base(tenants.current_uid()), "data", "jev_gate.json")
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    cur = {}
+    try:
+        cur = json.load(open(f, encoding="utf-8"))
+    except Exception:
+        pass
+    for c in diff:
+        cur[c["key"]] = c["new"]
+    tmp = f + ".tmp"
+    json.dump(cur, open(tmp, "w"), ensure_ascii=False, indent=1)
+    os.replace(tmp, f)
+    return f
+
+
 def apply_params_direct(changes, source="manual"):
     """手动直接改参 (无审批流, 用户在UI自己确认): 白名单+范围校验 → 原子写 → git提交 → 审计
     source: manual(交易室手动) / 其他标识"""
     diff, err = _validate_changes(changes)
     if err:
         return {"ok": False, "error": err}
+    jev_diff = [c for c in diff if c["group"] == "jev"]
+    if jev_diff and all(c["group"] == "jev" for c in diff):
+        f = _write_jev_gate(jev_diff)
+        _audit("jev_gate_direct", {"file": f, "diff": jev_diff, "source": source})
+        return {"ok": True, "jev_gate": f,
+                "msg": ", ".join(f"{c['key']}={c['old']}→{c['new']}" for c in jev_diff)}
     params = _read_json(_resolve("PARAMS"), {})
     for c in diff:
         params.setdefault(c["group"], {})[c["key"]] = c["new"]
@@ -272,6 +298,11 @@ def apply_pending(action_id, approve):
 
 def _apply(act):
     if act["type"] == "update_params":
+        jev_diff = [c for c in act["diff"] if c["group"] == "jev"]
+        if jev_diff:
+            f = _write_jev_gate(jev_diff)
+            return True, {"msg": "Jev门控已实时生效: " + ", ".join(
+                f"{c['key']}={c['old']}→{c['new']}" for c in jev_diff), "file": f}
         params = _read_json(_resolve("PARAMS"), {})
         for c in act["diff"]:
             params.setdefault(c["group"], {})[c["key"]] = c["new"]
@@ -321,6 +352,10 @@ TOOLS = [
         "description": "读取历史回测记录 (最近N条, 对比不同θ的效果) (只读)",
         "parameters": {"type": "object", "properties": {"n": {
             "type": "number", "description": "条数, 默认5, 最大10"}}}}},
+    {"type": "function", "function": {"name": "get_jev_decisions",
+        "description": "读取Jev快速决策层最近决策留痕(开仓信号/风险评分/门控结果), 用于巡检判断门控参数是否需调整 (只读)",
+        "parameters": {"type": "object", "properties": {"n": {
+            "type": "number", "description": "条数, 默认10, 最大30"}}}}},
     {"type": "function", "function": {"name": "create_task",
         "description": "为用户创建智能定时任务(直接生效): 类型∈fee_watch(费率监控,需threshold年化%阈值)/risk_scan(持仓风险扫描)/backtest_run(回测,需threshold=θ值)/reminder(自定义提醒,需note提醒内容); interval_h=执行间隔小时数(fee_watch/reminder最小1, risk_scan最小2, backtest_run最小6, 最大720); name=任务名称",
         "parameters": {"type": "object", "properties": {
@@ -432,6 +467,23 @@ def t_backtest_history(args):
         return {"历史回测": [], "条数": 0, "说明": "暂无回测历史 (先让AI跑一次 backtest_summary)"}
 
 
+def t_get_jev_decisions(args):
+    """M-D3: 读 Jev 决策留痕最近 N 条 (租户隔离)"""
+    n = min(int((args or {}).get("n", 10)), 30)
+    f = os.path.join(BASE, "data", "jev_decisions.jsonl")
+    try:
+        lines = open(f, encoding="utf-8").read().strip().splitlines()
+        recs = []
+        for l in lines[-n:]:
+            d = json.loads(l)
+            if d.get("uid") is None or d.get("uid") == tenants.current_uid():
+                recs.append({k: d[k] for k in ("ts", "event", "signals", "gates", "latency_ms")
+                             if k in d})
+        return {"Jev最近决策": recs[-10:], "条数": len(recs)}
+    except Exception:
+        return {"Jev最近决策": [], "条数": 0, "说明": "暂无决策留痕"}
+
+
 def t_create_task(args):
     """M-A4: AI 创建智能定时任务 (提醒类无资金风险, 直接生效)"""
     try:
@@ -503,6 +555,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "my_positions": lambda a: t_my_positions(), "my_balance": lambda a: t_my_balance(),
              "create_task": t_create_task,
              "backtest_summary": t_backtest_summary, "backtest_history": t_backtest_history,
+             "get_jev_decisions": t_get_jev_decisions,
              "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}

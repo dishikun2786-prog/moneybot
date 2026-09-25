@@ -26,13 +26,18 @@ DEFAULT_GATE = {
 }
 
 
-def gate():
-    try:
-        if os.path.exists(GATE_FILE):
-            g = json.load(open(GATE_FILE, encoding="utf-8"))
-            return {**DEFAULT_GATE, **g}
-    except Exception:
-        pass
+def gate(uid=None):
+    """租户级 jev_gate.json 优先 → 全局 fallback → 默认 (每次读文件=实时生效)"""
+    files = [f"{BASE}/tenants/{uid}/data/jev_gate.json"] if uid else []
+    files.append(GATE_FILE)
+    for f in files:
+        try:
+            if os.path.exists(f):
+                g = json.load(open(f, encoding="utf-8"))
+                if isinstance(g, dict):
+                    return {**DEFAULT_GATE, **g}
+        except Exception:
+            pass
     return dict(DEFAULT_GATE)
 
 
@@ -71,7 +76,7 @@ def _noul_signal(p, g):
 
 def run_cycle(uid=None):
     """一轮决策: state 快照 → 批量开仓判断 → 门控 → 留痕。返回记录 dict。"""
-    g = gate()
+    g = gate(uid)
     st = tsd.build_state(uid)
     syms = [s for s in DUAL_SYMS if s in st.get("行情", {})]
     if not syms:

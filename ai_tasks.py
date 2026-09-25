@@ -193,6 +193,99 @@ def get_daily_report(uid):
 
 
 _LAST_JEV = 0.0
+_LAST_INSPECT = 0.0
+_FUND_SNAP = None  # funding 快照 {sym: 年化%} 供智能触发对比
+
+
+def _fund_snapshot():
+    """读 orderbook.json px 帧 → {sym: 年化费率%}"""
+    try:
+        ob = json.load(open(os.path.join(tenants.logs(), "orderbook.json"), encoding="utf-8"))
+        px = ob.get("px") or {}
+        return {s: float(d.get("funding") or 0) * 3 * 365 * 100
+                for s, d in px.items() if isinstance(d, dict) and d.get("funding") is not None}
+    except Exception:
+        return {}
+
+
+def _inspect_triggered(force=False):
+    """M-D3: 巡检触发判定 — 1h定时 | funding 年化变化>30% | funding 正负翻转"""
+    global _LAST_INSPECT, _FUND_SNAP
+    if force:
+        return True
+    now = time.time()
+    if now - _LAST_INSPECT >= 3600:
+        return True
+    snap = _fund_snapshot()
+    if _FUND_SNAP is None:
+        _FUND_SNAP = snap
+        return False
+    for s, v in snap.items():
+        old = _FUND_SNAP.get(s)
+        if old is None:
+            continue
+        if (old > 0 > v) or (old < 0 < v):  # 正负翻转
+            _FUND_SNAP = snap
+            return True
+        if old != 0 and abs((v - old) / old) > 0.30:  # 30分钟内变化>30%
+            _FUND_SNAP = snap
+            return True
+    _FUND_SNAP = snap
+    return False
+
+
+def hourly_inspect(uid):
+    """M-D3: DeepSeek 小时巡检 → 白话巡检报告写入 ai_daily_<uid>.json 的 hourly 字段"""
+    try:
+        import ai_client
+        from dash.app import funds
+        # 巡检素材: Jev 留痕 + 行情快照 + 持仓
+        jev_tail = []
+        try:
+            lines = open(os.path.join(os.path.expanduser("~/polymarket"), "data", "jev_decisions.jsonl"),
+                         encoding="utf-8").read().strip().splitlines()
+            for l in lines[-8:]:
+                d = json.loads(l)
+                if d.get("event") == "cycle" and d.get("uid") == uid:
+                    jev_tail.append({"ts": d.get("ts"), "signals": d.get("signals")})
+        except Exception:
+            pass
+        mkt = _fund_snapshot()
+        pos = {}
+        try:
+            st = json.load(open(os.path.join(tenants.logs(uid), "carry_state.json"),
+                                encoding="utf-8"))
+            pos = st.get("positions") or {}
+        except Exception:
+            pass
+        prompt = ("你是量化巡检官。这是1小时巡检素材(JSON)。请用简体中文白话输出巡检报告, 300字内, "
+                  "格式: ①市场状态(费率regime) ②Jev决策摘要(开仓信号/风险) ③持仓风险 ④是否建议调整门控参数"
+                  "(如需调整, 用一行[SUGGEST]列出参数名和目标值, 供用户在AI对话中批准)。\n"
+                  f"素材: {json.dumps({'Jev最近决策': jev_tail, '各标的年化费率%': mkt, '持仓': pos}, ensure_ascii=False)}")
+        body = json.dumps({"model": ai_client.MODEL,
+                           "messages": [{"role": "user", "content": prompt}],
+                           "stream": False, "max_tokens": 800}).encode()
+        import urllib.request
+        req = urllib.request.Request(ai_client.API_URL, data=body,
+                                     headers={"Content-Type": "application/json",
+                                              "Authorization": "Bearer " + ai_client._secrets["deepseek_api_key"]})
+        d = json.load(urllib.request.urlopen(req, timeout=120))
+        text = (d.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        # 写入 daily 文件 hourly 字段
+        f = os.path.join(tenants.logs(uid), "..", "data", f"ai_daily_{uid}.json")
+        cur = {}
+        try:
+            cur = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            pass
+        cur["hourly"] = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "report": text}
+        json.dump(cur, open(f, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        return text[:100]
+    except Exception as e:
+        return f"巡检失败: {type(e).__name__} {str(e)[:60]}"
+
+
+
 
 
 def tick():
@@ -210,6 +303,20 @@ def tick():
                     if ((u.get("plan") or "free") != "free" and u.get("status") == "active"):
                         try:
                             jev_engine.run_cycle(u["id"])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        # M-D3: DeepSeek 小时巡检 + 智能触发 (付费套餐用户)
+        if _inspect_triggered():
+            global _LAST_INSPECT
+            _LAST_INSPECT = time.time()
+            try:
+                from dash.app import users as _us2
+                for u in _us2.list_users():
+                    if ((u.get("plan") or "free") != "free" and u.get("status") == "active"):
+                        try:
+                            hourly_inspect(u["id"])
                         except Exception:
                             pass
             except Exception:
