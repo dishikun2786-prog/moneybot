@@ -3139,18 +3139,23 @@ async function supUpFile(file){
   else{toast('发送失败: '+(d.error||''),true)}
 }
 function supView(src){id('sup-viewer-img').src=src;id('sup-viewer').style.display='flex'}
-// 未读轮询(15s, 仅更新红点)
-setInterval(async function(){
+// 客服实时推送 (SSE, 断线自动重连)
+var SUP_ES=null;
+function supConnect(){
   try{
-    var r=await api('/api/support/unread');
-    if(r.data&&r.data.ok){
-      var n=(r.data.unread||{}).user||0;
+    if(SUP_ES)SUP_ES.close();
+    SUP_ES=new EventSource('/api/support/stream');
+    SUP_ES.onmessage=function(e){
+      var d=JSON.parse(e.data);
+      var n=(d.unread||{}).user||0;
       var dot=id('sup-dot');
       if(dot){dot.style.display=n>0?'':'none';dot.textContent=n>0?n:''}
-      if(n>0&&curScreen==='support')loadSupportConv();
-    }
+      if((d.type==='new_msg'||d.type==='refresh')&&curScreen==='support')loadSupportConv();
+    };
+    SUP_ES.onclose=function(){ setTimeout(supConnect,5000) };
   }catch(e){}
-},15000);
+}
+supConnect();
 
 function aiRestore(){
   if(!AIMSG.length)return;

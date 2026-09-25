@@ -750,6 +750,7 @@ async function openConv(id){
     </div>
     <div style="padding:6px 14px 8px;display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border)">
       ${SUP_Q.map(q=>`<button class="btn" style="width:auto;padding:3px 10px;min-height:26px;font-size:11px" onclick="document.getElementById('sup-inp').value=this.textContent;document.getElementById('sup-inp').focus()">${q.text}</button>`).join('')}
+      <button class="btn" style="width:auto;padding:3px 10px;min-height:26px;font-size:11px;color:#58a6ff" onclick="supQuickMgr()">⚙ 管理</button>
     </div>
     <div style="padding:8px 14px 12px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border)">
       <button class="btn" style="width:auto;min-height:34px;padding:0 12px" onclick="document.getElementById('sup-file').click()" title="发图片">📎</button>
@@ -788,7 +789,44 @@ async function supStatus(s){
   await j('POST','/api/support/status',{conv_id:SUP_CUR,status:s});
   await openConv(SUP_CUR);
 }
-setInterval(function(){ if(document.getElementById('p-support').classList.contains('on'))loadSupport() },15000);
+var SUP_ES=null;
+function supConnect(){
+  try{
+    if(SUP_ES)SUP_ES.close();
+    SUP_ES=new EventSource('/api/support/stream');
+    SUP_ES.onmessage=function(e){
+      var d=JSON.parse(e.data);
+      if(d.type==='new_msg'||d.type==='refresh'){
+        var bd=document.getElementById('sup-badge');
+        if(bd){bd.style.display=(d.unread&&d.unread.admin>0)?'':'none';bd.textContent=d.unread&&d.unread.admin||''}
+        if(document.getElementById('p-support').classList.contains('on')){
+          loadSupport();
+          if(SUP_CUR)openConv(SUP_CUR);
+        }
+      }
+    };
+    SUP_ES.onerror=function(){/* 断线由 onclose 兜底重连 */}
+    SUP_ES.onclose=function(){ setTimeout(function(){ if(document.getElementById('p-support').classList.contains('on'))supConnect() },5000) };
+  }catch(e){}
+}
+supConnect();
+// 快捷语管理弹层
+function supQuickMgr(){
+  var rows=SUP_Q.map(function(q){return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:12px">'+String(q.text).replace(/</g,'&lt;')+'</span><button class="btn" style="width:auto;min-height:26px;padding:0 10px;font-size:11px" onclick="supQuickDel('+q.id+')">删除</button></div>'}).join('');
+  modal('<div style="width:400px"><b>⚡ 快捷回复管理</b><div style="max-height:300px;overflow-y:auto;margin:10px 0">'+rows+'</div>'+
+    '<div style="display:flex;gap:8px"><input id="sq-text" placeholder="新增快捷语…" style="flex:1;background:var(--surface-3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--text);outline:none">'+
+    '<button class="btn" style="width:auto;min-height:34px;padding:0 16px;background:#3ebd93;color:#06251a" onclick="supQuickAdd()">添加</button></div></div>');
+}
+async function supQuickAdd(){
+  var v=document.getElementById('sq-text').value.trim();
+  if(!v)return;
+  SUP_Q=(await j('POST','/api/support/quick',{action:'add',text:v})).d.quicks||[];
+  mclose();supQuickMgr();
+}
+async function supQuickDel(id){
+  SUP_Q=(await j('POST','/api/support/quick',{action:'del',id:id})).d.quicks||[];
+  mclose();supQuickMgr();
+}
 async function loadApStats(){
   try{
     const {d}=await j('GET','/api/admin/autopilot-stats');

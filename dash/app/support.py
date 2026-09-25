@@ -12,7 +12,7 @@ import json
 import uuid
 
 from fastapi import Depends, Request, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 
 from . import config, auth
 
@@ -256,6 +256,50 @@ def register(app):
         c.commit()
         c.close()
         return {"ok": True}
+
+    @app.get("/api/support/stream")
+    async def support_stream(request: Request, su=Depends(require_session_user)):
+        """SSE 实时推送: 新消息/未读变化 (2s DB 轮询推, 15s 心跳, nginx 300s 超时已适配)"""
+        import asyncio
+
+        async def gen():
+            c = _db()
+            if su["r"] == "admin":
+                last = c.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
+            else:
+                conv = get_active_conv(su["u"])
+                cid = conv["id"] if conv else 0
+                last = c.execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE conv_id=?",
+                                 (cid,)).fetchone()[0]
+            c.close()
+            t0 = time.time()
+            while True:
+                if await request.is_disconnected():
+                    break
+                c = _db()
+                if su["r"] == "admin":
+                    cur = c.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
+                else:
+                    conv2 = get_active_conv(su["u"])
+                    cid2 = conv2["id"] if conv2 else 0
+                    cur = c.execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE conv_id=?",
+                                    (cid2,)).fetchone()[0]
+                    if cid2 != cid:
+                        # 会话切换(resolved→新会话): 推刷新
+                        c.close()
+                        cid = cid2
+                        yield "data: " + json.dumps({"type": "refresh", "unread": unread_counts(su)}) + "\n\n"
+                        continue
+                c.close()
+                if cur > last:
+                    last = cur
+                    yield "data: " + json.dumps({"type": "new_msg", "unread": unread_counts(su)}) + "\n\n"
+                elif time.time() - t0 > 15:
+                    t0 = time.time()
+                    yield ": hb\n\n"
+                await asyncio.sleep(2)
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/api/support/unread")
     def support_unread(request: Request, su=Depends(require_session_user)):
