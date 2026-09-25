@@ -218,7 +218,8 @@ def run_cycle(uid, jev_result=None):
     auth = auth_state(uid)
     if not auth:
         return None  # 未授权托管: 不执行任何动作
-    tasks = [t for t in _load_tasks(uid) if t.get("status") == "running"]
+    all_tasks = _load_tasks(uid)
+    tasks = [t for t in all_tasks if t.get("status") == "running"]
     if not tasks:
         return None
     # Jev 信号 (复用巡检结果, 缺则自己调)
@@ -252,7 +253,7 @@ def run_cycle(uid, jev_result=None):
         if day_pnl <= -loss_cap:
             t["status"] = "paused"
             t["stats"]["halt_reason"] = f"日损熔断: 当日亏损 {day_pnl:.2f} 达到上限 {loss_cap}"
-            _save_tasks(uid, _load_tasks(uid))
+            _save_tasks(uid, all_tasks)
             _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                               "uid": uid, "task_id": tid, "event": "halt",
                               "detail": t["stats"]["halt_reason"]})
@@ -299,7 +300,7 @@ def run_cycle(uid, jev_result=None):
         t["stats"]["today_pnl"] = round(day_pnl, 4)
         t["stats"]["day"] = time.strftime("%Y-%m-%d", time.gmtime())
         t["stats"]["positions"] = t_pos
-    _save_tasks(uid, _load_tasks(uid))
+    _save_tasks(uid, all_tasks)
     return {"uid": uid, "acted": acted, "day_pnl": day_pnl}
 
 
