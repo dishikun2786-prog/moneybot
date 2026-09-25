@@ -3096,7 +3096,7 @@ function closeAIFab(){
 function aiPersist(){try{localStorage.setItem('ai_msg_hist',JSON.stringify(AIMSG.slice(-40)))}catch(e){}}
 // ===== M-S3 客服 =====
 var SUP_CONV=null;
-function supFmt2(ts){ if(!ts)return ''; var d=new Date(ts+'Z'); return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) }
+function supFmt2(ts){ if(!ts)return ''; ts=String(ts); if(!ts.endsWith('Z')&&!ts.endsWith('z')&&ts.indexOf('+')<0)ts+='Z'; var d=new Date(ts); if(isNaN(d))return ''; return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) }
 async function loadSupportConv(){
   var r=await api('/api/support/conv');
   if(!r.data)return;
@@ -3132,14 +3132,26 @@ function supStripHtml(s){
 async function supSend2(){
   var v=id('sup-inp2').value.trim();
   if(!v)return;
-  id('sup-inp2').value='';
-  var r=await api('/api/support/msg',{method:'POST',body:JSON.stringify({content:v})});
-  if(r.data&&r.data.ok){
-    await loadSupportConv();
-    if(!SUP_CONV||!SUP_CONV.id)return;
-    // 等待提示
-    id('sup-msgs').insertAdjacentHTML('beforeend','<div class="sys">📩 已通知客服 · 等待回复</div>');
-    id('sup-msgs').scrollTop=id('sup-msgs').scrollHeight;
+  var inp=id('sup-inp2');
+  inp.disabled=true;
+  try{
+    id('sup-inp2').value='';
+    var r=await api('/api/support/msg',{method:'POST',body:JSON.stringify({content:v})});
+    if(r.data&&r.data.ok){
+      await loadSupportConv();
+      if(!SUP_CONV||!SUP_CONV.id)return;
+      // 等待提示
+      id('sup-msgs').insertAdjacentHTML('beforeend','<div class="sys">📩 已通知客服 · 等待回复</div>');
+      id('sup-msgs').scrollTop=id('sup-msgs').scrollHeight;
+    }else{
+      id('sup-inp2').value=v;
+      toast('发送失败: '+(r.data&&(r.data.error||r.data.msg)||'网络异常'),true);
+    }
+  }catch(e){
+    id('sup-inp2').value=v;
+    toast('发送失败: 网络异常',true);
+  }finally{
+    inp.disabled=false;
   }
 }
 async function supUpFile(file){
@@ -3574,6 +3586,7 @@ id('pm-shares').addEventListener('input',updPmHint);
 setPmSide('BUY'); */
 tick();setInterval(tick,30000);
 setInterval(function(){if(curScreen==='trade'||curScreen==='assets'||curScreen==='symbol')loadPositions()},5000); /* R13: 盯盘5s */
+setInterval(function(){if(curScreen==='support')loadSupportConv()},15000); /* M-S四期: 客服SSE兜底轮询 */
 setInterval(function(){if(curScreen==='assets')loadAssets()},30000);
 loadCaptcha('login');
 (async function boot(){

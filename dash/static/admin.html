@@ -711,7 +711,7 @@ function revExport(){
 // ===== M-D6 AI 决策面板 =====
 // ===== M-S2: 客服中心 =====
 var SUP_CUR=0,SUP_ST=null,SUP_Q=[];
-function supFmt(ts){ if(!ts)return ''; var d=new Date(ts+'Z'); return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) }
+function supFmt(ts){ if(!ts)return ''; ts=String(ts); if(!ts.endsWith('Z')&&!ts.endsWith('z')&&ts.indexOf('+')<0)ts+='Z'; var d=new Date(ts); if(isNaN(d))return ''; return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) }
 function supStatClass(s){ return {open:'#f0b429',pending:'#58a6ff',resolved:'#3ebd93'}[s]||'#8b949e' }
 function supStatZh(s){ return {open:'待处理',pending:'处理中',resolved:'已解决'}[s]||s }
 async function loadSupport(){
