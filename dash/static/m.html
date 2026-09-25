@@ -2534,6 +2534,8 @@ function trDetail(r){
     key:{zh:'持仓编号',desc:'系统内部持仓标识'},
     note:{zh:'备注',desc:'交易补充说明'},
     engine:{zh:'执行方式',desc:'托管引擎自动执行=系统自动下单, 手动执行=您自己下单'},
+    user_fee:{zh:'实付费用',desc:'您实际支付的手续费(官方费率×加价)',fmt:function(v){return num(Number(v),4)+' $'}},
+    spread_rev:{zh:'点差费',desc:'平台点差部分的费用',fmt:function(v){return num(Number(v),4)+' $'}},
     recovery:{zh:'循环恢复',desc:'平仓后自动再开仓的次数'},
     open_ts:{zh:'开仓时间',desc:'建仓的时间',fmt:fmtT2},
     close_ts:{zh:'平仓时间',desc:'离场的时间',fmt:fmtT2}

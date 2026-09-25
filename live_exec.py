@@ -360,9 +360,37 @@ def _finish_bybit(uid, r, action, sym, side, qty, notional, body):
         users.audit_log(uid, "live_order_fail", f"Bybit {action} {sym} {side} {qty}: {r.get('retMsg', '')[:80]}")
         return {"ok": False, "error": f"下单失败: {r.get('retMsg', '')[:120]}"}
     oid = r["result"].get("orderId")
-    _append(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                  "venue": "bybit", "action": action, "symbol": sym, "side": side,
-                  "qty": qty, "notional": notional, "order_id": oid})
+    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "venue": "bybit", "action": action, "symbol": sym, "side": side,
+           "qty": qty, "notional": notional, "order_id": oid}
+    # R14-M14: 实盘营收计费 — 费率加价+点差对实盘全生效 (与模拟同源 fee_ops)
+    try:
+        import os as _os
+        import sys as _s
+        import tenants as _t
+        _sp = _os.path.join(_t.base(), "dash")
+        if _sp not in _s.path:
+            _s.path.insert(0, _sp)
+        import fee_ops as _fo
+        from dash.app import users as _u
+        chan = "spot" if action.startswith("spot") else "perp"
+        n = float(notional or 0.0)
+        official = _fo.official(chan, sym) * n
+        vip = 0.5 if _u.get_fee_tier(uid) == 1 else 1.0
+        mult = vip * _fo.sym_mult(sym, chan)
+        user_fee = official * mult
+        spread_rev = n * _fo.spread_bp(sym) / 10000.0
+        rev = user_fee - official + spread_rev
+        rec.update({"user_fee": round(user_fee, 6), "official_fee": round(official, 6),
+                    "platform_rev": round(rev, 6), "spread_rev": round(spread_rev, 6),
+                    "mult": round(mult, 4)})
+        if user_fee + spread_rev > 0:   # 用户账面扣费 = 平台营收真实来源
+            from dash.app import funds as _fd
+            _fd.add_balance(uid, -(user_fee + spread_rev), "live_fee",
+                            f"#{oid}", "实盘手续费+点差")
+    except Exception:
+        pass
+    _append(uid, rec)
     users.audit_log(uid, "live_order", f"Bybit {action} {sym} {side} {qty} → #{oid}")
     return {"ok": True, "msg": f"已下单: {sym} {side} {qty} → #{oid}", "order_id": oid}
 

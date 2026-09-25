@@ -1582,7 +1582,7 @@ def api_admin_revenue(request: Request, __=Depends(require_admin)):
         t0 = float(request.query_params.get("from") or 0)
         t1 = float(request.query_params.get("to") or (time.time() * 1000 + 3600e3))
         by = request.query_params.get("by") or "day"
-        mode = request.query_params.get("mode") or "paper"
+        mode = request.query_params.get("mode") or "all"   # R14-M14: 默认全量(模拟+实盘)
     except Exception:
         return JSONResponse({"ok": False, "error": "参数非法"}, status_code=400)
     rows = _rev_scan(1, "all")
