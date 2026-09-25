@@ -128,7 +128,7 @@ def features(symbols=None):
         book = books.get(sym)
         if isinstance(book, dict) and book.get("bids") and book.get("asks"):
             try:
-                import wave as _wave
+                import wave_field as _wave
                 wf = _wave.features_from_book(book["bids"], book["asks"])
                 if wf:
                     m["wave"] = wf
