@@ -22,9 +22,9 @@
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 html,body{height:100%}
-body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex;justify-content:center}
-#app{width:100%;max-width:480px;background:var(--app-bg);min-height:100%;display:flex;flex-direction:column;position:relative;overflow:hidden}
-.statusbar{height:34px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;font-weight:600;color:var(--text-2)}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex;justify-content:center;font-variant-numeric:tabular-nums}
+#app{width:100%;max-width:480px;background:var(--app-bg);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.statusbar{height:calc(34px + env(safe-area-inset-top,0px));flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 18px;padding-top:env(safe-area-inset-top,0px);font-size:11px;font-weight:600;color:var(--text-2)}
 .apphead{height:50px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--border)}
 .apphead .title{font-size:16px;font-weight:700;display:flex;align-items:center;gap:7px}
 .apphead .title .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#000;font-weight:900;font-size:12px}
@@ -37,7 +37,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .screen.on{display:block}
 @keyframes slideFade{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
-.tabbar{position:relative;z-index:21;flex:none;height:60px;display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
+.tabbar{position:relative;z-index:21;flex:none;height:calc(60px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);display:flex;border-top:1px solid var(--border);background:rgba(18,19,24,.96);backdrop-filter:blur(8px)}
 .tabbar button{flex:1;background:none;border:none;color:var(--text-3);font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--sans);min-height:48px;position:relative;transition:color var(--t-fast) var(--ease)}
 .tabbar button .ico{font-size:19px;line-height:1;transition:transform var(--t-mid) var(--ease)}
 .tabbar button.on{color:var(--accent)}
@@ -236,7 +236,7 @@ select.input{appearance:none}
 @keyframes fabMsgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 /* chips 精修 */
 #ai-sheet #ai-chips2{gap:6px}
-#ai-sheet #ai-chips2 .chip{flex:none;padding:6px 13px;border-radius:16px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text-2);font-size:11.5px;font-weight:500;white-space:nowrap;transition:all .15s}
+#ai-sheet #ai-chips2 .chip{flex:none;padding:6px 13px;border-radius:16px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text-2);font-size:11.5px;font-weight:500;white-space:nowrap;transition:transform .15s,background-color .15s,border-color .15s}
 #ai-sheet #ai-chips2 .chip:active{background:rgba(61,220,151,.14);color:var(--text);border-color:rgba(61,220,151,.4)}
 /* 欢迎语精修 */
 #ai-sheet #ai-msg2 .ai-wel{align-self:center;text-align:center;padding:34px 14px;color:var(--text-2);font-size:13.5px;line-height:1.9}
@@ -408,7 +408,7 @@ select.input{appearance:none}
 .adm-item .ops .bad.ok{background:#16a34a}
 .adm-item .ops .bad{background:#dc2626}
 /* R13 toast 三态 */
-#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:#1e222c;color:#e5e7eb;padding:9px 18px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:all .25s;z-index:999;border:1px solid var(--border);max-width:86vw;box-shadow:var(--sh-2)}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:#1e222c;color:#e5e7eb;padding:9px 18px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:999;border:1px solid var(--border);max-width:86vw;box-shadow:var(--sh-2)}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.ok{border-color:rgba(52,211,153,.5);box-shadow:0 0 16px rgba(52,211,153,.15)}
 #toast.err{border-color:rgba(248,113,113,.5);box-shadow:0 0 16px rgba(248,113,113,.15)}
@@ -424,7 +424,7 @@ select.input{appearance:none}
 @keyframes blink{50%{opacity:.3}}
 /* R12 PM 原生交易样式 */
 .yesno-row{display:flex;gap:8px;margin-bottom:10px}
-.yesno-row button{flex:1;border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-m);padding:10px 8px;cursor:pointer;color:var(--text-2);font-family:var(--sans);transition:all var(--t-fast) var(--ease)}
+.yesno-row button{flex:1;border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-m);padding:10px 8px;cursor:pointer;color:var(--text-2);font-family:var(--sans);transition:transform var(--t-fast) var(--ease),background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .yesno-row button b{font-size:14px;display:block}
 .yesno-row button span{font-size:11px}
 .yesno-row button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
