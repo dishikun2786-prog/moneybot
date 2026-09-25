@@ -101,6 +101,30 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
       <button class="btn" onclick="saveFeeConfig()">💾 保存配置</button>
       <span class="dim" id="fee-msg"></span>
     </div>
+    <div class="card" style="margin-bottom:10px;background:rgba(247,201,72,.06);border-color:rgba(247,201,72,.35)">
+      <b style="color:#f7c948">📖 行业运营参照建议</b>
+      <div style="font-size:12px;line-height:1.9;margin-top:6px">
+        <b>行业官方费率基线</b>（本平台「官方 bp」列即按此预填，与 Bybit VIP0 一致）：<br>
+        永续合约 taker <b>0.055%</b>（5.5bp）/ maker 0.02% ｜ 现货 <b>0.1%</b>（10bp）。<br><br>
+        <b>加价倍率行业实践</b>：<br>
+        · 1.0×：不赚费率差，纯官方成本转嫁（适合拉新期/种子用户）<br>
+        · <b>1.2–2.0×：行业常见</b>——跟单/社交交易平台普遍在官方费率上浮 1.2–2 倍<br>
+        · 2.0–3.0×：偏高（新手向/高溢价平台），用户流失风险上升<br>
+        · &gt;3.0×：不建议，商业上不可持续<br><br>
+        <b>点差行业实践</b>（外汇/CFD 经纪商参照）：<br>
+        · 0–5bp：接近零滑点体验，拉新期友好<br>
+        · <b>5–15bp：行业常见</b>（加密 OTC/跟单平台主流区间）<br>
+        · 15–50bp：高（低流动性/特殊标的可容忍，主流标的会劝退用户）<br><br>
+        <b>标的差异化原则</b>：BTC/ETH 流动性最好、用户比价意识强 → 倍率/点差从低；黄金系（XAU/XAG/XAUT）与山寨（SOL/NEAR/XRP）是平台特色资产、替代渠道少 → 可略高。<br>
+        <b>营收速算</b>：用户费 = 官方费率 × VIP乘数 × 加价倍率；平台赚 = 用户费 − 官方成本 + 点差（全额）。
+      </div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+        <b style="font-size:12px">一键套用套餐：</b>
+        <button class="btn" onclick="feePreset('conservative')">🌱 保守（拉新期）</button>
+        <button class="btn" onclick="feePreset('balanced')">⚖️ 平衡（运营期·推荐）</button>
+        <button class="btn" onclick="feePreset('aggressive')">🚀 激进（高溢价）</button>
+      </div>
+    </div>
     <table id="fee-table"><thead><tr>
       <th>标的</th><th>官方现货 bp</th><th>现货加价倍率</th><th>官方永续 bp</th><th>永续加价倍率</th><th>点差 bp</th><th>用户实付预览</th>
     </tr></thead><tbody id="fee-tbody"></tbody></table>
@@ -493,6 +517,22 @@ function renderFeeConfig(){
   $('#fee-tbody').innerHTML=rows;
 }
 function numF(v){return (Math.round(Number(v)*10000)/10000)}
+function feePreset(kind){
+  /* R14-M12: 行业参照套餐一键套用 (只填输入框, 需再点保存才生效) */
+  var P={
+    conservative:{major:{mult:1.0,sp:0},minor:{mult:1.0,sp:5}},
+    balanced:{major:{mult:1.5,sp:5},minor:{mult:1.8,sp:10}},
+    aggressive:{major:{mult:2.0,sp:10},minor:{mult:2.5,sp:20}}
+  }[kind];
+  if(!P)return;
+  var major=['BTCUSDT','ETHUSDT'];
+  document.querySelectorAll('#fee-tbody .fee-in').forEach(function(inp){
+    var tier=major.indexOf(inp.dataset.s)>=0?P.major:P.minor;
+    inp.value=inp.dataset.k==='spread_bp'?tier.sp:tier.mult;
+  });
+  var names={conservative:'🌱 保守',balanced:'⚖️ 平衡',aggressive:'🚀 激进'};
+  $('#fee-msg').textContent='已套用「'+names[kind]+'」套餐参数 — 核对后点保存生效';
+}
 function feeSetAll(reset){
   document.querySelectorAll('#fee-tbody .fee-in').forEach(function(inp){
     if(reset)inp.value=inp.dataset.k==='spread_bp'?'0':'1.0';
