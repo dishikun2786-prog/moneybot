@@ -544,7 +544,7 @@ async def api_autopilot_create(request: Request, su=Depends(require_session_user
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     with tenants.tenant(su["u"]):
-        return _ap.create_task(su["u"], body.get("scope"), body.get("risk"))
+        return _ap.create_task(su["u"], body.get("scope"), body.get("risk"), str(body.get("mode") or "carry"))
 
 
 @app.post("/api/autopilot/set")

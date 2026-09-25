@@ -3046,6 +3046,9 @@ function apNewSheet(){
     +'<div style="margin:8px 0"><b>托管类型</b><br>'
     +'<label class="xs"><input type="radio" name="ap-type" value="all" checked> 🌐 全策略托管（6 双通道标的自动决策）</label><br>'
     +'<label class="xs"><input type="radio" name="ap-type" value="single"> 🎯 单标的托管</label></div>'
+    +'<div style="margin:8px 0"><b>策略模式</b><br>'
+    +'<label class="xs"><input type="radio" name="ap-mode" value="carry" checked> 🔁 基差套利（现货×永续，赚资金费率）</label><br>'
+    +'<label class="xs"><input type="radio" name="ap-mode" value="native"> 📈 原生方向（单边永续做多/做空）</label></div>'
     +'<div id="ap-sym-pick" style="display:none;margin-bottom:8px"><b>选择标的</b><br>'
     +'<select id="ap-sym-sel" style="width:100%;margin-top:4px">'
     +'<option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option>'
@@ -3065,10 +3068,11 @@ function apNewSheet(){
 async function apCreate(){
   var type=(document.querySelector('input[name=ap-type]:checked')||{}).value||'all';
   var scope=type==='all'?'all':[document.getElementById('ap-sym-sel').value];
+  var mode=(document.querySelector('input[name=ap-mode]:checked')||{}).value||'carry';
   var risk={notional:parseFloat(document.getElementById('ap-notional').value||15),
             max_positions:parseInt(document.getElementById('ap-maxpos').value||3),
             daily_loss_cap:parseFloat(document.getElementById('ap-loss').value||5)};
-  var r=await api('/api/autopilot/create',{method:'POST',body:JSON.stringify({scope:scope,risk:risk})});
+  var r=await api('/api/autopilot/create',{method:'POST',body:JSON.stringify({scope:scope,risk:risk,mode:mode})});
   closeSheet();
   if(r.status===200&&r.data&&r.data.ok)toast('托管任务已创建');
   else toast((r.data&&(r.data.error||r.data.msg))||'创建失败');

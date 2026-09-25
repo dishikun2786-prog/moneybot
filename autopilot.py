@@ -9,7 +9,7 @@
 import json, os, time
 
 BASE = os.path.expanduser("~/polymarket")
-DUAL_SYMS = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
+DUAL_SYMS = ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
 
 DEFAULT_RISK = {"max_positions": 3, "notional": 15.0, "daily_loss_cap": 5.0,
                 "theta": 5.0, "freq_min": 5, "auth_level": "A"}
@@ -498,17 +498,25 @@ def _exec_close(uid, tid, sym, reason, task):
 
 
 def cancel_with_close(uid, tid):
-    """取消任务并平掉其托管持仓 (默认自动平仓)"""
+    """取消任务并平掉其托管持仓 (默认自动平仓; 原生模式平原生仓, 套利模式平套利仓)"""
     tasks = _load_tasks(uid)
     t = next((x for x in tasks if x.get("id") == tid), None)
     if t is None:
         return {"ok": False, "error": f"任务不存在: {tid}"}
-    pos = _carry_positions(uid)
     closed = []
-    for s in t.get("symbols", []):
-        if s in pos:
-            _exec_close(uid, tid, s, "取消托管自动平仓", t)
-            closed.append(s)
+    if t.get("mode") == "native":
+        live = bool((t.get("risk") or {}).get("live", False))
+        pos = _native_positions(uid)
+        for s in t.get("symbols", []):
+            if s in pos:
+                _exec_native_close(uid, tid, s, "取消托管自动平仓", t, live)
+                closed.append(s)
+    else:
+        pos = _carry_positions(uid)
+        for s in t.get("symbols", []):
+            if s in pos:
+                _exec_close(uid, tid, s, "取消托管自动平仓", t)
+                closed.append(s)
     t["status"] = "cancelled"
     _save_tasks(uid, tasks)  # 审查修复: 保存同一引用 (原 _load_tasks 重读磁盘丢弃内存修改 → 取消失效)
     return {"ok": True, "msg": f"任务已取消, 自动平仓 {closed if closed else '无持仓'}"}
