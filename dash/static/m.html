@@ -371,6 +371,9 @@ select.input{appearance:none}
 .ai-tool{font-size:12px;color:var(--text-3);background:var(--surface-3);border-radius:8px;padding:5px 9px;margin:6px 0}
 .ai-up{background:rgba(62,189,147,.08);border:1px solid rgba(62,189,147,.4);border-radius:10px;padding:10px;font-size:13px}
 .ai-up p{color:var(--text-2);font-size:12px;margin:4px 0}
+.ai-sug{border:1px solid var(--accent);background:rgba(62,189,147,.06);border-radius:10px;padding:9px;margin:8px 0;font-size:13px}
+.ai-sug b{color:var(--accent)}
+.ai-tool.ok{color:var(--up)}
 .ai-input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border-2);background:var(--surface)}
 .ai-input input{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:18px;padding:9px 14px;font-size:14px;color:var(--text);outline:none}
 .up-item{border:1px solid var(--border-2);border-radius:10px;padding:10px}
@@ -2683,10 +2686,11 @@ async function aiSend(){
   id('ai-q').value='';
   aiBubble('user',q);
   AIMSG.push({role:'user',content:q});
-  var b=aiBubble('a','<span class="ai-cur">▍</span>');
+  var b=aiBubble('a','<div class="ai-body"><span class="ai-cur">▍</span></div>');
   var acc='';
   var upgraded=false;
-  function flush(){b.innerHTML=acc.replace(/\n/g,'<br>')+'<span class="ai-cur">▍</span>';id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+  var body=b.querySelector('.ai-body')||b;
+  function flush(){body.innerHTML=acc.replace(/\n/g,'<br>')+'<span class="ai-cur">▍</span>';id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
   try{
     var r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:AIMSG.slice(-20)})});
     if(!r.ok){var e2=await r.text();b.textContent='请求失败: '+r.status;return}
@@ -2702,15 +2706,32 @@ async function aiSend(){
         if(!line.startsWith('data:'))continue;
         var ev=JSON.parse(line.slice(5));
         if(ev.type==='delta'){acc+=ev.text||'';flush()}
-        else if(ev.type==='tool_call'){b.innerHTML=acc+'<div class="ai-tool">🔍 '+(ev.name||'查询数据')+'…</div><span class="ai-cur">▍</span>'}
-        else if(ev.type==='tool_result'){b.innerHTML=acc+'<span class="ai-cur">▍</span>'}
+        else if(ev.type==='tool_call'){body.innerHTML=acc+'<div class="ai-tool">🔍 '+(ev.name||'查询数据')+'…</div><span class="ai-cur">▍</span>'}
+        else if(ev.type==='tool_result'){
+          var rr=ev.result||{};
+          if(rr.status==='preview'&&rr.action_id){
+            var rows=(rr.diff||[]).map(function(d){
+              return '<div class="xs">'+(d.group||'')+'.'+(d.key||'')+': <span class="muted">'+String(d.old)+'</span> → <b class="up">'+String(d.new)+'</b></div>';}).join('');
+            b.insertAdjacentHTML('beforeend','<div class="ai-sug" id="sug-'+rr.action_id+'"><b>📝 修改预览 (未生效, 需您确认)</b>'+rows+'<div class="row" style="margin-top:6px"><button class="btn accent" style="padding:5px 14px" onclick="aiApprove(\''+rr.action_id+'\',true)">✅ 批准生效</button><button class="btn ghost" style="padding:5px 14px" onclick="aiApprove(\''+rr.action_id+'\',false)">✕ 拒绝</button></div></div>');
+          }else if(rr.status==='applied'){body.insertAdjacentHTML('beforeend','<div class="ai-tool ok">✅ 已生效: '+(rr.message||'')+'</div>')}
+          body.insertAdjacentHTML('beforeend','<span class="ai-cur">▍</span>')
+        }
         else if(ev.type==='upgrade'){acc='';upgraded=true;b.innerHTML='<div class="ai-up"><b>💎 升级解锁 AI 策略助手</b><p>'+ (ev.text||'') +'</p><button class="btn accent" style="margin-top:6px" onclick="openUpgrade()">立即升级</button></div>'}
         else if(ev.type==='error'){b.textContent='出错了: '+(ev.text||'')}
-        else if(ev.type==='done'){if(upgraded)return;b.innerHTML=acc.replace(/\n/g,'<br>');if(ev.content)AIMSG.push({role:'assistant',content:ev.content});return}
+        else if(ev.type==='done'){if(upgraded)return;body.innerHTML=acc.replace(/\n/g,'<br>');if(ev.content)AIMSG.push({role:'assistant',content:ev.content});return}
       }
     }
   }catch(err){b.textContent='网络错误: '+err.message}
   finally{id('ai-msg').scrollTop=id('ai-msg').scrollHeight}
+}
+async function aiApprove(aid,ok){
+  var r=await api('/api/ai/approve',{method:'POST',body:JSON.stringify({action_id:aid,approve:ok})});
+  var el=id('sug-'+aid);
+  if(el){
+    if(r.data&&r.data.ok){el.innerHTML='<b class="up">✅ '+(r.data.msg||'已生效')+'</b>'}
+    else{el.innerHTML='<b class="down">❌ '+(r.data&&(r.data.msg||r.data.error)||'操作失败')+'</b>'}
+  }
+  toast(r.data&&r.data.ok?(r.data.msg||'已生效'):('失败: '+(r.data&&(r.data.msg||r.data.error)||'未知')),!r.data||!r.data.ok);
 }
 function aiClear(){AIMSG=[];id('ai-msg').innerHTML='<div class="ai-wel">🤖 我是你的 AI 策略助手<br><span class="xs muted">可以问我持仓风险、盈亏总结、套利行情等</span></div>'}
 function aiInit(){if(!id('ai-msg').dataset.inited){aiClear();id('ai-msg').dataset.inited='1'}}
