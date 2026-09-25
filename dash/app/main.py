@@ -2043,3 +2043,7 @@ def api_admin_revenue_export(request: Request, __=Depends(require_admin)):
     from fastapi.responses import Response
     return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
                     headers={"Content-Disposition": "attachment; filename=revenue.csv"})
+
+# ================= M-S1: 客服系统 =================
+from . import support as support_mod
+support_mod.register(app)
