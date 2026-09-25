@@ -152,6 +152,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
     <table><thead><tr><th>时间</th><th>用户</th><th>模式</th><th>标的</th><th>动作</th><th>用户实付费$</th><th>官方成本$</th><th>平台营收$</th><th>点差$</th></tr></thead>
     <tbody id="rev-tbody"></tbody></table>
     <div class="pager" id="rev-pager"></div>
+    <h3 style="margin-top:16px">🤖 AI 决策面板 (Jev×DeepSeek) <span class="dim" id="jev-updated"></span></h3>
+    <div class="cards" id="jev-cards" style="margin-bottom:10px"></div>
+    <div class="row" style="margin-bottom:8px"><b>最近决策</b></div>
+    <table><thead><tr><th>时间</th><th>用户</th><th>开仓信号</th><th>风险暂停</th><th>延迟</th></tr></thead>
+    <tbody id="jev-tbody"></tbody></table>
   </div>
 
   <div class="panel" id="p-audit">
@@ -633,6 +638,7 @@ async function saveFeeConfig(){
 }
 var REV_DATA=null,REV_OFF=0;
 async function loadRevenue(){
+  loadJevStats();
   var by=($('#rev-by')||{}).value||'day';
   const {d}=await j('GET','/api/admin/revenue?by='+by);
   if(!d.ok){$('#rev-cards').innerHTML='<div class="card">加载失败</div>';return}
@@ -671,6 +677,30 @@ async function loadRevDetail(offset){
 }
 function revExport(){
   window.open('/api/admin/revenue/export','_blank');
+}
+
+// ===== M-D6 AI 决策面板 =====
+async function loadJevStats(){
+  try{
+    const {d}=await j('GET','/api/admin/jev-stats');
+    if(!d.ok) return;
+    const cards=[
+      ['🧠 决策周期', d.calls+' 次'],
+      ['📉 降级事件', d.degraded+' 次'],
+      ['⏱️ 平均延迟', d.avg_latency_ms+' ms'],
+      ['🔤 Token消耗', (d.tokens/1000).toFixed(1)+'k'],
+      ['🟢 开仓信号', d.signals.open+' 次'],
+      ['🔴 否定信号', d.signals.no+' 次'],
+      ['🟡 观望', d.signals.uncertain+' 次'],
+    ];
+    document.getElementById('jev-cards').innerHTML=cards.map(c=>
+      `<div class="card"><div class="dim">${c[0]}</div><div class="big">${c[1]}</div></div>`).join('');
+    document.getElementById('jev-tbody').innerHTML=(d.decisions||[]).map(x=>
+      `<tr><td>${(x.ts||'').slice(11,19)}</td><td>#${x.uid||'-'}</td>`+
+      `<td>${(x.open||[]).join(', ')||'—'}</td>`+
+      `<td>${x.risk_paused?'⚠️ 是':'否'}</td><td>${x.latency_ms}ms</td></tr>`).join('');
+    document.getElementById('jev-updated').textContent='更新于 '+new Date().toLocaleTimeString();
+  }catch(e){}
 }
 </script>
 

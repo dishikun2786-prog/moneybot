@@ -451,6 +451,44 @@ async def ai_chat(request: Request, su=Depends(require_session_user)):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/api/admin/jev-stats")
+def api_jev_stats(__=Depends(require_session), su=Depends(require_session_user)):
+    """M-D6: Jev 决策面板统计 (决策留痕+调用指标聚合)"""
+    import json as _j
+    if su["r"] != "admin":
+        return JSONResponse({"ok": False, "error": "仅管理员"}, status_code=403)
+    out = {"decisions": [], "calls": 0, "degraded": 0, "tokens": 0, "avg_latency_ms": 0,
+           "signals": {"open": 0, "no": 0, "uncertain": 0}, "by_sym": {}}
+    base = "/home/ubuntu/polymarket"
+    try:
+        lines = open(f"{base}/data/jev_decisions.jsonl", encoding="utf-8").read().strip().splitlines()
+        for l in lines[-50:]:
+            d = _j.loads(l)
+            if d.get("event") == "cycle":
+                out["calls"] += 1
+                out["tokens"] += (d.get("tokens") or {}).get("input_tokens", 0) + \
+                    (d.get("tokens") or {}).get("output_tokens", 0)
+                out["avg_latency_ms"] += d.get("latency_ms", 0)
+                sig = d.get("signals") or {}
+                for k in ("open", "no", "uncertain"):
+                    n = len(sig.get(k) or [])
+                    out["signals"][k] += n
+                    for s in sig.get(k) or []:
+                        out["by_sym"][s] = out["by_sym"].get(s, {})
+                        out["by_sym"][s][k] = out["by_sym"][s].get(k, 0) + 1
+                out["decisions"].append({"ts": d.get("ts"), "uid": d.get("uid"),
+                                         "open": sig.get("open"), "risk_paused": sig.get("risk_paused"),
+                                         "latency_ms": d.get("latency_ms")})
+            elif d.get("event") == "degraded":
+                out["degraded"] += 1
+        if out["calls"]:
+            out["avg_latency_ms"] = round(out["avg_latency_ms"] / out["calls"])
+        out["decisions"] = out["decisions"][-10:]
+    except Exception:
+        pass
+    return {"ok": True, **out}
+
+
 @app.post("/api/ai/approve")
 async def ai_approve(request: Request, su=Depends(require_session_user)):
     try:
