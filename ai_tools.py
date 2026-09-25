@@ -313,6 +313,19 @@ def _apply(act):
             out = _sh(f"cd {BASE} && git add strategy_params.json && git commit -q -m 'AI改参: {summary}'", 15)
             commit = out.strip()[:40] or "committed"
         return True, {"msg": f"已生效: {summary}", "commit": commit}
+    if act["type"] == "open_carry":
+        import paper_ops
+        r = paper_ops.open_hedge(act["symbol"], act["notional"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"纸面开仓已执行: {act['symbol']} 名义{act['notional']}USDT (成交留痕)",
+                      "result": r}
+    if act["type"] == "close_carry":
+        import paper_ops
+        r = paper_ops.close_both(act["symbol"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"纸面平仓已执行: {act['symbol']} (成交留痕)", "result": r}
     if act["type"] == "git_rollback":
         rev = act["rev"]
         out = _sh(f"cd {BASE} && git checkout {rev} -- strategy_params.json && git commit -q -m 'AI回退参数到 {rev}'", 20)
@@ -352,6 +365,17 @@ TOOLS = [
         "description": "读取历史回测记录 (最近N条, 对比不同θ的效果) (只读)",
         "parameters": {"type": "object", "properties": {"n": {
             "type": "number", "description": "条数, 默认5, 最大10"}}}}},
+    {"type": "function", "function": {"name": "open_carry",
+        "description": "对话式开仓: 现货×永续双向套利(买现货+空永续赚资金费率)。生成执行预览(Jev复核附在预览), 必须等用户在界面点击【批准】才执行。标的限 BTCUSDT/ETHUSDT/XAUTUSDT/SOLUSDT/NEARUSDT/XRPUSDT",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的, 如 BTCUSDT (必须用英文键)"},
+            "notional": {"type": "number", "description": "名义金额USDT, 1-50, 默认10"}},
+            "required": ["symbol"]}}},
+    {"type": "function", "function": {"name": "close_carry",
+        "description": "对话式平仓: 平掉指定标的的全部双向套利持仓(平现货+平永续)。生成预览, 必须等用户批准才执行",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的, 如 BTCUSDT"}},
+            "required": ["symbol"]}}},
     {"type": "function", "function": {"name": "get_jev_decisions",
         "description": "读取Jev快速决策层最近决策留痕(开仓信号/风险评分/门控结果), 用于巡检判断门控参数是否需调整 (只读)",
         "parameters": {"type": "object", "properties": {"n": {
@@ -467,6 +491,68 @@ def t_backtest_history(args):
         return {"历史回测": [], "条数": 0, "说明": "暂无回测历史 (先让AI跑一次 backtest_summary)"}
 
 
+DUAL_CARRY_SYMS = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
+
+
+def _jev_check(symbol):
+    """M-D4: Jev 复核开仓时机 → (P, 信号, 把握度); Jev 不可用时不阻塞(返回None)"""
+    try:
+        import typesafe_decision as tsd
+        st = tsd.build_state(tenants.current_uid())
+        r = tsd.decide_open(st, [symbol], theta=5.0)
+        a = (r.get("answers") or {}).get(f"open_{symbol}")
+        if a and "_error" not in r:
+            p = a.get("noul", 0.5)
+            return {"P": round(p, 3), "把握度": round(abs(p - 0.5) * 2, 3),
+                    "判断": "模型认为适合开仓" if p >= 0.65 else
+                            ("模型不看好" if p <= 0.35 else "模型态度中性")}
+    except Exception:
+        pass
+    return None
+
+
+def t_open_carry(args):
+    """M-D4: 对话式开仓 — 白名单+Jev复核 → 预览 → 用户批准 → paper_ops.open_hedge"""
+    sym = str(args.get("symbol") or "").upper()
+    if sym not in DUAL_CARRY_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在可交易池 {list(DUAL_CARRY_SYMS)}"}
+    try:
+        notional = float(args.get("notional", 10))
+    except Exception:
+        return {"status": "rejected", "error": "notional 必须是数字"}
+    if not (1 <= notional <= 50):
+        return {"status": "rejected", "error": "名义金额须在 1-50 USDT"}
+    jev = _jev_check(sym)
+    p = _pending()
+    aid = f"a{int(time.time()*1000)}"
+    p[aid] = {"type": "open_carry", "symbol": sym, "notional": notional,
+              "jev": jev, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "diff": [{"group": "trade", "key": "开仓", "old": "-", "new": f"{sym} 名义{notional}USDT (买现货+空永续)"},
+                        {"group": "trade", "key": "Jev复核", "old": "-",
+                         "new": f"P={jev['P']} 把握度{jev['把握度']} ({jev['判断']})" if jev else "Jev不可用, 跳过复核"}]}
+    _save_pending(p)
+    _audit("open_carry_preview", {"symbol": sym, "notional": notional, "jev": jev})
+    return {"status": "preview", "action_id": aid, "symbol": sym, "notional": notional,
+            "jev": jev, "diff": p[aid]["diff"],
+            "message": f"开仓预览已生成 (尚未执行): {sym} 名义{notional}USDT 双向套利。等待用户在界面点击【批准】"}
+
+
+def t_close_carry(args):
+    """M-D4: 对话式平仓 — 白名单 → 预览 → 批准 → paper_ops.close_both"""
+    sym = str(args.get("symbol") or "").upper()
+    if sym not in DUAL_CARRY_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在可交易池"}
+    p = _pending()
+    aid = f"a{int(time.time()*1000)}"
+    p[aid] = {"type": "close_carry", "symbol": sym,
+              "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "diff": [{"group": "trade", "key": "平仓", "old": "-", "new": f"{sym} 全部持仓(平现货+平永续)"}]}
+    _save_pending(p)
+    _audit("close_carry_preview", {"symbol": sym})
+    return {"status": "preview", "action_id": aid, "symbol": sym, "diff": p[aid]["diff"],
+            "message": f"平仓预览已生成 (尚未执行): {sym}。等待用户批准"}
+
+
 def t_get_jev_decisions(args):
     """M-D3: 读 Jev 决策留痕最近 N 条 (租户隔离)"""
     n = min(int((args or {}).get("n", 10)), 30)
@@ -556,6 +642,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "create_task": t_create_task,
              "backtest_summary": t_backtest_summary, "backtest_history": t_backtest_history,
              "get_jev_decisions": t_get_jev_decisions,
+             "open_carry": t_open_carry, "close_carry": t_close_carry,
              "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
