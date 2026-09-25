@@ -11,6 +11,8 @@ import time
 
 import tenants
 
+_LAST_DAILY = ""
+
 TASK_TYPES = {
     "fee_watch": {"zh": "费率监控", "min_interval_h": 1},
     "risk_scan": {"zh": "持仓风险扫描", "min_interval_h": 2},
@@ -141,9 +143,74 @@ def _exec(uid, task):
     return "未知任务类型"
 
 
+def daily_report_file(uid):
+    return os.path.join(tenants.base(uid), "data", f"ai_daily_{uid}.json")
+
+
+def gen_daily_report(uid):
+    """M-A6: 旗舰版每日巡检报告 (费率快照+持仓风险, 存 data/ai_daily_<uid>.json)"""
+    parts = []
+    # 费率快照
+    try:
+        ob = os.path.join(tenants.base(uid), "logs", "orderbook.json")
+        data = json.load(open(ob, encoding="utf-8"))
+        px = data.get("px") or {}
+        rows = []
+        for sym, p in list(px.items())[:8]:
+            fr = p.get("funding")
+            if fr is None:
+                continue
+            ann = float(fr) * 3 * 365 * 100
+            rows.append({"标的": sym, "年化费率%": round(ann, 2)})
+        parts.append({"费率快照": rows})
+    except Exception:
+        parts.append({"费率快照": "行情未就绪"})
+    # 持仓风险
+    try:
+        with tenants.tenant(uid):
+            import paper_ops as po
+            spot = po.spot_positions()
+            native = po.native_positions()
+        tot = sum(float(s["pnl"]) for s in spot) + sum(float(n.get("pnl") or 0) for n in native)
+        parts.append({"持仓": f"现货{len(spot)}个+合约纸面{len(native)}个, 总浮盈 {tot:+.2f} USDT"})
+    except Exception as e:
+        parts.append({"持仓": f"扫描失败: {str(e)[:80]}"})
+    report = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "parts": parts}
+    try:
+        with open(daily_report_file(uid), "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return report
+
+
+def get_daily_report(uid):
+    try:
+        d = json.load(open(daily_report_file(uid), encoding="utf-8"))
+        return d
+    except Exception:
+        return None
+
+
 def tick():
     """每60s扫描全部租户的到期任务 (pm-dash 后台线程调用)"""
     try:
+        # M-A6: 每日巡检 (UTC 0点后第一次tick, 旗舰版用户)
+        global _LAST_DAILY
+        now = time.time()
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if _LAST_DAILY != today:
+            _LAST_DAILY = today
+            try:
+                from dash.app import users
+                for u in users.list_users():
+                    if (u.get("plan") == "live" and u.get("status") == "active"):
+                        try:
+                            gen_daily_report(u["id"])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         base = tenants.base()
         dirs = [os.path.join(base, "data")]
         try:

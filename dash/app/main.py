@@ -366,6 +366,7 @@ _AI_LIMIT = defaultdict(deque)
 
 
 _AI_CTX = {}  # M-A2: uid -> (ts, ctx快照)
+_AI_UID_LIMIT = {}  # M-A6: "uid:日期" -> 今日次数
 
 
 def ai_allowed(ip, max_n=15, window=300):
@@ -390,6 +391,18 @@ async def ai_chat(request: Request, su=Depends(require_session_user)):
         return JSONResponse({"error": "bad request"}, status_code=400)
     messages = (body.get("messages") or [])[-20:]
     uid = su["u"]
+    # M-A6: 用户级每日用量限额 (pro 50次/live 200次)
+    _plan = ((users.get_user(uid) or {}).get("plan") or "free")
+    _cap = {"pro": 50, "live": 200}.get(_plan, 0)
+    _day = time.strftime("%Y-%m-%d")
+    _k = f"{uid}:{_day}"
+    _cnt = _AI_UID_LIMIT.get(_k, 0)
+    if _cnt >= _cap:
+        async def gen_limited():
+            yield f"data: {json.dumps({'type': 'error', 'text': f'今日AI对话次数已达上限({_cap}次/天), 明天再来'}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(gen_limited(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    _AI_UID_LIMIT[_k] = _cnt + 1
     # M-A1: 套餐 gating — 免费版进入对话返回升级引导事件
     _u = users.get_user(uid)
     if _u and (_u.get("plan") or "free") == "free":
@@ -419,6 +432,13 @@ async def ai_chat(request: Request, su=Depends(require_session_user)):
         try:
             c["资金"] = {"余额USDT": float(funds.get_balance(uid) or 0),
                          "套餐": (users.get_user(uid) or {}).get("plan")}
+        except Exception:
+            pass
+        try:
+            import ai_tasks as _at
+            rpt = _at.get_daily_report(uid)
+            if rpt and rpt.get("parts"):
+                c["今日巡检报告"] = rpt["parts"]
         except Exception:
             pass
         _AI_CTX[uid] = (now, c)
