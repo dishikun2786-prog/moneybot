@@ -489,6 +489,67 @@ def api_jev_stats(__=Depends(require_session), su=Depends(require_session_user))
     return {"ok": True, **out}
 
 
+# ================= M-P1: AI 全托管任务 API =================
+@app.get("/api/autopilot")
+def api_autopilot_list(su=Depends(require_session_user)):
+    """托管任务列表 + 授权状态 (租户隔离)"""
+    import autopilot as _ap
+    with tenants.tenant(su["u"]):
+        return {"ok": True, "tasks": _ap.get_tasks(su["u"]),
+                "auth": _ap.auth_state(su["u"])}
+
+
+@app.post("/api/autopilot/authorize")
+async def api_autopilot_authorize(request: Request, su=Depends(require_session_user)):
+    """一次性授权 (分级 A/B)"""
+    import autopilot as _ap
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    with tenants.tenant(su["u"]):
+        return _ap.authorize(su["u"], str(body.get("level", "A")).upper())
+
+
+@app.post("/api/autopilot/revoke")
+async def api_autopilot_revoke(__=Depends(require_session), su=Depends(require_session_user)):
+    import autopilot as _ap
+    with tenants.tenant(su["u"]):
+        return _ap.revoke(su["u"])
+
+
+@app.post("/api/autopilot/create")
+async def api_autopilot_create(request: Request, su=Depends(require_session_user)):
+    """创建托管任务: {scope: 'all'|[...], risk: {可选覆盖}}"""
+    import autopilot as _ap
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    with tenants.tenant(su["u"]):
+        return _ap.create_task(su["u"], body.get("scope"), body.get("risk"))
+
+
+@app.post("/api/autopilot/set")
+async def api_autopilot_set(request: Request, su=Depends(require_session_user)):
+    """任务操作: {id, status: running|paused|cancelled, risk: {可选}}"""
+    import autopilot as _ap
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    fields = {}
+    if body.get("status"):
+        fields["status"] = body["status"]
+    if body.get("risk"):
+        fields["risk"] = body["risk"]
+    with tenants.tenant(su["u"]):
+        if body.get("status") == "cancelled":
+            # M-P2: 取消默认自动平仓
+            return _ap.cancel_with_close(su["u"], str(body.get("id", "")))
+        return _ap.set_task(su["u"], str(body.get("id", "")), **fields)
+
+
 @app.post("/api/ai/approve")
 async def ai_approve(request: Request, su=Depends(require_session_user)):
     try:

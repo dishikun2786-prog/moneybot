@@ -297,12 +297,14 @@ def tick():
         if _now - _LAST_JEV >= 300:
             _LAST_JEV = _now
             try:
-                import jev_engine
+                import jev_engine, autopilot
                 from dash.app import users as _users
                 for u in _users.list_users():
                     if ((u.get("plan") or "free") != "free" and u.get("status") == "active"):
                         try:
-                            jev_engine.run_cycle(u["id"])
+                            rec = jev_engine.run_cycle(u["id"])
+                            # M-P2: 托管执行 (复用Jev巡检结果, 未授权则自动跳过)
+                            autopilot.run_cycle(u["id"], rec)
                         except Exception:
                             pass
             except Exception:
