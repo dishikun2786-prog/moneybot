@@ -57,6 +57,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .btn.ghost{background:transparent;border:1px solid var(--bd);color:var(--mut)}
 #toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#1e2028;border:1px solid var(--bd);border-left:3px solid var(--acc);padding:10px 18px;border-radius:8px;display:none;z-index:99;font-size:13px}
 .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px;color:var(--mut);font-size:13px}
+.chip{display:inline-block;padding:4px 10px;border:1px solid var(--border);border-radius:14px;font-size:12px;cursor:pointer;background:transparent;color:var(--foreground)}
+.chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -81,6 +83,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
   </div>
 
   <div class="panel on" id="p-users">
+    <div class="card">
+      <div class="ct">📦 套餐设置 <span class="dim" style="font-size:12px">价格 + 默认托管时长 (免费版固定)</span></div>
+      <div id="plandefs" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
     <div class="row">
       <input id="q" placeholder="搜索账号/邮箱..." style="width:220px" oninput="renderUsers()">
       <span class="dim" id="ucount"></span>
@@ -287,6 +293,26 @@ async function userStatus(uid,st){
     <div class="row"><button class="btn ${st==='disabled'?'danger':''}" onclick="mclose();doStatus(${uid},'${st}')">确认</button>
     <button class="btn ghost" onclick="mclose()">取消</button></div>`);
 }
+async function loadPlanDefs(){
+  const {d}=await j('GET','/api/admin/plans');
+  if(!d||!d.plans){return}
+  const box=$('#plandefs');
+  if(!box){return}
+  box.innerHTML=d.plans.map(function(p){
+    const locked=p.code==='free';
+    return '<div class="row" style="align-items:center;gap:8px">'
+      +'<span style="min-width:52px">'+p.name+'</span>'
+      +'<input id="pd-p-'+p.code+'" type="number" min="0" step="0.01" value="'+p.price+'" style="width:80px" '+(locked?'disabled':'')+'> USDT/月'
+      +'<input id="pd-d-'+p.code+'" type="number" min="1" max="3650" value="'+(p.duration_days||0)+'" style="width:80px" '+(locked?'disabled':'')+'> 天托管'
+      +(locked?'<span class="dim" style="font-size:12px">固定</span>':'<button class="btn" style="padding:4px 10px" onclick="savePlanDef(\''+p.code+'\')">保存</button>')
+      +'</div>';
+  }).join('')+'<p class="dim" style="font-size:12px">修改价格/默认托管时长, 只影响之后新设置的套餐; 已有用户可在下方改套餐时单独自定义天数。</p>';
+}
+async function savePlanDef(code){
+  const {d}=await j('POST','/api/admin/plans',{code:code,price:parseFloat($('#pd-p-'+code).value),days:parseInt($('#pd-d-'+code).value,10)});
+  toast(d.ok?'套餐定义已保存':'失败: '+(d.msg||d.error),!d.ok);
+  if(d.ok){loadPlanDefs()}
+}
 async function doStatus(uid,st){const {d}=await j('POST',`/api/admin/user/${uid}/status`,{status:st});toast(d.ok?'已更新':'失败: '+(d.msg||d.error),!d.ok);loadUsers()}
 async function userFeeTier(uid,cur){
   const t=cur?0:1;
@@ -296,14 +322,38 @@ async function userFeeTier(uid,cur){
 async function doFeeTier(uid,t){const {d}=await j('POST',`/api/admin/user/${uid}/fee-tier`,{tier:t});toast(d.ok?'费率已更新':'失败: '+(d.msg||d.error),!d.ok);loadUsers()}
 async function userPlan(uid,cur){
   modal(`<h3>用户 #${uid} 套餐</h3>
-    <div class="row"><select id="np">
-      <option value="free" ${cur==='free'?'selected':''}>免费版 ¥0 — 模拟交易 · 手动</option>
-      <option value="pro" ${cur==='pro'?'selected':''}>专业版 $30/月 — 模拟+实盘 · 托管30天</option>
-      <option value="live" ${cur==='live'?'selected':''}>旗舰版 $99/月 — 模拟+实盘 · 托管365天</option>
+    <div class="row"><select id="np" onchange="planDaysUI()">
+      <option value="free" ${cur==='free'?'selected':''}>免费版 ¥0 — 模拟交易 · 手动(无托管)</option>
+      <option value="pro" ${cur==='pro'?'selected':''}>专业版 — 模拟+实盘 · 托管(默认30天)</option>
+      <option value="live" ${cur==='live'?'selected':''}>旗舰版 — 模拟+实盘 · 托管(默认365天)</option>
     </select></div>
+    <div id="pdays" style="display:none">
+      <p class="dim" style="font-size:13px;margin:4px 0">托管时长 (天) — 支持自定义时间:</p>
+      <div class="row" id="pdchips">${[7,30,90,180,365].map(function(d){return '<button class="chip" onclick="pdPick('+d+')">'+d+'天</button>'}).join('')}<button class="chip" onclick="pdPick(0)">自定义</button></div>
+      <div class="row"><input id="pdcustom" type="number" min="1" max="3650" placeholder="自定义天数, 如 45" style="width:100%" oninput="pdCalc()"></div>
+      <p class="dim" id="pdexp" style="font-size:12px"></p>
+    </div>
     <div class="row"><button class="btn" onclick="doPlan(${uid})">保存</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
+  planDaysUI();
 }
-async function doPlan(uid){const {d}=await j('POST',`/api/admin/user/${uid}/plan`,{plan:$('#np').value});toast(d.ok?'套餐已更新':'失败: '+(d.msg||d.error),!d.ok);mclose();loadUsers()}
+function planDaysUI(){
+  const v=$('#np').value;
+  $('#pdays').style.display = v==='free' ? 'none' : '';
+  if(v==='free'){return}
+  if(v==='pro'){pdPick(30)}else if(v==='live'){pdPick(365)}
+}
+function pdPick(d){
+  document.querySelectorAll('#pdchips .chip').forEach(function(c){c.classList.remove('on')});
+  if(d>0){$('#pdcustom').value=d;event&&event.target&&event.target.classList.add('on')}
+  else{const cus=$('#pdcustom');cus.value='';cus.focus()}
+  pdCalc();
+}
+function pdCalc(){
+  const n=parseInt($('#pdcustom').value||'0',10);
+  const d=new Date(Date.now()+n*86400000);
+  $('#pdexp').textContent = n>0 ? ('到期日推算: '+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' ('+n+'天后)') : '输入天数后显示到期日';
+}
+async function doPlan(uid){const days=parseInt($('#pdcustom').value||'0',10)||null;const {d}=await j('POST',`/api/admin/user/${uid}/plan`,{plan:$('#np').value,days:days});toast(d.ok?'套餐已更新: '+(d.msg||''):'失败: '+(d.msg||d.error),!d.ok);mclose();loadUsers()}
 async function userPw(uid){
   modal(`<h3>重置用户 #${uid} 密码</h3>
     <div class="row"><input id="npw" type="text" placeholder="新密码(≥8位,含字母和数字)" style="width:100%"></div>
@@ -346,7 +396,7 @@ async function annToggle(aid,active){const {d}=await j('POST',`/api/admin/announ
 // ---- init ----
 (async function(){
   try{const {d}=await j('GET','/api/auth/me');me=d.user;$('#who').textContent=`管理员: ${d.user.username}`}catch(e){}
-  loadStats();loadUsers();
+  loadStats();loadUsers();loadPlanDefs();
 })();
 // ---- M7 资金管理 ----
 async function loadFundsPanel(){

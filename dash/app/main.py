@@ -1179,7 +1179,27 @@ async def api_admin_plan(uid: int, request: Request, su=Depends(require_admin)):
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
-    ok, msg = admin.set_plan(uid, body.get("plan", ""), su["u"])
+    ok, msg = admin.set_plan(uid, body.get("plan", ""), su["u"], body.get("days"))
+    return {"ok": ok, "msg": msg}
+
+
+@app.get("/api/admin/plans")
+def api_admin_plans(su=Depends(require_admin)):
+    """R14-M16: 套餐定义 (价格+默认托管时长)"""
+    return {"ok": True, "plans": funds.plan_defs()}
+
+
+@app.post("/api/admin/plans")
+async def api_admin_plans_set(request: Request, su=Depends(require_admin)):
+    """R14-M16: 改套餐价格/默认时长 (free 禁改)"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    code = str(body.get("code", ""))
+    ok, msg = funds.set_plan_def(code, body.get("price"), body.get("days"))
+    users.audit_log(su["u"], "plan_def_change",
+                    f"套餐 {code}: price={body.get('price')} days={body.get('days')} → {msg}")
     return {"ok": ok, "msg": msg}
 
 

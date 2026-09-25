@@ -87,7 +87,8 @@ def init_db():
               price REAL NOT NULL DEFAULT 0,   -- USDT/月
               features TEXT DEFAULT '',
               sort INTEGER NOT NULL DEFAULT 0,
-              active INTEGER NOT NULL DEFAULT 1
+              active INTEGER NOT NULL DEFAULT 1,
+              duration_days INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
@@ -99,8 +100,14 @@ def init_db():
                 ("free", "免费版", 0, "模拟交易 · 全行情 · 手动下单", 0),
                 ("pro", "专业版", 30, "模拟+实盘 · 对冲套利托管30天", 1),
                 ("live", "旗舰版", 99, "模拟+实盘 · 对冲套利托管365天 · 优先支持", 2)]:
-                con.execute("INSERT OR IGNORE INTO plans(code,name,price,features,sort,active)"
-                            " VALUES(?,?,?,?,?,1)", (code, name, price, feats, sort))
+                con.execute("INSERT OR IGNORE INTO plans(code,name,price,features,sort) VALUES(?,?,?,?,?)",
+                            (code, name, price, feats, sort))
+            try:
+                con.execute("ALTER TABLE plans ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+            con.execute("UPDATE plans SET duration_days=? WHERE code='pro' AND duration_days=0", (30,))
+            con.execute("UPDATE plans SET duration_days=? WHERE code='live' AND duration_days=0", (365,))
             for k, v in [("withdraw_fee", "1"), ("max_withdraw", "500"),
                          ("min_withdraw", "5"), ("deposit_min", "5"), ("deposit_max", "10000")]:
                 con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
@@ -165,6 +172,35 @@ def has_deposit(uid):
         r = con.execute("SELECT COUNT(*) FROM balance_tx WHERE uid=? AND type='deposit' AND amount>0",
                         (int(uid),)).fetchone()
         return bool(r and r[0])
+    finally:
+        con.close()
+
+
+def plan_defs():
+    """R14-M16: 套餐定义列表 (含价格+默认托管时长)"""
+    con = _con()
+    try:
+        rows = con.execute("SELECT code,name,price,features,sort,active,duration_days "
+                           "FROM plans ORDER BY sort").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def set_plan_def(code, price=None, days=None):
+    """R14-M16: 改套餐价格/默认托管时长 (free 禁改)"""
+    if code == "free":
+        return False, "免费版不可修改"
+    price = None if price is None else max(0.0, float(price))
+    days = None if days is None else max(1, int(days))
+    con = _con()
+    try:
+        if price is not None:
+            con.execute("UPDATE plans SET price=? WHERE code=?", (price, code))
+        if days is not None:
+            con.execute("UPDATE plans SET duration_days=? WHERE code=?", (days, code))
+        con.commit()
+        return True, "ok"
     finally:
         con.close()
 

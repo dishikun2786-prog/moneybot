@@ -75,19 +75,27 @@ def list_users_with_stats(offset=0, limit=0):
     return rows
 
 
-def set_plan(uid, plan, admin_uid):
+def set_plan(uid, plan, admin_uid, days=None):
     if plan not in PLANS:
         return False, "未知套餐"
+    # R14-M16: days=None → 用套餐默认时长; days=0 → 手动; 自定义 N 天
+    if days is None:
+        days = PLAN_DAYS.get(plan, 30)
+    days = max(0, int(days or 0))
+    if plan == "free":
+        days = 0
+    exp = 0 if days == 0 else time.time() + days * 86400
     with users._lock:
         con = users._db()
         try:
             con.execute("UPDATE users SET plan=?, plan_expires=? WHERE id=?",
-                        (plan, 0 if plan == "free" else time.time() + PLAN_DAYS.get(plan, 30) * 86400, int(uid)))
+                        (plan, exp, int(uid)))
             con.commit()
         finally:
             con.close()
-    users.audit_log(int(uid), "plan_change", f"套餐改为 {PLANS[plan]['name']}", "", f"admin:{admin_uid}")
-    return True, "ok"
+    note = f"套餐改为 {PLANS[plan]['name']}" + (f" · 托管 {days} 天" if days else "")
+    users.audit_log(int(uid), "plan_change", note, "", f"admin:{admin_uid}")
+    return True, note
 
 
 def reset_password(uid, new_pw, admin_uid):
