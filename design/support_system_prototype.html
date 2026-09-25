@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客服系统 UI 交互原型</title>
+<style>
+:root{
+  --bg:#0d1117;--card:#161b22;--card2:#1c2230;--border:#21262d;
+  --ink:#e6edf3;--muted:#8b949e;--green:#3ddc97;--green2:#1f9d68;
+  --red:#f87171;--amber:#f0b429;--blue:#58a6ff;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:Consolas,"SF Mono",Menlo,monospace;background:#0a0c10;color:var(--ink);
+  display:flex;align-items:flex-start;justify-content:flex-start;min-height:100vh;
+  padding:24px 0 24px 32px;gap:28px;flex-wrap:wrap}
+/* ====== 通用 ====== */
+.h1{font-size:17px;margin-bottom:2px}
+.sub{font-size:11px;color:var(--muted);margin-bottom:16px}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;border:1px solid}
+.b-green{background:rgba(61,220,151,.12);color:var(--green);border-color:rgba(61,220,151,.3)}
+.b-amber{background:rgba(240,180,41,.12);color:var(--amber);border-color:rgba(240,180,41,.3)}
+.b-gray{background:rgba(139,148,158,.12);color:var(--muted);border-color:rgba(139,148,158,.3)}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.d-green{background:var(--green);box-shadow:0 0 6px rgba(61,220,151,.8)}
+.d-amber{background:var(--amber)}
+.d-gray{background:var(--muted)}
+/* ====== 手机画布 ====== */
+.phone{width:375px;height:720px;background:var(--bg);border:1px solid var(--border);border-radius:36px;
+  overflow:hidden;position:relative;flex:none;display:flex;flex-direction:column;
+  box-shadow:0 24px 64px rgba(0,0,0,.6)}
+.phead{height:46px;flex:none;display:flex;align-items:center;gap:9px;padding:0 14px;
+  border-bottom:1px solid var(--border);background:var(--card)}
+.phead .ava{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#4adea0,#1f9d68);
+  display:flex;align-items:center;justify-content:center;font-size:13px;color:#052e1d;font-weight:700}
+.phead .st{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.phead .back{width:28px;height:28px;border-radius:8px;border:1px solid var(--border);background:var(--card2);
+  color:var(--muted);cursor:pointer;font-size:12px}
+.status-strip{flex:none;display:flex;justify-content:center;padding:7px 0 0}
+/* 消息流 */
+.pmsg{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.tsep{align-self:center;font-size:10px;color:var(--muted);background:rgba(139,148,158,.08);
+  padding:3px 12px;border-radius:10px;margin:4px 0}
+.msg{max-width:78%;padding:9px 12px;border-radius:15px;font-size:12.5px;line-height:1.6;word-break:break-word;position:relative}
+.msg .mt{font-size:9px;opacity:.55;margin-top:4px;text-align:right}
+.m-u{align-self:flex-end;background:linear-gradient(135deg,#3ddc97,#1f9d68);color:#fff;border-bottom-right-radius:5px}
+.m-s{align-self:flex-start;background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:5px}
+.m-img{padding:4px;border-radius:15px;overflow:hidden;background:var(--card2);border:1px solid var(--border)}
+.m-img img{width:150px;border-radius:10px;display:block;cursor:pointer}
+.m-u .m-img{background:transparent;border:none}
+.sys{align-self:center;font-size:10px;color:var(--amber);background:rgba(240,180,41,.08);
+  border:1px solid rgba(240,180,41,.25);padding:4px 10px;border-radius:10px}
+/* 输入栏 */
+.pin{flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px 12px;border-top:1px solid var(--border);background:var(--card)}
+.pin .capsule{flex:1;display:flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--border);
+  border-radius:22px;padding:3px 3px 3px 8px}
+.pin input{flex:1;background:transparent;border:none;outline:none;color:var(--ink);font-size:12.5px;font-family:inherit;padding:8px 0}
+.pin .att{width:30px;height:30px;border-radius:50%;border:none;background:transparent;color:var(--muted);
+  font-size:15px;cursor:pointer;flex:none}
+.pin .send{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;flex:none;
+  background:linear-gradient(135deg,#4adea0,#1f9d68);color:#052e1d;font-size:13px;font-weight:700}
+/* ====== 桌面客服台画布 ====== */
+.desk{width:860px;height:720px;background:var(--bg);border:1px solid var(--border);border-radius:16px;
+  overflow:hidden;flex:none;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6)}
+.dhead{flex:none;display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--card)}
+.dhead b{font-size:14px}
+.stats{flex:none;display:flex;gap:10px;padding:12px 18px;background:var(--card);border-bottom:1px solid var(--border)}
+.stat{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.stat .n{font-size:17px;font-weight:700}
+.stat .t{font-size:10px;color:var(--muted);margin-top:2px}
+.stat.hot{border-color:rgba(248,113,113,.4)}
+.stat.hot .n{color:var(--red)}
+.dbody{flex:1;display:flex;min-height:0}
+/* 左栏会话列表 */
+.clist{width:300px;flex:none;border-right:1px solid var(--border);overflow-y:auto;background:var(--card)}
+.citem{padding:11px 13px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;transition:background .15s}
+.citem:hover{background:var(--card2)}
+.citem.on{background:rgba(61,220,151,.06);border-left:3px solid var(--green)}
+.citem .r1{display:flex;align-items:center;gap:6px}
+.citem .r1 b{font-size:12px}
+.citem .r1 .sp{flex:1}
+.citem .r1 .tm{font-size:9px;color:var(--muted)}
+.citem .prev{font-size:11px;color:var(--muted);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.citem .ub{position:absolute;top:9px;right:9px;min-width:17px;height:17px;border-radius:9px;background:var(--red);
+  color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0 5px}
+/* 右栏对话详情 */
+.ddetail{flex:1;display:flex;flex-direction:column;min-width:0}
+.ddhead{flex:none;display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border);background:var(--card)}
+.ddhead .uinfo{flex:1;font-size:11px;color:var(--muted);line-height:1.5}
+.ddhead .uinfo b{color:var(--ink);font-size:12px}
+.st-btn{padding:5px 12px;border-radius:14px;border:1px solid var(--border);background:var(--card2);
+  color:var(--muted);font-size:10px;cursor:pointer;font-family:inherit}
+.st-btn.on{background:rgba(61,220,151,.15);color:var(--green);border-color:rgba(61,220,151,.4)}
+.dmsg{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.dmsg .msg{max-width:62%;font-size:12.5px}
+.din{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);background:var(--card)}
+.din .capsule{flex:1;display:flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--border);
+  border-radius:22px;padding:3px 3px 3px 8px}
+.din input{flex:1;background:transparent;border:none;outline:none;color:var(--ink);font-size:12.5px;font-family:inherit;padding:8px 0}
+.din .att{width:30px;height:30px;border-radius:50%;border:none;background:transparent;color:var(--muted);font-size:15px;cursor:pointer}
+.din .send{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,#4adea0,#1f9d68);color:#052e1d;font-size:13px;font-weight:700}
+.quick{flex:none;display:flex;gap:6px;padding:0 16px 8px;background:var(--card)}
+.quick button{font-size:10px;padding:4px 10px;border-radius:12px;border:1px solid var(--border);
+  background:var(--card2);color:var(--muted);cursor:pointer;font-family:inherit}
+.quick button:hover{border-color:rgba(61,220,151,.4);color:var(--green)}
+/* 侧栏说明 */
+.panel{width:300px;flex:none;font-size:12px;line-height:1.8;color:var(--muted)}
+.panel h1{font-size:17px;color:var(--ink);margin-bottom:4px}
+.panel h3{font-size:13px;color:var(--green);margin:16px 0 6px}
+.panel b{color:var(--ink)}
+.panel .demo{margin-top:12px}
+.demo button{background:var(--card);border:1px solid var(--border);color:var(--green);
+  padding:8px 14px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:11px;margin:3px 6px 3px 0}
+</style>
+</head>
+<body>
+
+<!-- ====== 用户端手机 ====== -->
+<div>
+  <div class="h1">📱 用户端 · 联系客服</div>
+  <div class="sub">移动端聊天屏：文字 + 图片 + 状态徽标 + 未读红点</div>
+  <div class="phone">
+    <div class="phead">
+      <button class="back" onclick="demoNew()">‹</button>
+      <div class="ava">官</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">官方客服</div>
+        <div class="st"><span class="dot d-green"></span>在线 · 通常几分钟内回复</div>
+      </div>
+      <span class="badge b-amber">处理中</span>
+    </div>
+    <div class="pmsg" id="pmsg">
+      <div class="tsep">今天 14:02</div>
+      <div class="msg m-u">你好，我的持仓页面一直转圈加载不出来<button class="att" style="display:none">📎</button><div class="mt">14:02</div></div>
+      <div class="msg m-u m-img"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%23161b22'/%3E%3Ctext x='150' y='95' font-size='13' fill='%23f87171' text-anchor='middle' font-family='Consolas'%3E⚠ 页面报错截图%3C/text%3E%3Ctext x='150' y='115' font-size='10' fill='%238b949e' text-anchor='middle' font-family='Consolas'%3E截图示例 (实际为上传图片)%3C/text%3E%3C/svg%3E" onclick="zoom(this)"><div class="mt">14:03</div></div>
+      <div class="sys">📩 已通知客服 · 等待回复</div>
+      <div class="tsep">今天 14:35</div>
+      <div class="msg m-s">您好，已收到您的反馈，正在排查您账户的持仓数据接口，请稍等 🛠<div class="mt">14:35</div></div>
+      <div class="msg m-s">您最近一次打开持仓页是什么时候？方便的话可以再发一张当前页面截图给我<div class="mt">14:36</div></div>
+      <div class="msg m-s m-img"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='160'%3E%3Crect width='300' height='160' fill='%230d1117'/%3E%3Ctext x='150' y='75' font-size='12' fill='%233ddc97' text-anchor='middle' font-family='Consolas'%3E✓ 客服发的排查指引图%3C/text%3E%3Ctext x='150' y='95' font-size='10' fill='%238b949e' text-anchor='middle' font-family='Consolas'%3E(客服也可发图给用户)%3C/text%3E%3C/svg%3E" onclick="zoom(this)"><div class="mt">14:38</div></div>
+    </div>
+    <div class="pin">
+      <div class="capsule">
+        <button class="att" title="发送图片">📎</button>
+        <input placeholder="输入消息…" id="pinp">
+        <button class="send" onclick="demoUserSend()">➤</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 管理端客服台 ====== -->
+<div>
+  <div class="h1">🖥 管理端 · 客服台</div>
+  <div class="sub">会话列表 + 聊天详情 + 快捷回复 + 三态状态流</div>
+  <div class="desk">
+    <div class="dhead">
+      <b>💬 客服中心</b>
+      <span class="badge b-green">在线</span>
+      <span class="sp" style="flex:1"></span>
+      <span class="badge b-gray">轮询 15s</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n">12</div><div class="t">总会话</div></div>
+      <div class="stat hot"><div class="n">3</div><div class="t">未读</div></div>
+      <div class="stat"><div class="n">5</div><div class="t">今日新增</div></div>
+      <div class="stat"><div class="n">2</div><div class="t">待处理</div></div>
+      <div class="stat"><div class="n">8</div><div class="t">已解决</div></div>
+    </div>
+    <div class="dbody">
+      <div class="clist" id="clist">
+        <div class="citem on">
+          <div class="r1"><span class="dot d-amber"></span><b>#27</b><span class="badge b-green">PRO</span><span class="sp"></span><span class="tm">14:36</span></div>
+          <div class="prev">再发一张当前页面截图给我…</div>
+          <div class="ub">1</div>
+        </div>
+        <div class="citem">
+          <div class="r1"><span class="dot d-amber"></span><b>#42</b><span class="badge b-gray">FREE</span><span class="sp"></span><span class="tm">13:58</span></div>
+          <div class="prev">充值没到账，已经 30 分钟了…</div>
+          <div class="ub">2</div>
+        </div>
+        <div class="citem">
+          <div class="r1"><span class="dot d-green"></span><b>#19</b><span class="badge b-green">LIVE</span><span class="sp"></span><span class="tm">昨天</span></div>
+          <div class="prev">好的，问题解决了，谢谢！</div>
+        </div>
+        <div class="citem">
+          <div class="r1"><span class="dot d-gray"></span><b>#8</b><span class="badge b-gray">FREE</span><span class="sp"></span><span class="tm">9-24</span></div>
+          <div class="prev">已解决 · 手续费计算疑问</div>
+        </div>
+      </div>
+      <div class="ddetail">
+        <div class="ddhead">
+          <div class="uinfo"><b>#27 · 持仓页加载问题</b><br>用户: uid27 · 套餐 PRO · 最近登录 14:02 · 持仓 2 笔</div>
+          <button class="st-btn on" onclick="setSt(this)">● 待处理</button>
+          <button class="st-btn" onclick="setSt(this)">◐ 处理中</button>
+          <button class="st-btn" onclick="setSt(this)">✓ 已解决</button>
+        </div>
+        <div class="dmsg" id="dmsg">
+          <div class="tsep">今天 14:02</div>
+          <div class="msg m-u">你好，我的持仓页面一直转圈加载不出来<div class="mt">14:02</div></div>
+          <div class="msg m-u m-img"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%23161b22'/%3E%3Ctext x='150' y='95' font-size='13' fill='%23f87171' text-anchor='middle' font-family='Consolas'%3E⚠ 页面报错截图%3C/text%3E%3C/svg%3E" onclick="zoom(this)"><div class="mt">14:03</div></div>
+          <div class="msg m-s">您好，已收到您的反馈，正在排查您账户的持仓数据接口，请稍等 🛠<div class="mt">14:35</div></div>
+          <div class="msg m-s">您最近一次打开持仓页是什么时候？方便的话可以再发一张当前页面截图给我<div class="mt">14:36</div></div>
+        </div>
+        <div class="quick">
+          <button onclick="insQ(this)">已收到，正在排查</button>
+          <button onclick="insQ(this)">请截图发我看一下</button>
+          <button onclick="insQ(this)">问题已解决，感谢反馈</button>
+          <button onclick="insQ(this)">该问题需要升级处理，请稍等</button>
+        </div>
+        <div class="din">
+          <div class="capsule">
+            <button class="att" title="发图片">📎</button>
+            <input placeholder="回复 #27…" id="dinput">
+            <button class="send" onclick="demoAdminSend()">➤</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 侧栏 ====== -->
+<div class="panel">
+  <h1>客服系统 UI 交互原型</h1>
+  <div>双端可点击演示（用户端 📱 + 管理端 🖥）</div>
+  <h3>设计要点</h3>
+  <b>统一组件语言</b>：两端输入栏均用「📎 附件 + 胶囊输入框 + 圆形发送钮」，与 AI 浮窗精修版一致<br>
+  <b>状态三态</b>：待处理●（黄）/ 处理中◐（黄闪）/ 已解决✓（绿），用户端头部同步可见<br>
+  <b>未读红点</b>：管理端会话行右上角数字；用户端「我的」页入口红点<br>
+  <b>图片双向</b>：用户/客服都可发图，圆角缩略图点击全屏预览<br>
+  <b>时间分组</b>：消息按时间段分节（今天 14:02），弱化居中<br>
+  <b>快捷回复</b>：客服台底部预置常用语，一键插入输入框
+  <h3>交互体验</h3>
+  · 新消息行高亮闪烁 + 自动滚底<br>
+  · 客服回复后用户端收到未读红点，进入即已读<br>
+  · 每用户一个活跃会话（续聊不碎片化），已解决后再发起=新会话
+  <div class="demo">
+    <button onclick="demoUserSend()">💬 用户发消息演示</button>
+    <button onclick="demoAdminSend()">💬 客服回复演示</button>
+    <button onclick="demoImg()">🖼 图片消息演示</button>
+    <button onclick="setSt(document.querySelector('.st-btn'))">🔁 状态切换</button>
+  </div>
+</div>
+
+<script>
+var pmsg=document.getElementById('pmsg'),dmsg=document.getElementById('dmsg');
+function now(){return new Date().toLocaleTimeString('zh-CN',{hour12:false}).slice(0,5)}
+function addMsg(where,cls,html){
+  var d=document.createElement('div');d.className='msg '+cls;
+  d.innerHTML=html+'<div class="mt">'+now()+'</div>';
+  where.appendChild(d);where.scrollTop=where.scrollHeight;
+}
+function demoUserSend(){
+  var v=document.getElementById('pinp').value.trim();
+  if(!v)v='什么时候能修好呀？';
+  document.getElementById('pinp').value='';
+  addMsg(pmsg,'m-u',v.replace(/</g,'&lt;'));
+  setTimeout(function(){
+    addMsg(pmsg,'m-s','我们正在加急处理，有进展第一时间同步您 🙏');
+  },1200);
+}
+function demoAdminSend(){
+  var v=document.getElementById('dinput').value.trim();
+  if(!v)v='好的，我们再核对一下，稍后同步结果';
+  document.getElementById('dinput').value='';
+  addMsg(dmsg,'m-s',v.replace(/</g,'&lt;'));
+  addMsg(pmsg,'m-s',v.replace(/</g,'&lt;'));
+}
+function insQ(b){document.getElementById('dinput').value=b.textContent;document.getElementById('dinput').focus()}
+function setSt(btn){
+  document.querySelectorAll('.st-btn').forEach(function(x){x.classList.remove('on')});
+  btn.classList.add('on');
+}
+function demoImg(){
+  var svg="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='160'%3E%3Crect width='300' height='160' fill='%23161b22'/%3E%3Ctext x='150' y='80' font-size='12' fill='%233ddc97' text-anchor='middle' font-family='Consolas'%3E📎 图片消息示例%3C/text%3E%3C/svg%3E";
+  addMsg(pmsg,'m-u m-img','<img src="'+svg+'" onclick="zoom(this)">');
+  addMsg(dmsg,'m-u m-img','<img src="'+svg+'" onclick="zoom(this)">');
+}
+function zoom(img){
+  var w=document.createElement('div');
+  w.style.cssText='position:fixed;inset:0;background:rgba(1,4,9,.9);z-index:999;display:flex;align-items:center;justify-content:center;cursor:zoom-out';
+  var im=img.cloneNode(true);im.style.width='min(88vw,640px)';im.style.borderRadius='10px';
+  w.appendChild(im);w.onclick=function(){w.remove()};
+  document.body.appendChild(w);
+}
+function demoNew(){
+  // 演示: 我的页入口红点 (未读=2)
+  alert('返回「我的」页 → 联系客服入口显示未读红点 ②\n进入聊天后红点消除(已读上报)');
+}
+</script>
+</body>
+</html>
