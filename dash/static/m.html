@@ -3051,7 +3051,7 @@ function apNewSheet(){
     +'<label class="xs"><input type="radio" name="ap-mode" value="native"> 📈 原生方向（单边永续做多/做空）</label></div>'
     +'<div style="margin:8px 0"><b>执行环境</b><br>'
     +'<label class="xs"><input type="radio" name="ap-live" value="paper" checked> 🧪 模拟盘（纸面验证策略，不触真实资金，推荐先验证）</label><br>'
-    +'<label class="xs"><input type="radio" name="ap-live" value="live"> 🔴 实盘（真实资金交易，需已开通实盘额度）</label></div>'
+    +(LIVE.live_enabled ? '<label class="xs"><input type="radio" name="ap-live" value="live"> 🔴 实盘（真实资金交易）</label><br>' : '<div class="xs muted">🔴 实盘未开通（需实盘版套餐+管理员开限额），当前仅支持模拟盘验证</div>')+'</div>'
     +'<div id="ap-sym-pick" style="display:none;margin-bottom:8px"><b>选择标的</b><br>'
     +'<select id="ap-sym-sel" style="width:100%;margin-top:4px">'
     +'<option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option>'
@@ -3097,7 +3097,7 @@ function apModSheet(tid){
     +'<div style="display:flex;gap:6px;margin-top:10px">'
     +'<div style="margin:8px 0"><b>执行环境</b><br>'
     +'<label class="xs"><input type="radio" name="apm-live" value="paper" '+(rk.live?'':'checked')+'> 🧪 模拟盘（纸面验证策略）</label><br>'
-    +'<label class="xs"><input type="radio" name="apm-live" value="live" '+(rk.live?'checked':'')+'> 🔴 实盘（真实资金交易）</label></div>'
+    +(LIVE.live_enabled ? '<label class="xs"><input type="radio" name="apm-live" value="live" '+(rk.live?'checked':'')+'> 🔴 实盘（真实资金交易）</label><br>' : '<div class="xs muted">🔴 实盘未开通（需实盘版套餐+管理员开限额），当前仅支持模拟盘验证</div>')+'</div>'
     +'<button class="btn accent" onclick="apDoMod(\''+tid+'\')">保存修改</button>'
     +'<button class="btn" onclick="closeSheet()">取消</button></div>');
 }

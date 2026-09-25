@@ -269,8 +269,23 @@ def _native_positions(uid):
         return {}
 
 
+def _live_enabled(uid):
+    """实盘开关硬闸: 与 /api/live/status 同源 — 有充值入账即 live_enabled (模型/任务 live 标志不可绕过)"""
+    try:
+        import live_exec
+        st = live_exec.status(uid)
+        return bool(st and st.get("live_enabled"))
+    except Exception:
+        return False
+
+
 def _exec_native_open(uid, tid, sym, side, notional, conf, task, live):
     try:
+        if live and not _live_enabled(uid):
+            _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                              "uid": uid, "task_id": tid, "symbol": sym,
+                              "event": "live_blocked", "reason": "实盘未开通(无 live_enabled)"})
+            return
         if live:
             import live_exec
             r = live_exec.bybit_open_native(uid, {"symbol": sym, "side": side, "notional": notional})
@@ -295,6 +310,11 @@ def _exec_native_open(uid, tid, sym, side, notional, conf, task, live):
 
 def _exec_native_close(uid, tid, sym, reason, task, live):
     try:
+        if live and not _live_enabled(uid):
+            _log_action(uid, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                              "uid": uid, "task_id": tid, "symbol": sym,
+                              "event": "live_blocked", "reason": "实盘未开通(无 live_enabled)"})
+            return
         if live:
             import live_exec
             r = live_exec.bybit_close_native(uid, {"symbol": sym})
