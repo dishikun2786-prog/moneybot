@@ -1197,9 +1197,36 @@ async def api_admin_plans_set(request: Request, su=Depends(require_admin)):
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     code = str(body.get("code", ""))
-    ok, msg = funds.set_plan_def(code, body.get("price"), body.get("days"))
+    ok, msg = funds.set_plan_def(code, body.get("price"), body.get("days"),
+                                 body.get("billing_period"), body.get("name"), body.get("features"))
     users.audit_log(su["u"], "plan_def_change",
-                    f"套餐 {code}: price={body.get('price')} days={body.get('days')} → {msg}")
+                    f"套餐 {code}: price={body.get('price')} period={body.get('billing_period')} days={body.get('days')} → {msg}")
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/plans/add")
+async def api_admin_plans_add(request: Request, su=Depends(require_admin)):
+    """R14-M17: 新增套餐"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = funds.add_plan(body.get("code"), body.get("name"), body.get("price", 0),
+                             body.get("days", 30), body.get("billing_period", "month"),
+                             body.get("features", ""))
+    users.audit_log(su["u"], "plan_add", f"新增套餐 {body.get('code')} → {msg}")
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/plans/toggle")
+async def api_admin_plans_toggle(request: Request, su=Depends(require_admin)):
+    """R14-M17: 启用/停用套餐"""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    ok, msg = funds.toggle_plan(str(body.get("code", "")), bool(body.get("active")))
+    users.audit_log(su["u"], "plan_toggle", f"套餐 {body.get('code')} active={body.get('active')} → {msg}")
     return {"ok": ok, "msg": msg}
 
 

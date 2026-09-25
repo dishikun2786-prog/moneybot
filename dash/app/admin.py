@@ -76,8 +76,18 @@ def list_users_with_stats(offset=0, limit=0):
 
 
 def set_plan(uid, plan, admin_uid, days=None):
-    if plan not in PLANS:
-        return False, "未知套餐"
+    # R14-M17: 套餐校验改为动态读 funds.plans (支持新增套餐)
+    try:
+        from . import funds as _f
+        _codes = _f.plan_codes()
+        if plan not in _codes:
+            return False, f"未知套餐: {plan}"
+        _defs = {p["code"]: p for p in _f.plan_defs()}
+        if days is None:
+            days = _defs[plan].get("duration_days") or PLAN_DAYS.get(plan, 30)
+    except Exception:
+        if plan not in PLANS:
+            return False, "未知套餐"
     # R14-M16: days=None → 用套餐默认时长; days=0 → 手动; 自定义 N 天
     if days is None:
         days = PLAN_DAYS.get(plan, 30)
@@ -93,7 +103,12 @@ def set_plan(uid, plan, admin_uid, days=None):
             con.commit()
         finally:
             con.close()
-    note = f"套餐改为 {PLANS[plan]['name']}" + (f" · 托管 {days} 天" if days else "")
+    try:
+        from . import funds as _f
+        _nm = {p["code"]: p["name"] for p in _f.plan_defs()}.get(plan, plan)
+    except Exception:
+        _nm = PLANS.get(plan, {}).get("name", plan)
+    note = f"套餐改为 {_nm}" + (f" · 托管 {days} 天" if days else "")
     users.audit_log(int(uid), "plan_change", note, "", f"admin:{admin_uid}")
     return True, note
 

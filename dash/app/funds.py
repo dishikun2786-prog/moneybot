@@ -10,6 +10,7 @@ import json
 import os
 import random
 import sqlite3
+import re
 import threading
 import time
 
@@ -88,7 +89,8 @@ def init_db():
               features TEXT DEFAULT '',
               sort INTEGER NOT NULL DEFAULT 0,
               active INTEGER NOT NULL DEFAULT 1,
-              duration_days INTEGER NOT NULL DEFAULT 0
+              duration_days INTEGER NOT NULL DEFAULT 0,
+              billing_period TEXT NOT NULL DEFAULT 'month'   -- month/quarter/year
             );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
@@ -108,6 +110,10 @@ def init_db():
                 pass
             con.execute("UPDATE plans SET duration_days=? WHERE code='pro' AND duration_days=0", (30,))
             con.execute("UPDATE plans SET duration_days=? WHERE code='live' AND duration_days=0", (365,))
+            try:
+                con.execute("ALTER TABLE plans ADD COLUMN billing_period TEXT NOT NULL DEFAULT 'month'")
+            except Exception:
+                pass
             for k, v in [("withdraw_fee", "1"), ("max_withdraw", "500"),
                          ("min_withdraw", "5"), ("deposit_min", "5"), ("deposit_max", "10000")]:
                 con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
@@ -176,31 +182,83 @@ def has_deposit(uid):
         con.close()
 
 
+PERIODS = {"month": "月", "quarter": "季", "year": "年"}
+
+
 def plan_defs():
-    """R14-M16: 套餐定义列表 (含价格+默认托管时长)"""
+    """R14-M16: 套餐定义列表 (含价格+计价周期+默认托管时长)"""
     con = _con()
     try:
-        rows = con.execute("SELECT code,name,price,features,sort,active,duration_days "
+        rows = con.execute("SELECT code,name,price,features,sort,active,duration_days,billing_period "
                            "FROM plans ORDER BY sort").fetchall()
         return [dict(r) for r in rows]
     finally:
         con.close()
 
 
-def set_plan_def(code, price=None, days=None):
-    """R14-M16: 改套餐价格/默认托管时长 (free 禁改)"""
+def plan_codes():
+    """R14-M16: 全部套餐 code 列表 (set_plan 校验用)"""
+    return [p["code"] for p in plan_defs() if p.get("active")]
+
+
+def set_plan_def(code, price=None, days=None, billing_period=None, name=None, features=None):
+    """R14-M16: 编辑套餐 (free 禁改); 支持价格/计价周期/托管时长/名称/描述"""
     if code == "free":
         return False, "免费版不可修改"
-    price = None if price is None else max(0.0, float(price))
-    days = None if days is None else max(1, int(days))
     con = _con()
     try:
+        row = con.execute("SELECT code FROM plans WHERE code=?", (code,)).fetchone()
+        if not row:
+            return False, "套餐不存在"
         if price is not None:
-            con.execute("UPDATE plans SET price=? WHERE code=?", (price, code))
+            con.execute("UPDATE plans SET price=? WHERE code=?", (max(0.0, float(price)), code))
         if days is not None:
-            con.execute("UPDATE plans SET duration_days=? WHERE code=?", (days, code))
+            con.execute("UPDATE plans SET duration_days=? WHERE code=?", (max(1, int(days)), code))
+        if billing_period in PERIODS:
+            con.execute("UPDATE plans SET billing_period=? WHERE code=?", (billing_period, code))
+        if name:
+            con.execute("UPDATE plans SET name=? WHERE code=?", (str(name)[:32], code))
+        if features is not None:
+            con.execute("UPDATE plans SET features=? WHERE code=?", (str(features)[:120], code))
         con.commit()
         return True, "ok"
+    finally:
+        con.close()
+
+
+def add_plan(code, name, price, days, billing_period="month", features=""):
+    """R14-M16: 新增套餐 (code 唯一, 禁 free/pro/live 占用)"""
+    code = str(code or "").strip().lower()
+    if not code or code in ("free", "pro", "live"):
+        return False, "套餐代码无效或与系统套餐冲突"
+    if not re.fullmatch(r"[a-z][a-z0-9_]{1,15}", code):
+        return False, "代码须为小写字母开头 2-16 位 (字母数字下划线)"
+    if billing_period not in PERIODS:
+        return False, "计价周期无效"
+    con = _con()
+    try:
+        row = con.execute("SELECT code FROM plans WHERE code=?", (code,)).fetchone()
+        if row:
+            return False, "套餐代码已存在"
+        con.execute("INSERT INTO plans(code,name,price,features,sort,active,duration_days,billing_period)"
+                    " VALUES(?,?,?,?,?,1,?,?)",
+                    (code, str(name)[:32], max(0.0, float(price)), str(features)[:120],
+                     99, max(1, int(days)), billing_period))
+        con.commit()
+        return True, "ok"
+    finally:
+        con.close()
+
+
+def toggle_plan(code, active):
+    """R14-M16: 启用/停用套餐 (free 禁停)"""
+    if code == "free":
+        return False, "免费版不可停用"
+    con = _con()
+    try:
+        r = con.execute("UPDATE plans SET active=? WHERE code=?", (1 if active else 0, code))
+        con.commit()
+        return (True, "ok") if r.rowcount else (False, "套餐不存在")
     finally:
         con.close()
 

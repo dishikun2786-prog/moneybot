@@ -47,9 +47,9 @@ def active_users():
     for r in rows:
         if r.get("status") != "active" or r.get("id") == 1:
             continue
-        plan = r.get("plan") or "free"
         exp = float(r.get("plan_expires") or 0.0)
-        if plan == "free" or (exp > 0 and exp < now):
+        # R14-M17: 托管判定只看到期时间 (任意套餐, 到期即停)
+        if exp <= 0 or exp < now:
             continue
         out.append(r)
     return out
