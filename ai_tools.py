@@ -313,6 +313,16 @@ TOOLS = [
         "description": "用候选入场阈值θ跑现货永续套利回测(近2个月), 供参数对比决策 (只读, 不落地)",
         "parameters": {"type": "object", "properties": {"theta": {
             "type": "number", "description": "入场阈值: 资金费率年化% (0-20, 默认5)"}}, "required": ["theta"]}}},
+    {"type": "function", "function": {"name": "my_positions",
+        "description": "查询当前登录用户的持仓: 现货持仓+合约纸面持仓(数量/均价/现价/浮动盈亏) (只读)",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "my_balance",
+        "description": "查询当前登录用户的账户余额/套餐/托管到期/实盘权限 (只读)",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "my_trades",
+        "description": "查询当前登录用户最近N笔交易台账(模拟+实盘, 时间/标的/方向/盈亏/费用) (只读)",
+        "parameters": {"type": "object", "properties": {"n": {
+            "type": "number", "description": "最近几笔, 默认10, 最大30"}}}}},
     {"type": "function", "function": {"name": "update_params",
         "description": "修改策略参数(白名单+范围校验, 生成修改预览, 需用户在界面批准后才生效; 单次最多3个键). "
                        "键名必须是英文(如 carry.theta_in_ann_pct / paper_pm.min_gross_edge_c / monitor.cal_sigma_up), 先调list_params查询",
@@ -354,9 +364,64 @@ def t_get_micro():
     return out
 
 
+def t_my_positions():
+    """M-A2: 当前用户持仓 (模拟纸面+实盘台账) — 租户包裹内执行"""
+    try:
+        import paper_ops as po
+        spot = po.spot_positions()
+        native = po.native_positions()
+    except Exception as e:
+        return {"error": f"持仓读取失败: {str(e)[:150]}"}
+    return {
+        "现货持仓": [dict(symbol=s["symbol"], 数量=s["qty"], 均价=s["avg_cost"],
+                          现价=s["px"], 市值USD=s["value"], 浮动盈亏USD=s["pnl"]) for s in spot],
+        "合约纸面持仓": [dict(symbol=n["symbol"], 方向=n["side"], 开仓价=n["entry"],
+                              名义USD=n.get("notional"), 数量=n["qty"], 浮动盈亏USD=n["pnl"]) for n in native],
+        "说明": "纸面持仓=模拟资金仓位; 实盘持仓以平台Bybit账户为准(见my_balance实盘权限)"}
+
+
+def t_my_balance():
+    """M-A2: 当前用户资金/套餐/实盘权限"""
+    from app import funds as f, users as u
+    uid = tenants.current_uid()
+    try:
+        bal = float(f.get_balance(uid) or 0)
+        usr = u.get_user(uid) or {}
+        dep = bool(f.has_deposit(uid))
+        return {"账户余额USDT": bal, "套餐": usr.get("plan"),
+                "托管到期": usr.get("plan_expires") or 0,
+                "实盘权限": "已开通(充值自动)" if dep or bal > 0 else "未开通(充值后自动开启)",
+                "说明": "实盘额度=账户余额, 下单名义金额不能超过余额"}
+    except Exception as e:
+        return {"error": str(e)[:150]}
+
+
+def t_my_trades(args):
+    """M-A2: 最近 N 笔交易台账 (模拟+实盘)"""
+    import glob
+    n = min(int((args or {}).get("n", 10)), 30)
+    uid = tenants.current_uid()
+    rows = []
+    for fn in sorted(glob.glob(os.path.join(tenants.logs(uid), "*.jsonl"))):
+        if not (fn.endswith("carry_trades.jsonl") or fn.endswith("live_orders.jsonl")):
+            continue
+        try:
+            for line in open(fn, encoding="utf-8").read().strip().splitlines():
+                r = json.loads(line)
+                rows.append({"时间": r.get("ts"), "模式": "实盘" if fn.endswith("live_orders") else "模拟",
+                             "标的": r.get("symbol"), "动作": r.get("action"), "方向": r.get("side"),
+                             "盈亏USD": r.get("pnl_usd"), "费用USD": r.get("fees") or r.get("user_fee")})
+        except Exception:
+            pass
+    rows = rows[-n:]
+    return {"最近交易": rows, "笔数": len(rows), "说明": "pnl_usd为毛盈亏, 净盈亏=毛盈亏-费用"}
+
+
 _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": lambda a: t_list_params(),
              "get_pnl": lambda a: t_get_pnl(), "git_log": lambda a: t_git_log(),
              "get_micro": lambda a: t_get_micro(),
+             "my_positions": lambda a: t_my_positions(), "my_balance": lambda a: t_my_balance(),
+             "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
 

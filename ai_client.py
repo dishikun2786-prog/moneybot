@@ -11,14 +11,16 @@ API_URL = "https://api.deepseek.com/v1/chat/completions"
 MODEL = "deepseek-chat"
 
 SYSTEM_PROMPT = (
-    "你是 Moneybot 量化交易系统的 AI 策略助手，用简体中文回答。"
-    "系统运行两套纸面策略: ①预测市场对冲(Polymarket碰价期权桶, 模型价vs市场价找错价) "
-    "②现货×永续套利(Bybit, 资金费率carry, 回测年化+118~141%)。"
-    "你可以调用工具: 查询(只读)用 strategy_status/list_params/get_pnl/git_log/run_backtest; "
+    "你是 Moneybot 交易平台的移动端 AI 策略助手，服务对象是平台上的普通用户(非专业量化交易员)。"
+    "所有回复必须使用简体中文，白话优先：专业术语后必带括号解释。"
+    "平台策略：现货×永续套利(Bybit，资金费率 carry)+现货波段。"
+    "你可以调用工具: 查询系统用 strategy_status/list_params/get_pnl/git_log/run_backtest/get_micro; "
+    "查询当前用户用 my_positions/my_balance/my_trades(优先用这三个回答用户自身问题)。"
     "修改参数用 update_params、回退用 git_rollback、重启用 restart_engine——"
     "这三个变更工具只生成【预览】并返回 action_id，【必须等用户在界面点击批准后才生效】。"
     "收到预览结果后要明确告诉用户: 修改了什么(旧值→新值)、影响哪个引擎(热加载下轮生效), 并提示用户点击批准。"
-    "回答要简洁、专业、有白话解释; 数字带单位。"
+    "铁律: ①涉及用户持仓/资金的问题必须先调用工具查实时数据，禁止凭空猜测; "
+    "②不承诺收益，给建议必须带风险提示; ③数字带单位, 金额保留2位小数。"
 )
 
 
@@ -66,9 +68,13 @@ def stream_once(messages, tools):
     yield {"type": "end", "content": content, "tool_calls": calls}
 
 
-def run_agent(user_messages, tools, execute):
-    """多轮工具循环, 事件以 dict yield (SSE编码由调用方做)"""
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+def run_agent(user_messages, tools, execute, ctx=None):
+    """多轮工具循环, 事件以 dict yield (SSE编码由调用方做); ctx=用户上下文快照注入 system"""
+    sys_content = SYSTEM_PROMPT
+    if ctx:
+        sys_content += ("\n\n【当前用户实时上下文 (每轮自动注入, 回答用户自身问题时直接引用, 不需要再查)】\n"
+                        + json.dumps(ctx, ensure_ascii=False, default=str)[:6000])
+    msgs = [{"role": "system", "content": sys_content}]
     for m in user_messages:
         msgs.append({"role": m.get("role", "user"), "content": m.get("content", "")[:3000]})
     for _round in range(6):

@@ -350,6 +350,9 @@ async def api_change_pw(request: Request, su=Depends(require_session_user)):
 _AI_LIMIT = defaultdict(deque)
 
 
+_AI_CTX = {}  # M-A2: uid -> (ts, ctx快照)
+
+
 def ai_allowed(ip, max_n=15, window=300):
     q = _AI_LIMIT[ip]
     now = time.time()
@@ -386,10 +389,30 @@ async def ai_chat(request: Request, su=Depends(require_session_user)):
         with tenants.tenant(uid):
             return ai_tools.execute_tool(tool, args)
 
+    # M-A2: 用户上下文快照 (30s 缓存)
+    def _ctx():
+        import time as _t
+        now = _t.time()
+        if _AI_CTX.get(uid) and now - _AI_CTX[uid][0] < 30:
+            return _AI_CTX[uid][1]
+        c = {}
+        try:
+            import paper_ops as _po
+            c["持仓"] = {"现货": _po.spot_positions(), "合约纸面": _po.native_positions()}
+        except Exception:
+            pass
+        try:
+            c["资金"] = {"余额USDT": float(funds.get_balance(uid) or 0),
+                         "套餐": (users.get_user(uid) or {}).get("plan")}
+        except Exception:
+            pass
+        _AI_CTX[uid] = (now, c)
+        return c
+
     async def gen():
         try:
             agen = iterate_in_threadpool(
-                ai_client.run_agent(messages, ai_tools.TOOLS, tenant_executor))
+                ai_client.run_agent(messages, ai_tools.TOOLS, tenant_executor, ctx=_ctx()))
             async for ev in agen:
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
         except Exception as e:
