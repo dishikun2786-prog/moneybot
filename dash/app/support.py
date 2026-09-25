@@ -122,8 +122,11 @@ def register(app):
                 "SELECT * FROM conversations ORDER BY (status='resolved'), last_msg_at DESC").fetchall()]
             c.close()
             return {"ok": True, "conversations": convs, "unread": unread_counts(su)}
-        # 用户
+        # 用户: 活跃会话优先; 无则回退最近一个(含resolved)供查看历史
         conv = get_active_conv(su["u"])
+        if not conv:
+            conv = c.execute("SELECT * FROM conversations WHERE uid=? ORDER BY id DESC LIMIT 1",
+                             (su["u"],)).fetchone()
         if not conv:
             c.close()
             return {"ok": True, "conversation": None, "messages": []}
