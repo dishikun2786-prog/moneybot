@@ -192,9 +192,28 @@ def get_daily_report(uid):
         return None
 
 
+_LAST_JEV = 0.0
+
+
 def tick():
     """每60s扫描全部租户的到期任务 (pm-dash 后台线程调用)"""
     try:
+        # M-D2: Jev 5分钟决策巡检 (所有付费套餐用户; 超时降级由 jev_engine 自处理)
+        global _LAST_JEV
+        _now = time.time()
+        if _now - _LAST_JEV >= 300:
+            _LAST_JEV = _now
+            try:
+                import jev_engine
+                from dash.app import users as _users
+                for u in _users.list_users():
+                    if ((u.get("plan") or "free") != "free" and u.get("status") == "active"):
+                        try:
+                            jev_engine.run_cycle(u["id"])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         # M-A6: 每日巡检 (UTC 0点后第一次tick, 旗舰版用户)
         global _LAST_DAILY
         now = time.time()
