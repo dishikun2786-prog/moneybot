@@ -1113,6 +1113,17 @@ def _sync_bybit_syms(value):
         pass
 
 
+def _restart_bybit_services():
+    """重启 pm-bridge / pm-aether-feed 使 bybit_syms 生效 (异步, 不阻塞响应)"""
+    try:
+        import subprocess
+        subprocess.Popen(
+            ["sudo", "systemctl", "restart", "pm-bridge", "pm-aether-feed"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 @app.post("/api/admin/funds/settings")
 async def admin_funds_settings(request: Request, su=Depends(require_admin)):
     try:
@@ -1126,6 +1137,8 @@ async def admin_funds_settings(request: Request, su=Depends(require_admin)):
     r = funds.set_setting(key, body.get("value"))
     if key == "bybit_syms" and r.get("ok"):
         _sync_bybit_syms(str(body.get("value", "")))
+        _restart_bybit_services()
+        r["msg"] = "已保存并触发重启 pm-bridge / pm-aether-feed"
     return r
 
 
