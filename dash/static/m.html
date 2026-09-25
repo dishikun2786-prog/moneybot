@@ -2127,10 +2127,10 @@ function renderKlineSVG(bars, iv, live, el){
     var yL=pad+(H-pad*2)*(1-(b.l-mn)/(mx-mn));
     var bodyTop=Math.min(yO,yC), bodyH=Math.max(1,Math.abs(yC-yO));
     s+='<line x1="'+(x+step/2)+'" y1="'+yH+'" x2="'+(x+step/2)+'" y2="'+yL+'" stroke="'+col+'" stroke-width="0.8"/>';
-    s+='<rect x="'+x+'" y="'+bodyTop+'" width="'+(Math.max(1,step-1))+'px" height="'+bodyH+'" fill="'+col+'"/>';
+    s+='<rect x="'+x+'" y="'+bodyTop+'" width="'+(Math.max(1,step-1))+'" height="'+bodyH+'" fill="'+col+'"/>';
     if(vmx>0){
       var vh=(b.v||0)/vmx*(VH-4);
-      s+='<rect x="'+x+'" y="'+(H+VH-vh-2)+'" width="'+(Math.max(1,step-1))+'px" height="'+vh+'" fill="'+col+'" opacity="0.55"/>';
+      s+='<rect x="'+x+'" y="'+(H+VH-vh-2)+'" width="'+(Math.max(1,step-1))+'" height="'+vh+'" fill="'+col+'" opacity="0.55"/>';
     }
   }
   var last=bars[i1-1];
