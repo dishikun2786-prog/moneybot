@@ -1183,6 +1183,15 @@ function mkRows(){
   var now=Date.now();
   if(MKROWS_CACHE&&MKROWS_KEY===key&&(chgSort?now-MKROWS_T<3000:true))return MKROWS_CACHE;
   var rows=[],seen={};
+  // M-S五期兜底: INSTR 空(清单API失败)时用 SSE 价格 keys 反推标的, 保证行情屏永不空白
+  if(!INSTR.linear.length&&!INSTR.spot.length){
+    var pks=Object.keys(PRICES||{});
+    for(var pi=0;pi<pks.length;pi++){
+      var s0=pks[pi],c0=(SYM_SPOT_ONLY&&SYM_SPOT_ONLY[s0])?'spot':'linear';
+      seen[s0]=1;
+      rows.push({sym:s0,cat:c0,name:s0,turn:0});
+    }
+  }
   for(var i=0;i<INSTR.linear.length;i++){
     var it=INSTR.linear[i];
     seen[it.symbol]=1;
@@ -1351,6 +1360,10 @@ function renderTickers(){
   var rows=mkRows();
   id('mk-count').textContent=rows.length+' 标的';
   if(!rows.length){
+    if(!INSTR.linear.length&&!INSTR.spot.length&&!Object.keys(PRICES||{}).length){
+      id('ticker-list').innerHTML='<div class="dim small" style="padding:8px">⏳ 行情数据连接中…（若持续空白请下拉刷新或检查网络）</div>';
+      return;
+    }
     id('ticker-list').innerHTML='<div class="dim small" style="padding:8px">'+(MKTAB==='fav'?'暂无自选：点任意币种行右侧 ☆ 添加':'无匹配标的')+'</div>';
     return;
   }
@@ -1374,10 +1387,12 @@ function renderTickers(){
 }
 async function loadMarkets(){
   renderTickers();
-  try{
-    var r=await api('/api/instruments');
-    if(r.data){INSTR={linear:r.data.linear||[],spot:r.data.spot||[]};MKROWS_CACHE=null;buildInstrPx();renderTickers()}
-  }catch(e){}
+  for(var li=0;li<2;li++){
+    try{
+      var r=await api('/api/instruments');
+      if(r.data&&(r.data.linear||r.data.spot)){INSTR={linear:r.data.linear||[],spot:r.data.spot||[]};MKROWS_CACHE=null;buildInstrPx();renderTickers();break}
+    }catch(e){}
+  }
   var m=await api('/api/markets?sort=edge');
   if(m.data&&m.data.rows){PM_ROWS=m.data.rows;renderTickers()}
 }
@@ -1915,9 +1930,19 @@ function renderNativeTicket(){
   }
   id('nt-hint').textContent=p.last?('现价 '+fmtPx(p.last)+(p.spot?' · 现货 '+fmtPx(p.spot):'')+(inWl?'':' · ⚠️ 不在交易白名单')):'(无行情)';
 }
-function openSymSearch(from){
+async function openSymSearch(from){
+  if(!INSTR.linear.length&&!INSTR.spot.length){
+    try{
+      var r0=await api('/api/instruments');
+      if(r0.data){INSTR={linear:r0.data.linear||[],spot:r0.data.spot||[]}}
+    }catch(e){}
+  }
   var html='<h3>选择交易标的</h3><div style="max-height:46vh;overflow-y:auto">';
   var rows=INSTR.linear.slice(0,80);
+  if(!rows.length){
+    var pks2=Object.keys(PRICES||{});
+    for(var q=0;q<pks2.length;q++){var s2=pks2[q];rows.push({symbol:s2})}
+  }
   for(var i=0;i<rows.length;i++){
     var r=rows[i];
     html+='<div class="market-item" onclick="pickNativeSym(\''+r.symbol+'\')">'
