@@ -204,7 +204,8 @@ def tick():
             try:
                 from dash.app import users
                 for u in users.list_users():
-                    if (u.get("plan") == "live" and u.get("status") == "active"):
+                    # R14-M18: 所有付费套餐 (非 free) 都生成巡检, 套餐只区分服务时长
+                    if ((u.get("plan") or "free") != "free" and u.get("status") == "active"):
                         try:
                             gen_daily_report(u["id"])
                         except Exception:

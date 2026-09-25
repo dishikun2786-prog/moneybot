@@ -401,7 +401,8 @@ def t_backtest_summary(args):
     theta = float((args or {}).get("theta", 5.0))
     if not (0 < theta <= 20):
         return {"error": f"θ必须0-20, 收到{theta}"}
-    out = _sh(f"cd {BASE} && ./venv/bin/python carry_backtest.py --theta {theta} --nobasis 2>&1 | tail -30",
+    # grep 抓汇总行 (tail 会被每轮明细挤掉前面的标的汇总)
+    out = _sh(f"cd {BASE} && ./venv/bin/python carry_backtest.py --theta {theta} --nobasis 2>&1 | grep -E 'θ_in=|数据缺失|跳过' | tail -10",
               timeout=240)
     metrics = _bt_parse(out)
     if not metrics:

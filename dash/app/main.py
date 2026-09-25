@@ -267,12 +267,6 @@ def trade_proto_page():
 
 
 
-@app.get("/api/pnl")
-def api_pnl(su=Depends(require_session_user)):
-    with tenants.tenant(su["u"]):
-        return readers.pnl_overview()
-
-
 @app.get("/api/trades")
 def api_trades(mode: str = "all", offset: int = 0, limit: int = 30,
                su=Depends(require_session_user)):

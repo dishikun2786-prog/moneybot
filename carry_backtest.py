@@ -27,6 +27,32 @@ def get(url):
     return json.loads(urllib.request.urlopen(req, timeout=20).read())
 
 
+def funding_rest(symbol, start_ms, end_ms):
+    """R14-M18: Bybit REST 拉 funding 历史 (公开端点, 分页) → [(t_ms, rate)]"""
+    out = []
+    cur = start_ms
+    try:
+        while cur < end_ms:
+            url = (f"https://api.bybit.com/v5/market/funding/history?category=linear"
+                   f"&symbol={symbol}&startTime={cur}&endTime={end_ms}&limit=200")
+            d = get(url)  # get() 已 json.loads 返回 dict
+            if d.get("retCode") != 0 or not d.get("result"):
+                break
+            lst = d["result"].get("list") or []
+            if not lst:
+                break
+            for x in lst:
+                out.append((int(x["fundingRateTimestamp"]), float(x["fundingRate"])))
+            oldest = min(int(x["fundingRateTimestamp"]) for x in lst)
+            if oldest <= cur:
+                break
+            cur = oldest
+    except Exception as e:
+        print(f"[REST异常] {symbol}: {type(e).__name__}: {e}")
+    out.sort()
+    return out
+
+
 def klines(category, symbol, start_ms, end_ms):
     """向后翻页: 每次以'当前页最旧bar'为新窗口终点"""
     bars = []
@@ -59,18 +85,28 @@ def run(symbol, th_in_pct, th_out_bp, use_settlement_avoid=True):
     start_ms = end_ms - 62 * 24 * 3600 * 1000  # ~2个月
     series = build_basis(symbol, start_ms, end_ms)
     con = duckdb.connect()
-    fund = con.execute(
-        f"SELECT epoch(ts) AS t, funding_rate FROM read_parquet('{FUND_PARQ}') "
-        f"WHERE symbol = '{symbol}' ORDER BY t").fetchall()
+    try:
+        fund = con.execute(
+            f"SELECT epoch(ts) AS t, funding_rate FROM read_parquet('{FUND_PARQ}') "
+            f"WHERE symbol = '{symbol}' ORDER BY t").fetchall()
+        fund = [(int(t) * 1000, float(r)) for t, r in fund]  # 秒→毫秒对齐
+    except Exception:
+        fund = []
     con.close()
-    if not series or not fund:
+    # R14-M18: 本地 parquet 无该标的 funding → REST 回源
+    if not fund:
+        fund = funding_rest(symbol, start_ms, end_ms)
+        if not fund:
+            print(f"[数据缺失] {symbol}: funding 历史无数据 (本地+REST 均无)")
+            return None
+    if not series:
         return None
     # funding 前向填充到每个15m bar (fund t 是秒 → ×1000 对齐bar毫秒)
     fi = 0
     rounds = []
     pos = None
     for t, spx, ppx, b in series:
-        while fi < len(fund) - 1 and fund[fi + 1][0] * 1000 <= t:
+        while fi < len(fund) - 1 and fund[fi + 1][0] <= t:
             fi += 1
         fr = fund[fi][1]
         ann = fr * 3 * 365 * 100  # 年化%
@@ -135,12 +171,20 @@ def report(rounds, symbol, th):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    ap.add_argument("--symbols", default=None, help="逗号分隔标的白名单, 默认全部双通道标的")
     ap.add_argument("--theta", type=float, default=5.0)
     ap.add_argument("--nobasis", action="store_true", help="关闭基差收敛平仓(只留funding翻转+超时)")
     args = ap.parse_args()
     th_out = -999 if args.nobasis else 1.0
+    # R14-M18: 双通道标的白名单 (现货+永续都有数据的标的; XAU/XAG 无现货不适用 carry)
+    ALL_DUAL = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
+    syms = [s.upper() for s in (args.symbols.split(",") if getattr(args, "symbols", None) else ALL_DUAL)]
+    bad = [s for s in syms if s not in ALL_DUAL]
+    if bad:
+        print(f"[跳过] 非双通道标的(无现货或数据不足): {','.join(bad)} — carry套利需现货+永续双腿")
+    syms = [s for s in syms if s in ALL_DUAL]
     t0 = time.time()
-    for sym in ("BTCUSDT", "ETHUSDT"):
+    for sym in syms:
         rounds = run(sym, args.theta, th_out)
         report(rounds, sym, args.theta)
     print(f"耗时 {(time.time()-t0):.0f}s")

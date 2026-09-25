@@ -228,9 +228,33 @@ def strategy():
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+def _tail_jsonl(path, n):
+    """读 jsonl 尾部 n 行 (容错: 空文件/坏行跳过)"""
+    out = []
+    try:
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as _f:
+                lines = _f.readlines()[-n:]
+            for _l in lines:
+                try:
+                    out.append(json.loads(_l))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return out
+
+
 def cycle():
     """循环恢复策略状态 + 最近回合 (租户隔离)"""
-    st = _json(tenants.cycle_state()) or {}
+    _cs_path = tenants.cycle_state() or ""
+    st = {}
+    if _cs_path and os.path.exists(_cs_path):
+        try:
+            with open(_cs_path, encoding="utf-8") as _f:
+                st = json.load(_f) or {}
+        except Exception:
+            pass
     rounds = _tail_jsonl(tenants.cycle_rounds(), 20)
     return {"state": st, "rounds": rounds}
 
