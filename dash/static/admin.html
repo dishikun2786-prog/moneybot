@@ -297,9 +297,9 @@ async function doFeeTier(uid,t){const {d}=await j('POST',`/api/admin/user/${uid}
 async function userPlan(uid,cur){
   modal(`<h3>用户 #${uid} 套餐</h3>
     <div class="row"><select id="np">
-      <option value="free" ${cur==='free'?'selected':''}>免费版 — 模拟交易全权限</option>
-      <option value="pro" ${cur==='pro'?'selected':''}>专业版 $19.9/月 — +AI高级+循环策略</option>
-      <option value="live" ${cur==='live'?'selected':''}>实盘版 $49.9/月 — +统一平台密钥实盘</option>
+      <option value="free" ${cur==='free'?'selected':''}>免费版 ¥0 — 模拟交易 · 手动</option>
+      <option value="pro" ${cur==='pro'?'selected':''}>专业版 $30/月 — 模拟+实盘 · 托管30天</option>
+      <option value="live" ${cur==='live'?'selected':''}>旗舰版 $99/月 — 模拟+实盘 · 托管365天</option>
     </select></div>
     <div class="row"><button class="btn" onclick="doPlan(${uid})">保存</button><button class="btn ghost" onclick="mclose()">取消</button></div>`);
 }

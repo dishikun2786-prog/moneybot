@@ -91,15 +91,10 @@ def live_positions_count(uid):
 
 
 def _gate(uid, venue, notional):
-    """风控前置闸。返回 (ok, error)"""
+    """实盘前置闸 (R14-M15): 充值自动开通 + 额度不限制(以账户余额为自然额度)"""
     u = users.get_user(uid)
     if not u or u["status"] != "active":
         return False, "账户不可用"
-    if u.get("plan") != "live":
-        return False, "需实盘版套餐 (当前: " + str(u.get("plan")) + ")"
-    lim = keys.get_limits(uid)
-    if not lim.get("live_enabled"):
-        return False, "实盘未开启, 请联系管理员开通"
     if venue == "bybit" and not _platform_bybit():
         return False, "平台 Bybit 密钥未配置, 请联系管理员 (统一密钥)"
     if venue == "pm" and not keys.get_secrets(uid, "pm"):
@@ -110,14 +105,13 @@ def _gate(uid, venue, notional):
         return False, "名义金额非法"
     if n < MIN_ORDER_USDT:
         return False, f"单笔名义须 ≥ ${MIN_ORDER_USDT}"
-    if n > float(lim["max_notional"]):
-        return False, f"超过单笔名义限额 ${lim['max_notional']}"
-    today_n = _today_notional(uid)
-    cap = float(lim["max_notional"]) * DAY_NOTIONAL_CAP_MULT
-    if today_n + n > cap:
-        return False, f"超过当日累计名义限额 ${cap:.0f} (已用 ${today_n:.0f})"
-    if venue == "bybit" and live_positions_count(uid) >= int(lim["max_positions"]):
-        return False, f"实盘持仓数已达上限 {lim['max_positions']}"
+    # 充值自动开通: 账户余额即实盘额度 (无管理员审查、无固定限额)
+    try:
+        bal = float(_funds.get_balance(uid) or 0.0)
+    except Exception:
+        bal = 0.0
+    if bal < n:
+        return False, f"余额不足 (可用 {bal:.2f} USDT, 需 {n:.2f} USDT) — 充值后自动开通实盘, 额度=余额"
     return True, "ok"
 
 
@@ -544,7 +538,12 @@ def status(uid):
     """实盘状态汇总 (开关/持仓/余额/台账)"""
     u = users.get_user(uid)
     lim = keys.get_limits(uid)
-    out = {"plan": u.get("plan"), "live_enabled": bool(lim.get("live_enabled")),
+    # R14-M15: 充值自动开通 — live_enabled = 有充值入账 (不再看 limits 表)
+    try:
+        _dep = bool(_funds.get_balance(uid) is not None and float(_funds.get_balance(uid) or 0) > 0) or _funds.has_deposit(uid)
+    except Exception:
+        _dep = False
+    out = {"plan": u.get("plan"), "live_enabled": _dep,
            "limits": lim,
            "bybit_bound": _platform_bybit() is not None,
            "pm_bound": keys.get_secrets(uid, "pm") is not None,

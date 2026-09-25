@@ -41,7 +41,18 @@ def active_users():
         rows = users.list_users()
     except Exception:
         return []
-    return [r for r in rows if r.get("status") == "active" and r.get("id") != 1]
+    # R14-M15: 托管时效差异 — free(plan_expires=0) 或托管到期的用户不跑引擎(手动模式)
+    out = []
+    now = time.time()
+    for r in rows:
+        if r.get("status") != "active" or r.get("id") == 1:
+            continue
+        plan = r.get("plan") or "free"
+        exp = float(r.get("plan_expires") or 0.0)
+        if plan == "free" or (exp > 0 and exp < now):
+            continue
+        out.append(r)
+    return out
 
 
 def run_user(uid):

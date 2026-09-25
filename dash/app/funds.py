@@ -96,9 +96,9 @@ def init_db():
             """)
             # 默认套餐 (free 固定 + 两个建议价)
             for code, name, price, feats, sort in [
-                ("free", "免费版", 0, "纸面模拟交易 · 全行情 · PM实时 · 社区", 0),
-                ("pro", "专业版", 30, "密钥绑定(Bybit/PM) · 实盘准备 · 原生交易纸面", 1),
-                ("live", "实盘版", 99, "实盘交易(Bybit/PM) · 全风控 · 优先支持", 2)]:
+                ("free", "免费版", 0, "模拟交易 · 全行情 · 手动下单", 0),
+                ("pro", "专业版", 30, "模拟+实盘 · 对冲套利托管30天", 1),
+                ("live", "旗舰版", 99, "模拟+实盘 · 对冲套利托管365天 · 优先支持", 2)]:
                 con.execute("INSERT OR IGNORE INTO plans(code,name,price,features,sort,active)"
                             " VALUES(?,?,?,?,?,1)", (code, name, price, feats, sort))
             for k, v in [("withdraw_fee", "1"), ("max_withdraw", "500"),
@@ -157,6 +157,17 @@ def platform_address():
 
 
 # ---------- 余额 ----------
+
+def has_deposit(uid):
+    """R14-M15: 是否有充值入账 (首次充值即自动开通实盘)"""
+    con = _con()
+    try:
+        r = con.execute("SELECT COUNT(*) FROM balance_tx WHERE uid=? AND type='deposit' AND amount>0",
+                        (int(uid),)).fetchone()
+        return bool(r and r[0])
+    finally:
+        con.close()
+
 
 def get_balance(uid):
     con = _con()

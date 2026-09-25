@@ -840,7 +840,7 @@ var G=[
   {icon:'📈',t:'中心行情 · 登录即用',p:'行情、盘口、微结构数据由平台 7×24 采集（<b>100ms 级实时推送</b>）。注册即送 <b>$100 模拟资金</b>，先用模拟账户练手。'},
   {icon:'⚡',t:'两套策略 · 一键托管',p:'<b>现货×永续套利</b>：赚资金费率利息<br><b>循环恢复策略</b>：波段量能小单循环<br>每套策略都有「托管/手动」双模式。'},
   {icon:'🛡️',t:'风控内置 · 亏损有底',p:'仓位强制<b>止盈止损</b>；每日亏损熔断；单笔上限；持仓上限。<br>托管模式亏损到线自动停手——先活下来，再谈盈利。'},
-  {icon:'🔑',t:'实盘交易 · 管理员开通',p:'模拟免费。想用真实资金？联系管理员开通实盘（<b>平台统一密钥</b>执行，加密托管）。开通后即可用真实资金按策略交易。'}
+  {icon:'🔑',t:'实盘交易 · 充值自动开通',p:'模拟免费。想用真实资金？<b>首次充值到账即自动开通实盘</b>，额度=账户余额（不设上限，无需审核）。平台统一密钥执行，加密托管。'}
 ];
 var gi=0;
 function renderGuide(){
@@ -857,7 +857,7 @@ var HELPS={
   markets:'<h3>💡 行情页怎么用</h3><p>列表展示各交易对最新价与24h涨跌（自选/合约/现货/全部可切换）。点币种进交易界面；下方是现货×永续基差监控卡（基差=两腿价差，正基差做多现货做空永续）。</p>',
 
 
-  trade:'<h3>💡 交易页怎么用</h3><p>顶部实时价+资金费率。<b>K线</b>看走势·<b>盘口</b>看挂单·<b>持仓</b>看仓位+切托管/手动·<b>下单</b>开仓。<br>⚪模拟=纸面资金；🔴实盘=真实资金（管理员开通后可见，平台统一密钥执行）。</p>',
+  trade:'<h3>💡 交易页怎么用</h3><p>顶部实时价+资金费率。<b>K线</b>看走势·<b>盘口</b>看挂单·<b>持仓</b>看仓位+切托管/手动·<b>下单</b>开仓。<br>⚪模拟=纸面资金；🔴实盘=真实资金（首次充值自动开通，额度=余额，平台统一密钥执行）。</p>',
   assets:'<h3>💡 资产页怎么用</h3><p>总资产=初始$100+已实现盈亏+持仓浮盈。曲线为累计盈亏走势。资产分布列出各策略占用与可用保证金。</p>',
   profile:'<h3>💡 我的页怎么用</h3><p>实盘状态=查看实盘是否开通与风控限额；套餐=查看当前版本与到期时间；退出登录安全退出。管理员额外可见「管理后台」。</p>',
 
@@ -2293,7 +2293,7 @@ var LIVE={on:false,plan:'',live_enabled:false,bybit_bound:false,pm_bound:false,v
 async function loadLiveStatus(){
   var r=await api('/api/live/status');
   if(!r.data){return}
-  LIVE.plan=r.data.plan;LIVE.live_enabled=!!r.data.live_enabled;
+  LIVE.plan=r.data.plan;LIVE.live_enabled=!!(r.data.live_enabled!==false?r.data.live_enabled:r.data.user&&r.data.user.live_enabled);
   LIVE.bybit_bound=!!r.data.bybit_bound;LIVE.pm_bound=!!r.data.pm_bound;
   if(!LIVE.live_enabled){LIVE.on=false}
   var chip=id('livechip'),lb=id('livebar');

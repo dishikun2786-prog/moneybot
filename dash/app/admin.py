@@ -20,10 +20,11 @@ _lock = threading.RLock()
 _ANNOUNCE_DB = os.environ.get("ANNOUNCE_DB", os.path.join(config.BASE, "dash", "announce.db"))
 
 PLANS = {
-    "free": {"name": "免费版", "price": 0, "zh": "模拟交易全权限"},
-    "pro": {"name": "专业版", "price": 19.9, "zh": "模拟交易 + AI助手高级 + 循环策略"},
-    "live": {"name": "实盘版", "price": 49.9, "zh": "全部功能 + 绑定交易所密钥实盘交易"},
+    "free": {"name": "免费版", "price": 0, "zh": "模拟交易 · 手动下单"},
+    "pro": {"name": "专业版", "price": 30, "zh": "模拟+实盘 · 对冲套利托管30天"},
+    "live": {"name": "旗舰版", "price": 99, "zh": "模拟+实盘 · 对冲套利托管365天 · 优先支持"},
 }
+PLAN_DAYS = {"free": 0, "pro": 30, "live": 365}
 
 
 def _adb():
@@ -81,7 +82,7 @@ def set_plan(uid, plan, admin_uid):
         con = users._db()
         try:
             con.execute("UPDATE users SET plan=?, plan_expires=? WHERE id=?",
-                        (plan, 0 if plan == "free" else time.time() + 30 * 86400, int(uid)))
+                        (plan, 0 if plan == "free" else time.time() + PLAN_DAYS.get(plan, 30) * 86400, int(uid)))
             con.commit()
         finally:
             con.close()

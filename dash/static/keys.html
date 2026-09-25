@@ -59,11 +59,11 @@ async function load(){
   const {d}=await j('GET','/api/keys');
   const lim=(d&&d.limits)||{};
   $('#limbox').innerHTML=
-    '<div class="lim"><div class="l">单笔名义上限</div><div class="n">$'+(lim.max_notional||0).toLocaleString()+'</div></div>'
-    +'<div class="lim"><div class="l">日亏熔断</div><div class="n">$'+(lim.daily_loss_cap||0).toLocaleString()+'</div></div>'
-    +'<div class="lim"><div class="l">最大持仓数</div><div class="n">'+(lim.max_positions||0)+'</div></div>'
-    +'<div class="lim"><div class="l">实盘开关</div><div class="n">'+(lim.live_enabled?'已开启':'未开启')+'</div></div>';
-  if(!lim.live_enabled){$('#livewarn').style.display='';$('#livewarn').textContent='实盘交易未开启：请联系管理员开通（实盘版套餐 + 风控限额审核）。开通后由平台统一密钥执行，无需自绑密钥。'}
+    '<div class="lim"><div class="l">单笔名义</div><div class="n">不限制(≤余额)</div></div>'
+    +'<div class="lim"><div class="l">日累计名义</div><div class="n">不限制</div></div>'
+    +'<div class="lim"><div class="l">最大持仓数</div><div class="n">不限制</div></div>'
+    +'<div class="lim"><div class="l">实盘权限</div><div class="n">充值自动开通·额度=余额'+'</div></div>';
+  // R14-M15: 充值自动开通 — 旧警告下线
   try{
     const lv=await j('GET','/api/live/status');
     const st=lv.d&&lv.d.data&&lv.d.data.live_enabled;
