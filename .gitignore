@@ -12,3 +12,4 @@ node_modules/
 .typesafe_key
 dash/users.db
 dash/funds_health.json
+data/fee_config.json
