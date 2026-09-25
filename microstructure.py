@@ -124,6 +124,16 @@ def features(symbols=None):
         b = basis.get(sym)
         if isinstance(b, dict) and b.get("basis_pct") is not None:
             m["basis_bp"] = round(float(b["basis_pct"]) * 100.0, 2)
+        # M-D7: FDTD 波场特征 (E_n/P_dense/c_mean), numpy 缺失时优雅降级
+        book = books.get(sym)
+        if isinstance(book, dict) and book.get("bids") and book.get("asks"):
+            try:
+                import wave as _wave
+                wf = _wave.features_from_book(book["bids"], book["asks"])
+                if wf:
+                    m["wave"] = wf
+            except Exception:
+                pass
         m["risk"] = risk_score(m)
         out[sym] = m
     return out
