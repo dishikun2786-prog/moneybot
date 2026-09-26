@@ -1122,7 +1122,7 @@ async function doLogout(){
 }
 /* ============ 实时行情 (SSE) ============ */
 var PRICES={};
-var SYM_CN={BTCUSDT:'比特币',ETHUSDT:'以太坊',XAUUSDT:'黄金',XAGUSDT:'白银',XAUTUSDT:'黄金现货',SOLUSDT:'索拉纳',NEARUSDT:'近协议',XRPUSDT:'瑞波币'};
+var SYM_CN={BTCUSDT:'比特币',ETHUSDT:'以太坊',XAUUSDT:'黄金',XAGUSDT:'白银',XAUTUSDT:'黄金现货',SOLUSDT:'索拉纳',NEARUSDT:'近协议',XRPUSDT:'瑞波币',TRXUSDT:'波场'};
 var SYM_UNIT={XAUUSDT:'美元/盎司',XAGUSDT:'美元/盎司',XAUTUSDT:'美元/枚'};
 var SYM_SPOT_ONLY={XAUTUSDT:true};  // R14: 现货独占标的(无合约腿)
 function priceOf(sym){var p=PRICES[sym]||{};return {last:Number(p.last)||0,spot:Number(p.spot)||0,chg:Number(p.change_pct)||0,turn:Number(p.turnover24h)||0}}
@@ -1734,7 +1734,7 @@ async function pmCloseGo(key){
 var tradeSym='BTCUSDT';
 var KL_IV='15m';
 var TRADE_CAT='linear';  // R14: 交易屏通道 (linear=永续 / spot=现货)
-var SYM_HAS_SPOT={BTCUSDT:true,ETHUSDT:true,SOLUSDT:true,NEARUSDT:true,XRPUSDT:true};  // 双通道标的 (R14-M2 扩展)
+var SYM_HAS_SPOT={BTCUSDT:true,ETHUSDT:true,SOLUSDT:true,NEARUSDT:true,XRPUSDT:true,TRXUSDT:true};  // 双通道标的 (R14-M2 扩展)
 function setTradeSym(sym){
   tradeSym=sym;
   TRADE_CAT=SYM_SPOT_ONLY[sym]?'spot':'linear';

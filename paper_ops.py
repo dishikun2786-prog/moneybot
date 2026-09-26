@@ -252,7 +252,7 @@ def _instruments_linear():
 
 def _native_allowed(sym):
     """R13c: 原生交易白名单 — 4核心标的恒可 (BTC/ETH/XAU/XAG), 其余需成交额 Top N"""
-    if sym in ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT"):
+    if sym in ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT", "TRXUSDT"):
         return True
     inst = _instruments_linear()
     it = inst.get(sym)
