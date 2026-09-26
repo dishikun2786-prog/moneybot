@@ -841,6 +841,24 @@ def watch_kline_loop():
             print(f"[bridge] LRU退订K线: {oldest}", flush=True)
 
 
+def _ticker_watchdog():
+    """ticker 断链检测: 某标的 ticker 超 60s 未更新 → 重订阅该标的 (防 NEAR 类价格卡住)"""
+    while True:
+        time.sleep(30)
+        ws = WS_REF.get("ws")
+        if not ws:
+            continue
+        now = int(time.time() * 1000)
+        for sym in LINEAR_SYMS:
+            ts = PRICES.get(sym, {}).get("ts", 0)
+            if ts and now - ts > 60000:
+                print(f"[bridge] ticker断链: {sym} (距今{(now-ts)//1000}s未更新), 重订阅", flush=True)
+                try:
+                    ws.send(json.dumps({"op": "subscribe", "args": [f"tickers.{sym}"]}))
+                except Exception as e:
+                    print(f"[bridge] ticker重订阅失败 {sym}: {e}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test", action="store_true")
