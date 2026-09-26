@@ -9,8 +9,12 @@ import (
 // QMDJContext 是时空排盘评分对象（Python 排盘服务输出）。
 type QMDJContext struct {
 	Timestamp   int64             `json:"timestamp"`
+	Time        string            `json:"time"`
 	Ganzhi      map[string]string `json:"ganzhi"`
 	SolarTerm   string            `json:"solar_term"`
+	Ke          int               `json:"ke"`
+	Minute      int               `json:"minute"`
+	Second      int               `json:"second"`
 	Score       float64           `json:"qmdj_score"`
 	PatternType string            `json:"pattern_type"`
 }
