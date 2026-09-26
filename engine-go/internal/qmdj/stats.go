@@ -82,6 +82,22 @@ func Analyze(path string) (*Stats, error) {
 	return st, nil
 }
 
+// Significant 判断 QMDJ 因子是否具统计显著性。
+// minEvents=最小事件数(默认 500), minAbsIC=最小绝对 IC(默认 0.05)。
+func (s *Stats) Significant(minEvents int, minAbsIC float64) bool {
+	if minEvents <= 0 {
+		minEvents = 500
+	}
+	if minAbsIC <= 0 {
+		minAbsIC = 0.05
+	}
+	ic := s.IC
+	if ic < 0 {
+		ic = -ic
+	}
+	return s.TotalEvents >= minEvents && ic >= minAbsIC
+}
+
 func splitLines(s string) []string {
 	var out []string
 	start := 0
