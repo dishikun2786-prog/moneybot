@@ -475,6 +475,9 @@ TOOLS = [
     {"type": "function", "function": {"name": "my_balance",
         "description": "查询当前登录用户的账户余额/套餐/托管到期/实盘权限 (只读)",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "available_symbols",
+        "description": "查询平台当前可交易标的池(动态): 全部标的/套利标的/原生方向标的/现货标的, 与后台上线/下线配置实时同步 (只读)",
+        "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "trade_analysis",
         "description": "学习总结历史交易: 统计总笔数/胜率/总盈亏/平均每笔/最大盈亏, 按标的/方向/模式分布, 用于提炼策略经验 (只读)",
         "parameters": {"type": "object", "properties": {}}}},
@@ -574,7 +577,23 @@ def t_backtest_history(args):
         return {"历史回测": [], "条数": 0, "说明": "暂无回测历史 (先让AI跑一次 backtest_summary)"}
 
 
-DUAL_CARRY_SYMS = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT")
+_LEGACY_SYMS = ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT", "TRXUSDT")
+
+
+def _symbol_pool():
+    """动态标的池: 与 bybit_syms.txt + paper_ops 白名单同源, 标的上线/下线自动同步"""
+    import paper_ops
+    conf = os.path.expanduser("~/polymarket/data/bybit_syms.txt")
+    try:
+        syms = [s.strip().upper() for s in open(conf, encoding="utf-8").read().split(",") if s.strip()]
+    except Exception:
+        syms = []
+    if not syms:
+        syms = list(_LEGACY_SYMS)
+    native = [s for s in syms if paper_ops._native_allowed(s)]
+    spot = [s for s in syms if paper_ops._spot_allowed(s)]
+    carry = list(spot)
+    return {"all": syms, "native": native, "spot": spot, "carry": carry}
 
 
 def _jev_check(symbol):
@@ -597,8 +616,9 @@ def _jev_check(symbol):
 def t_open_carry(args):
     """M-D4: 对话式开仓 — 白名单+Jev复核 → 预览 → 用户批准 → paper_ops.open_hedge"""
     sym = str(args.get("symbol") or "").upper()
-    if sym not in DUAL_CARRY_SYMS:
-        return {"status": "rejected", "error": f"标的 {sym} 不在可交易池 {list(DUAL_CARRY_SYMS)}"}
+    pool = _symbol_pool()["carry"]
+    if sym not in pool:
+        return {"status": "rejected", "error": f"标的 {sym} 不在套利可交易池 {pool}"}
     try:
         notional = float(args.get("notional", 10))
     except Exception:
@@ -623,8 +643,9 @@ def t_open_carry(args):
 def t_close_carry(args):
     """M-D4: 对话式平仓 — 白名单 → 预览 → 批准 → paper_ops.close_both"""
     sym = str(args.get("symbol") or "").upper()
-    if sym not in DUAL_CARRY_SYMS:
-        return {"status": "rejected", "error": f"标的 {sym} 不在可交易池"}
+    pool = _symbol_pool()["carry"]
+    if sym not in pool:
+        return {"status": "rejected", "error": f"标的 {sym} 不在套利可交易池 {pool}"}
     p = _pending()
     aid = f"a{int(time.time()*1000)}"
     p[aid] = {"type": "close_carry", "symbol": sym,
@@ -760,6 +781,15 @@ def t_create_task(args):
                            args.get("threshold"))
 
 
+def t_available_symbols(args):
+    """查询平台当前可交易标的(动态, 与标的上线/下线配置同步)"""
+    pool = _symbol_pool()
+    return {"上线标的总数": len(pool["all"]), "全部标的": pool["all"],
+            "套利标的(现货×永续)": pool["carry"], "原生方向标的(单边永续)": pool["native"],
+            "现货标的": pool["spot"],
+            "说明": "标的白名单与后台上线/下线配置实时同步, 开仓前用此查询最新可交易池"}
+
+
 def t_trade_analysis(args):
     """学习总结: 统计历史交易胜率/盈亏/按标的/方向/模式分布, 提炼经验"""
     import glob
@@ -883,6 +913,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "open_spot": t_open_spot, "close_spot": t_close_spot,
              "autopilot_create": t_autopilot_create, "autopilot_set": t_autopilot_set,
              "my_trades": t_my_trades, "trade_analysis": t_trade_analysis,
+             "available_symbols": t_available_symbols,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
 
