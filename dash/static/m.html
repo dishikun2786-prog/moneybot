@@ -724,7 +724,21 @@ select.input{appearance:none}
     <section class="screen" id="screen-recharge">
       <div class="card">
         <div class="ct">USDT 充值 <span class="xs muted">Bybit 收款 · 自动入账</span></div>
-        <div class="trow"><span class="k">充值金额 (USDT)</span><input type="number" id="rc-amount" value="100" min="5" max="10000" step="1" style="width:110px"></div>
+        <div style="margin:12px 0">
+          <label class="xs" style="display:block;margin-bottom:6px;color:var(--text-2)">充值金额 (USDT)</label>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;transition:border-color .15s">
+            <span class="ico">💵</span>
+            <input type="number" id="rc-amount" value="100" min="5" max="10000" step="1" class="input" style="flex:1;font-size:18px;font-weight:600;border:none;background:none;padding:0" placeholder="100">
+            <span class="xs muted" style="flex:none">USDT</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="chip" onclick="id('rc-amount').value=100">100</button>
+            <button class="chip" onclick="id('rc-amount').value=500">500</button>
+            <button class="chip" onclick="id('rc-amount').value=1000">1000</button>
+            <button class="chip" onclick="id('rc-amount').value=5000">5000</button>
+          </div>
+          <div class="xs muted" style="margin-top:8px">最低 5 USDT · 生成后按精确金额转账自动入账</div>
+        </div>
         <button class="btn accent" id="rc-create-btn" onclick="rechargeCreate()">生成充值订单</button>
         <div id="rc-order" style="margin-top:10px"></div>
       </div>
@@ -741,9 +755,29 @@ select.input{appearance:none}
         <div class="ct">USDT 提现 <span class="xs muted">管理员审核后自动打款</span></div>
         <div class="trow" id="pb-line"><span class="k">模拟余额</span><span class="v">—</span></div>
 <div class="trow"><span class="k">可用余额</span><span class="v" id="wd-bal">—</span></div>
-        <div class="trow"><span class="k">提现金额 (USDT)</span><input type="number" id="wd-amount" value="10" min="5" step="1" style="width:110px"></div>
-        <div class="field"><label>TRC20 收款地址（T开头34位）</label><input class="input" id="wd-addr" placeholder="粘贴你的 TRC20 USDT 地址"></div>
-        <div class="dim xs" id="wd-hint" style="margin-bottom:8px"></div>
+        <div style="margin:12px 0">
+          <label class="xs" style="display:block;margin-bottom:6px;color:var(--text-2)">提现金额 (USDT)</label>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;transition:border-color .15s">
+            <span class="ico">💸</span>
+            <input type="number" id="wd-amount" value="10" min="5" step="1" class="input" style="flex:1;font-size:18px;font-weight:600;border:none;background:none;padding:0" placeholder="10">
+            <span class="xs muted" style="flex:none">USDT</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="chip" onclick="id('wd-amount').value=10">10</button>
+            <button class="chip" onclick="id('wd-amount').value=50">50</button>
+            <button class="chip" onclick="id('wd-amount').value=100">100</button>
+            <button class="chip" onclick="id('wd-amount').value=0;id('wd-amount').value=Number((id('wd-bal')||{}).textContent)||0">全部</button>
+          </div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label class="xs" style="display:block;margin-bottom:6px;color:var(--text-2)">TRC20 收款地址（T 开头 34 位）</label>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;transition:border-color .15s">
+            <span class="ico">🔗</span>
+            <input class="input" id="wd-addr" placeholder="粘贴你的 TRC20 USDT 地址" style="flex:1;border:none;background:none;padding:0" autocomplete="off">
+            <button class="mini" onclick="navigator.clipboard.readText().then(function(t){id('wd-addr').value=t.trim();toast('已粘贴')}).catch(function(){toast('请长按手动粘贴',true)})">📋 粘贴</button>
+          </div>
+          <div class="dim xs" id="wd-hint" style="margin-top:6px"></div>
+        </div>
         <button class="btn accent" onclick="withdrawCreate()">提交提现申请</button>
       </div>
       <div class="card">
@@ -800,7 +834,7 @@ select.input{appearance:none}
         <div class="mi" onclick="go('support')"><span class="ico">💬</span><span class="t">联系客服<span class="xs muted"> · 图片/文字反馈问题</span></span><span class="badge red" id="sup-dot" style="display:none"></span><span class="chev">›</span></div>
 <div class="mi" onclick="openAIFab()"><span class="ico">🤖</span><span class="t">AI 策略助手<span class="xs muted"> · 流式对话 · 托管决策</span></span><span class="badge green" id="ai-badge">PRO</span><span class="chev">›</span></div>
         <div class="mi" onclick="go('trade')"><span class="ico">⚡</span><span class="t">实盘模式<span class="xs muted"> · 风控限额</span></span><span class="r" id="p-livebadge">—</span><span class="chev">›</span></div>
-        <div class="mi" onclick="toast('密码修改请联系管理员或桌面版操作')"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">改密 / 锁定</span><span class="chev">›</span></div>
+        <div class="mi" onclick="pwdSheet()"><span class="ico">🛡️</span><span class="t">安全设置</span><span class="r">修改密码</span><span class="chev">›</span></div>
         <div class="mi" onclick="openHelp()"><span class="ico">📚</span><span class="t">新手教程</span><span class="r">3分钟学会对冲</span><span class="chev">›</span></div>
         <div class="mi" onclick="doLogout()"><span class="ico">🚪</span><span class="t" style="color:var(--down)">退出登录</span><span class="chev">›</span></div>
       </div>
@@ -1116,6 +1150,25 @@ async function afterLogin(user){
   loadAnnouncements();loadLiveStatus();
   go('markets');
 }
+function pwdSheet(){
+  openSheet('<b>🛡️ 修改密码</b>'
+    +'<div style="margin:10px 0 8px"><label class="xs">当前密码</label><input type="password" id="pwd-old" class="input" placeholder="输入当前登录密码" autocomplete="current-password" style="margin-top:4px"></div>'
+    +'<div style="margin-bottom:8px"><label class="xs">新密码（至少6位）</label><input type="password" id="pwd-new" class="input" placeholder="设置新密码" autocomplete="new-password" style="margin-top:4px"></div>'
+    +'<div style="margin-bottom:10px"><label class="xs">确认新密码</label><input type="password" id="pwd-new2" class="input" placeholder="再次输入新密码" autocomplete="new-password" style="margin-top:4px"></div>'
+    +'<div class="xs muted" style="margin-bottom:10px">修改后所有设备将退出登录，需用新密码重新登录。</div>'
+    +'<button class="btn accent" onclick="pwdGo()">确认修改</button>'
+    +'<button class="btn" style="margin-top:6px" onclick="closeSheet()">取消</button>');
+}
+async function pwdGo(){
+  var oldPw=id('pwd-old').value,newPw=id('pwd-new').value,newPw2=id('pwd-new2').value;
+  if(!oldPw||!newPw){toast('请填写完整',true);return}
+  if(newPw.length<6){toast('新密码至少6位',true);return}
+  if(newPw!==newPw2){toast('两次新密码不一致',true);return}
+  var r=await api('/api/password/change',{method:'POST',body:JSON.stringify({old_pw:oldPw,new_pw:newPw})});
+  closeSheet();
+  if(r.status===200&&r.data&&r.data.ok){toast('✅ 密码已修改，请重新登录');setTimeout(function(){doLogout()},1200)}
+  else{toast(r.data&&(r.data.err||r.data.error)||'修改失败',true)}
+}
 async function doLogout(){
   await api('/api/auth/logout',{method:'POST'});
   ME=null;PRICES={};go('login');toast('已退出登录');
@@ -1204,6 +1257,7 @@ function mkRows(){
   }
   for(var j=0;j<INSTR.spot.length;j++){
     var s2=INSTR.spot[j];
+    // 双通道标的(BTC/ETH/SOL等): 加 spot rows 供现货tab显示, dual标记避免all tab重复
     var dual=!!seenLinear[s2.symbol];
     rows.push({sym:s2.symbol,cat:'spot',name:s2.name||s2.base||s2.symbol,turn:s2.turnover24h||0,dual:dual});
   }
@@ -3069,7 +3123,7 @@ function apNewSheet(){
     +'<select id="ap-sym-sel" style="width:100%;margin-top:4px">'
     +'<option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option>'
     +'<option value="XAUUSDT">XAUUSDT</option><option value="XAGUSDT">XAGUSDT</option><option value="XAUTUSDT">XAUTUSDT(现货)</option><option value="SOLUSDT">SOLUSDT</option>'
-    +'<option value="NEARUSDT">NEARUSDT</option><option value="XRPUSDT">XRPUSDT</option>'
+    +'<option value="NEARUSDT">NEARUSDT</option><option value="XRPUSDT">XRPUSDT</option><option value="TRXUSDT">TRXUSDT</option>'
     +'</select></div>'
     +'<div style="margin-bottom:8px"><b>名义金额/标的 (USDT)</b><br><input id="ap-notional" type="number" value="15" min="1" max="50" style="width:100%;margin-top:4px"></div>'
     +'<div style="margin-bottom:8px"><b>风控参数</b><br>'
