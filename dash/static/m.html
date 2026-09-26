@@ -78,6 +78,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips .chip{flex:1;padding:8px 6px;border-radius:8px;border:1px solid var(--bd);background:transparent;color:var(--text-2);font-size:12px;font-weight:600;cursor:pointer}
 .chips .chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.amt-btn{min-width:52px;height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer;transition:transform .12s,background-color .15s,border-color .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.amt-btn:active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);transform:scale(.94)}
+#ticker-list{scrollbar-width:thin;scrollbar-color:rgba(139,148,158,.35) transparent}
+#ticker-list::-webkit-scrollbar{width:4px}
+#ticker-list::-webkit-scrollbar-thumb{background:rgba(139,148,158,.35);border-radius:2px}
+#ticker-list::-webkit-scrollbar-track{background:transparent}
 .tr-item{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--bd);align-items:flex-start}
 .tr-item .t-l{flex:1;min-width:0}
 .tr-item .t-r{text-align:right;flex:none}
@@ -732,10 +738,10 @@ select.input{appearance:none}
             <span class="xs muted" style="flex:none">USDT</span>
           </div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            <button class="chip" onclick="id('rc-amount').value=100">100</button>
-            <button class="chip" onclick="id('rc-amount').value=500">500</button>
-            <button class="chip" onclick="id('rc-amount').value=1000">1000</button>
-            <button class="chip" onclick="id('rc-amount').value=5000">5000</button>
+            <button class="amt-btn" onclick="id('rc-amount').value=100">100</button>
+            <button class="amt-btn" onclick="id('rc-amount').value=500">500</button>
+            <button class="amt-btn" onclick="id('rc-amount').value=1000">1000</button>
+            <button class="amt-btn" onclick="id('rc-amount').value=5000">5000</button>
           </div>
           <div class="xs muted" style="margin-top:8px">最低 5 USDT · 生成后按精确金额转账自动入账</div>
         </div>
@@ -763,10 +769,10 @@ select.input{appearance:none}
             <span class="xs muted" style="flex:none">USDT</span>
           </div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            <button class="chip" onclick="id('wd-amount').value=10">10</button>
-            <button class="chip" onclick="id('wd-amount').value=50">50</button>
-            <button class="chip" onclick="id('wd-amount').value=100">100</button>
-            <button class="chip" onclick="id('wd-amount').value=0;id('wd-amount').value=Number((id('wd-bal')||{}).textContent)||0">全部</button>
+            <button class="amt-btn" onclick="id('wd-amount').value=10">10</button>
+            <button class="amt-btn" onclick="id('wd-amount').value=50">50</button>
+            <button class="amt-btn" onclick="id('wd-amount').value=100">100</button>
+            <button class="amt-btn" onclick="id('wd-amount').value=0;id('wd-amount').value=Number((id('wd-bal')||{}).textContent)||0">全部</button>
           </div>
         </div>
         <div style="margin-bottom:12px">
