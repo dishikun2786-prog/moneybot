@@ -118,8 +118,8 @@ def main():
                 book = dict(bids); book.update({-p: sz for p, sz in asks.items()})  # 简化
                 msig = micros[s].signal(bids, trades_data.get(s, []))
                 # 综合分
-                final = tscore * (0.5 + 0.5*msig)
-                if direction != "flat" and final > 0.55:
+                final = tscore * (0.6 + 0.4*msig)
+                if direction != "flat" and final > 0.45:
                     scores[s] = (direction, final)
             # 平仓检查
             for s in list(pos.keys()):
