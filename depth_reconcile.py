@@ -45,13 +45,13 @@ def main():
         # BTC 盘口 bid0 价格偏差
         gb = g.get("books",{}).get("BTCUSDT",{}).get("bids",[[]])[0]
         pb = p.get("books",{}).get("BTCUSDT",{}).get("bids",[[]])[0]
-        if gb and pb and abs(float(gb[0])-float(pb[0])) > 0.5:
-            problems.append(f"BTC bid0 偏差 {abs(float(gb[0])-float(pb[0])):.2f}")
+        if gb and pb and abs(float(gb[0])-float(pb[0]))/float(pb[0]) > 0.0005:
+            problems.append(f"BTC bid0 偏差 {abs(float(gb[0])-float(pb[0]))/float(pb[0])*10000:.1f}bp")
         # px BTC last 偏差
         gl = g.get("px",{}).get("BTCUSDT",{}).get("last")
         pl = p.get("px",{}).get("BTCUSDT",{}).get("last")
-        if gl and pl and abs(gl-pl) > 0.5:
-            problems.append(f"BTC last 偏差 {abs(gl-pl):.2f}")
+        if gl and pl and abs(gl-pl)/pl > 0.0005:
+            problems.append(f"BTC last 偏差 {abs(gl-pl)/pl*10000:.1f}bp")
         # basis 偏差
         gbp = g.get("basis",{}).get("BTCUSDT",{}).get("basis_pct")
         pbp = p.get("basis",{}).get("BTCUSDT",{}).get("basis_pct")
