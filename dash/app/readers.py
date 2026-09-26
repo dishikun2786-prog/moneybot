@@ -112,13 +112,7 @@ def pnl_overview():
             "note": "孤儿现货腿", "key_orig": sym,
             "live": {"symbol": sym, "dir": o.get("dir", "fwd"), "notional": o.get("notional"),
                      "spot_entry": o.get("spot_entry"), "funding_acc": 0, "orphan": True}})
-    for sym, n in (st.get("naked") or {}).items():
-        positions.append({
-            "key": sym, "side": "裸腿", "strat": "循环恢复", "entry": n.get("perp_entry"),
-            "note": "裸腿持仓", "key_orig": sym,
-            "live": {"symbol": sym, "dir": n.get("dir", "fwd"), "notional": n.get("notional"),
-                     "perp_entry": n.get("perp_entry"), "spot_entry": n.get("spot_entry"),
-                     "funding_acc": n.get("funding_acc", 0), "naked": True}})
+    # 循环恢复策略(裸腿)持仓已下线: 前端持仓列表不再展示
     uid = tenants.current_uid()
     pb = users.get_paper_balance(uid)
     cum = float(st.get("cum_pnl") or 0)
