@@ -475,6 +475,9 @@ TOOLS = [
     {"type": "function", "function": {"name": "my_balance",
         "description": "查询当前登录用户的账户余额/套餐/托管到期/实盘权限 (只读)",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "trade_analysis",
+        "description": "学习总结历史交易: 统计总笔数/胜率/总盈亏/平均每笔/最大盈亏, 按标的/方向/模式分布, 用于提炼策略经验 (只读)",
+        "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "my_trades",
         "description": "查询当前登录用户最近N笔交易台账(模拟+实盘, 时间/标的/方向/盈亏/费用) (只读)",
         "parameters": {"type": "object", "properties": {"n": {
@@ -757,6 +760,64 @@ def t_create_task(args):
                            args.get("threshold"))
 
 
+def t_trade_analysis(args):
+    """学习总结: 统计历史交易胜率/盈亏/按标的/方向/模式分布, 提炼经验"""
+    import glob
+    uid = tenants.current_uid()
+    n_win = n_trade = 0
+    total_pnl = 0.0
+    by_sym, by_side, by_mode = {}, {}, {}
+    closes = []
+    for fn in sorted(glob.glob(os.path.join(tenants.logs(uid), "*.jsonl"))):
+        if not (fn.endswith("carry_trades.jsonl") or fn.endswith("live_orders.jsonl")):
+            continue
+        mode = "实盘" if fn.endswith("live_orders") else "模拟"
+        try:
+            for line in open(fn, encoding="utf-8").read().strip().splitlines():
+                r = json.loads(line)
+                act = str(r.get("action") or "")
+                if not any(k in act for k in ("CLOSE", "SELL", "SETTLE", "TP", "SL")):
+                    continue
+                pnl = float(r.get("pnl_usd") or r.get("pnl") or 0)
+                fee = float(r.get("fees") or r.get("user_fee") or 0)
+                net = pnl - fee
+                sym = r.get("symbol", "?")
+                side = r.get("side", "?")
+                n_trade += 1
+                if net > 0:
+                    n_win += 1
+                total_pnl += net
+                closes.append(net)
+                by_sym.setdefault(sym, {"n": 0, "win": 0, "pnl": 0.0})
+                by_sym[sym]["n"] += 1
+                if net > 0:
+                    by_sym[sym]["win"] += 1
+                by_sym[sym]["pnl"] += net
+                by_side.setdefault(side, {"n": 0, "pnl": 0.0})
+                by_side[side]["n"] += 1
+                by_side[side]["pnl"] += net
+                by_mode.setdefault(mode, {"n": 0, "win": 0, "pnl": 0.0})
+                by_mode[mode]["n"] += 1
+                if net > 0:
+                    by_mode[mode]["win"] += 1
+                by_mode[mode]["pnl"] += net
+        except Exception:
+            pass
+    if n_trade == 0:
+        return {"总笔数": 0, "说明": "暂无历史平仓交易, 无法总结"}
+    win_rate = round(n_win / n_trade * 100, 1)
+    avg = round(total_pnl / n_trade, 4)
+    max_win = round(max(closes), 4) if closes else 0
+    max_loss = round(min(closes), 4) if closes else 0
+    sym_stats = {s: {"笔数": v["n"], "胜率%": round(v["win"]/v["n"]*100, 1), "盈亏$": round(v["pnl"], 2)} for s, v in sorted(by_sym.items(), key=lambda x: -x[1]["pnl"])}
+    side_stats = {s: {"笔数": v["n"], "盈亏$": round(v["pnl"], 2)} for s, v in sorted(by_side.items(), key=lambda x: -x[1]["pnl"])}
+    mode_stats = {m: {"笔数": v["n"], "胜率%": round(v["win"]/v["n"]*100, 1), "盈亏$": round(v["pnl"], 2)} for m, v in by_mode.items()}
+    return {"总笔数": n_trade, "胜率%": win_rate, "总盈亏$": round(total_pnl, 2),
+            "平均每笔$": avg, "最大单笔盈利$": max_win, "最大单笔亏损$": max_loss,
+            "按标的": sym_stats, "按方向": side_stats, "按模式": mode_stats,
+            "说明": "净盈亏=毛盈亏-费用; 按标的/方向/模式分布用于提炼策略经验"}
+
+
 def t_my_positions():
     """M-A2: 当前用户持仓 (模拟纸面+实盘台账) — 租户包裹内执行"""
     try:
@@ -821,7 +882,7 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "open_native": t_open_native, "close_native": t_close_native,
              "open_spot": t_open_spot, "close_spot": t_close_spot,
              "autopilot_create": t_autopilot_create, "autopilot_set": t_autopilot_set,
-             "my_trades": t_my_trades,
+             "my_trades": t_my_trades, "trade_analysis": t_trade_analysis,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
 
