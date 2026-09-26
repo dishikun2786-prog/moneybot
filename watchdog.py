@@ -66,7 +66,8 @@ def checks(prev_restarts):
         if os.path.exists(fp) and time.time() - os.path.getmtime(fp) < 600:
             with open(fp) as _f:
                 fh = json.load(_f)
-            if abs(fh.get("diff", 0)) >= 5.0:
+            # 仅在有真实用户资金(预期>0)时核对差异; 测试阶段 Bybit 余额为平台自有资金, 不告警
+            if fh.get("expected", 0) > 0 and abs(fh.get("diff", 0)) >= 5.0:
                 probs.append(f"资金三方核对差异 {fh['diff']} USDT (Bybit {fh.get('bybit_usdt')} vs 预期 {fh.get('expected')})")
     except Exception:
         pass

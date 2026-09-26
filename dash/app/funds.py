@@ -655,7 +655,10 @@ def reconcile_balance_check():
         return {"ok": False, "error": f"Bybit余额拉取失败: {e}"}
     con = _con()
     try:
-        total = con.execute("SELECT COALESCE(SUM(usdt),0) FROM balance").fetchone()[0]
+        total = con.execute("""
+            SELECT COALESCE(SUM(b.usdt),0) FROM balance b
+            WHERE b.uid NOT IN (SELECT DISTINCT uid FROM balance_tx WHERE type LIKE 'test_%')
+        """).fetchone()[0]
         frozen = con.execute("SELECT COALESCE(SUM(amount+fee),0) FROM withdraw_orders WHERE status IN ('pending_review','submitting','processing','paid')").fetchone()[0]
         pend_dep = con.execute("SELECT COALESCE(SUM(amount_unique),0) FROM deposit_orders WHERE status='pending'").fetchone()[0]
     finally:
