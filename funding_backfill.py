@@ -11,7 +11,7 @@ import duckdb
 BASE = os.path.expanduser("~/polymarket")
 OUT = f"{BASE}/logs/carry_funding.jsonl"
 PARQ = f"{BASE}/data/carry_funding.parquet"
-SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+SYMBOLS = ["BTCUSDT","ETHUSDT","XAUUSDT","XAGUSDT","SOLUSDT","NEARUSDT","XRPUSDT"]
 
 
 def get(url):
