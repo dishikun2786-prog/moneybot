@@ -41,8 +41,8 @@ func NewSelector() *Selector {
 	return &Selector{
 		quota:      map[Category]int{LargeCap: 1, Precious: 1, Altcoin: 2},
 		hysteresis: 0.2,
-		minScore:   0.5,
-		exitScore:  0.4,
+		minScore:   0.35,
+		exitScore:  0.28,
 		maxHeld:    3,
 		held:       map[string]float64{},
 	}
