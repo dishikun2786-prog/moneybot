@@ -326,6 +326,50 @@ def _apply(act):
         if isinstance(r, dict) and r.get("ok") is False:
             return False, {"error": str(r)[:200]}
         return True, {"msg": f"纸面平仓已执行: {act['symbol']} (成交留痕)", "result": r}
+    if act["type"] == "open_native":
+        import paper_ops
+        r = paper_ops.open_native(act["symbol"], act["side"], act["notional"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"原生{'做多' if act['side']=='long' else '做空'}已执行: {act['symbol']} 名义{act['notional']}USDT", "result": r}
+    if act["type"] == "close_native":
+        import paper_ops
+        r = paper_ops.close_native(act["symbol"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"原生平仓已执行: {act['symbol']}", "result": r}
+    if act["type"] == "open_spot":
+        import paper_ops
+        r = paper_ops.open_spot(act["symbol"], act["side"], act["notional"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"现货{'买入' if act['side']=='buy' else '卖出'}已执行: {act['symbol']}", "result": r}
+    if act["type"] == "close_spot":
+        import paper_ops
+        r = paper_ops.close_spot(act["symbol"])
+        if isinstance(r, dict) and r.get("ok") is False:
+            return False, {"error": str(r)[:200]}
+        return True, {"msg": f"现货平仓已执行: {act['symbol']}", "result": r}
+    if act["type"] == "autopilot_create":
+        import autopilot
+        import tenants
+        with tenants.tenant(tenants.current_uid()):
+            r = autopilot.create_task(tenants.current_uid(), act["scope"], mode=act["mode"])
+        if not r.get("ok"):
+            return False, {"error": r.get("error", "创建失败")}
+        return True, {"msg": f"托管任务已创建: {r.get('msg', '')}", "result": r}
+    if act["type"] == "autopilot_set":
+        import autopilot
+        import tenants
+        uid = tenants.current_uid()
+        with tenants.tenant(uid):
+            if act["status"] == "cancelled":
+                r = autopilot.cancel_with_close(uid, act["tid"])
+            else:
+                r = autopilot.set_task(uid, act["tid"], status=act["status"])
+        if not r.get("ok"):
+            return False, {"error": r.get("error", "操作失败")}
+        return True, {"msg": r.get("msg", "托管已更新"), "result": r}
     if act["type"] == "git_rollback":
         rev = act["rev"]
         out = _sh(f"cd {BASE} && git checkout {rev} -- strategy_params.json && git commit -q -m 'AI回退参数到 {rev}'", 20)
@@ -376,6 +420,42 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "symbol": {"type": "string", "description": "标的, 如 BTCUSDT"}},
             "required": ["symbol"]}}},
+    {"type": "function", "function": {"name": "open_native",
+        "description": "对话式原生方向开仓: 单边永续做多/做空(押涨跌)。生成预览, 必须等用户批准才执行。标的限 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT/SOLUSDT/NEARUSDT/XRPUSDT/TRXUSDT",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的如 BTCUSDT"},
+            "side": {"type": "string", "description": "long=做多, short=做空"},
+            "notional": {"type": "number", "description": "名义USDT, 1-200, 默认10"}},
+            "required": ["symbol", "side"]}}},
+    {"type": "function", "function": {"name": "close_native",
+        "description": "对话式原生方向平仓: 平掉指定标的的原生单边持仓。生成预览, 必须等用户批准才执行",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的如 BTCUSDT"}},
+            "required": ["symbol"]}}},
+    {"type": "function", "function": {"name": "open_spot",
+        "description": "对话式现货开仓: 买入/卖出。生成预览, 必须等用户批准才执行",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的如 BTCUSDT"},
+            "side": {"type": "string", "description": "buy=买入, sell=卖出"},
+            "notional": {"type": "number", "description": "名义USDT, 1-200, 默认10"}},
+            "required": ["symbol", "side"]}}},
+    {"type": "function", "function": {"name": "close_spot",
+        "description": "对话式现货平仓: 平掉指定标的的现货持仓。生成预览, 必须等用户批准才执行",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "标的如 BTCUSDT"}},
+            "required": ["symbol"]}}},
+    {"type": "function", "function": {"name": "autopilot_create",
+        "description": "创建AI全托管任务(让AI自主决策开平仓)。生成预览, 必须等用户批准才执行。scope=all(全标的)或标的列表; mode=carry(基差套利)/native(原生方向)",
+        "parameters": {"type": "object", "properties": {
+            "scope": {"type": "string", "description": "all 或 逗号分隔标的列表"},
+            "mode": {"type": "string", "description": "carry/native, 默认carry"}},
+            "required": ["scope"]}}},
+    {"type": "function", "function": {"name": "autopilot_set",
+        "description": "暂停/恢复/取消AI托管任务。生成预览, 必须等用户批准才执行。tid=任务ID(先用my_positions或查询托管列表); status=paused/running/cancelled",
+        "parameters": {"type": "object", "properties": {
+            "tid": {"type": "string", "description": "托管任务ID"},
+            "status": {"type": "string", "description": "paused/running/cancelled"}},
+            "required": ["tid", "status"]}}},
     {"type": "function", "function": {"name": "get_jev_decisions",
         "description": "读取Jev快速决策层最近决策留痕(开仓信号/风险评分/门控结果), 用于巡检判断门控参数是否需调整 (只读)",
         "parameters": {"type": "object", "properties": {"n": {
@@ -553,6 +633,101 @@ def t_close_carry(args):
             "message": f"平仓预览已生成 (尚未执行): {sym}。等待用户批准"}
 
 
+NATIVE_SYMS = ("BTCUSDT", "ETHUSDT", "XAUUSDT", "XAGUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT", "TRXUSDT")
+SPOT_SYMS = ("BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT", "NEARUSDT", "XRPUSDT", "TRXUSDT")
+
+
+def _preview(type_, sym, diff_lines, message):
+    aid = f"a{int(time.time()*1000)}"
+    p = _pending()
+    p[aid] = {"type": type_, "symbol": sym, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "diff": diff_lines}
+    for k in ("side", "notional", "scope", "mode", "tid", "status"):
+        if k in locals():
+            p[aid][k] = locals()[k]
+    _save_pending(p)
+    _audit(type_ + "_preview", {"symbol": sym})
+    return {"status": "preview", "action_id": aid, "symbol": sym, "diff": diff_lines, "message": message}
+
+
+def t_open_native(args):
+    """原生方向开仓(单边永续做多/做空) — 预览→批准"""
+    sym = str(args.get("symbol") or "").upper()
+    side = str(args.get("side") or "").lower()
+    if sym not in NATIVE_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在原生可交易池"}
+    if side not in ("long", "short"):
+        return {"status": "rejected", "error": "side 须 long(做多)/short(做空)"}
+    try:
+        notional = float(args.get("notional", 10))
+    except Exception:
+        return {"status": "rejected", "error": "notional 必须是数字"}
+    if not (1 <= notional <= 200):
+        return {"status": "rejected", "error": "名义金额须 1-200 USDT"}
+    return _preview("open_native", sym,
+        [{"group": "trade", "key": "原生开仓", "old": "-", "new": f"{sym} {'做多' if side=='long' else '做空'} 名义{notional}USDT"}],
+        f"原生开仓预览已生成(尚未执行): {sym} {'做多' if side=='long' else '做空'}。等待用户批准")
+
+
+def t_close_native(args):
+    sym = str(args.get("symbol") or "").upper()
+    if sym not in NATIVE_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在原生可交易池"}
+    return _preview("close_native", sym,
+        [{"group": "trade", "key": "原生平仓", "old": "-", "new": f"{sym} 全部原生持仓"}],
+        f"原生平仓预览已生成(尚未执行): {sym}。等待用户批准")
+
+
+def t_open_spot(args):
+    """现货开仓(买/卖) — 预览→批准"""
+    sym = str(args.get("symbol") or "").upper()
+    side = str(args.get("side") or "").lower()
+    if sym not in SPOT_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在现货可交易池"}
+    if side not in ("buy", "sell"):
+        return {"status": "rejected", "error": "side 须 buy(买)/sell(卖)"}
+    try:
+        notional = float(args.get("notional", 10))
+    except Exception:
+        return {"status": "rejected", "error": "notional 必须是数字"}
+    if not (1 <= notional <= 200):
+        return {"status": "rejected", "error": "名义金额须 1-200 USDT"}
+    return _preview("open_spot", sym,
+        [{"group": "trade", "key": "现货开仓", "old": "-", "new": f"{sym} {'买入' if side=='buy' else '卖出'} 名义{notional}USDT"}],
+        f"现货开仓预览已生成(尚未执行): {sym}。等待用户批准")
+
+
+def t_close_spot(args):
+    sym = str(args.get("symbol") or "").upper()
+    if sym not in SPOT_SYMS:
+        return {"status": "rejected", "error": f"标的 {sym} 不在现货可交易池"}
+    return _preview("close_spot", sym,
+        [{"group": "trade", "key": "现货平仓", "old": "-", "new": f"{sym} 全部现货持仓"}],
+        f"现货平仓预览已生成(尚未执行): {sym}。等待用户批准")
+
+
+def t_autopilot_create(args):
+    """创建AI全托管任务 — 预览→批准"""
+    scope = args.get("scope", "all")
+    mode = str(args.get("mode", "carry")).lower()
+    if mode not in ("carry", "native"):
+        return {"status": "rejected", "error": "mode 须 carry(基差套利)/native(原生方向)"}
+    return _preview("autopilot_create", str(scope),
+        [{"group": "autopilot", "key": "创建托管", "old": "-", "new": f"scope={scope} mode={mode}"}],
+        "托管任务创建预览已生成(尚未执行)。等待用户批准")
+
+
+def t_autopilot_set(args):
+    """托管任务 暂停/恢复/取消 — 预览→批准"""
+    tid = str(args.get("tid") or "")
+    status = str(args.get("status") or "")
+    if not tid or status not in ("paused", "running", "cancelled"):
+        return {"status": "rejected", "error": "tid 必填, status 须 paused/running/cancelled"}
+    zh = {"paused": "暂停", "running": "恢复", "cancelled": "取消"}[status]
+    return _preview("autopilot_set", tid,
+        [{"group": "autopilot", "key": "托管操作", "old": "-", "new": f"{zh}任务 {tid}"}],
+        f"托管任务{zh}预览已生成(尚未执行): {tid}。等待用户批准")
+
+
 def t_get_jev_decisions(args):
     """M-D3: 读 Jev 决策留痕最近 N 条 (租户隔离)"""
     n = min(int((args or {}).get("n", 10)), 30)
@@ -643,6 +818,9 @@ _DISPATCH = {"strategy_status": lambda a: t_strategy_status(), "list_params": la
              "backtest_summary": t_backtest_summary, "backtest_history": t_backtest_history,
              "get_jev_decisions": t_get_jev_decisions,
              "open_carry": t_open_carry, "close_carry": t_close_carry,
+             "open_native": t_open_native, "close_native": t_close_native,
+             "open_spot": t_open_spot, "close_spot": t_close_spot,
+             "autopilot_create": t_autopilot_create, "autopilot_set": t_autopilot_set,
              "my_trades": t_my_trades,
              "run_backtest": t_run_backtest, "update_params": t_update_params,
              "git_rollback": t_git_rollback, "restart_engine": t_restart_engine}
