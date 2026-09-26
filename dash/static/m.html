@@ -998,6 +998,8 @@ select.input{appearance:none}
       <button class="chip" onclick="aiAsk('看一下我目前的持仓和风险情况，用白话解释')">💼 我的持仓</button>
       <button class="chip" onclick="aiAsk('目前市场资金费率和基差情况如何？适不适合做套利？总结今天的策略机会')">📊 今日策略</button>
       <button class="chip" onclick="aiAsk('帮我开一笔套利，标的你来判断，名义 15U')">🚀 开一笔套利</button>
+      <button class="chip" onclick="aiAsk('什么是资金费率套利？为什么能赚钱？用白话讲')">💡 套利原理</button>
+      <button class="chip" onclick="aiAsk('原生方向交易是什么？和套利有什么区别？')">📈 原生方向</button>
       <button class="chip" onclick="closeAIFab();go('autopilot');setTimeout(loadAutopilot,300)">🌐 全托管状态</button>
     </div>
     <div class="ai-input">
@@ -3192,7 +3194,7 @@ async function apCancel(tid){
   setTimeout(loadAutopilot,600);
 }
 
-function aiClear(){AIMSG=[];id('ai-msg2').innerHTML='<div class="ai-wel"><span class="wel-ico">🤖</span>我是你的 AI 策略助手<br><span class="xs muted">随时问我持仓、策略、开平仓，或让我帮你全托管<br>Jev 每 5 分钟巡检 6 个双通道标的</span></div>'}
+function aiClear(){AIMSG=[];id('ai-msg2').innerHTML='<div class="ai-wel"><span class="wel-ico">🤖</span>我是你的 AI 策略助手<br><span class="xs muted">我可以帮你：查持仓盈亏 · 开平仓(套利/现货/原生方向) · 创建AI全托管 · 调整策略参数 · 回测验证策略<br>点击下方快捷问题快速开始，或直接输入你的问题</span></div>'}
 function aiInit(){if(!id('ai-msg2').dataset.inited){if(AIMSG.length){aiRestore()}else{aiClear()}id('ai-msg2').dataset.inited='1'}}
 var AI_OPENED=false;
 function openAIFab(){
@@ -3221,7 +3223,7 @@ async function loadSupportConv(){
   var msgs=r.data.messages||[];
   var h='';
   if(!SUP_CONV){
-    h='<div class="ai-wel"><span class="wel-ico">💬</span>联系官方客服<br><span class="xs muted">描述你的问题，可附截图（报错页面/对账单等）<br>我们通常几分钟内回复</span></div>';
+    h='<div class="ai-wel"><span class="wel-ico">💬</span>官方客服<br><span class="xs muted">常见问题：充值提现 · 修改密码 · 实盘开通 · 套餐购买 · 资金费率套利<br>描述你的问题，可附截图（报错页面/对账单等），我们通常几分钟内回复</span></div>';
   }else{
     h+=supStripHtml(SUP_CONV.status);
     if(!msgs.length)h+='<div class="sys">会话已建立，请描述你的问题</div>';
