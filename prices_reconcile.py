@@ -73,8 +73,10 @@ def main():
         fp = d.get("prices", {}).get("BTCUSDT", {})
         if sp.get("last") and fp.get("last"):
             diff = abs(float(sp["last"]) - float(fp["last"]))
-            if diff > 1.0:
-                problems.append(f"SSE vs 文件 BTC last 偏差 {diff:.2f}")
+            rel = diff / float(fp["last"])
+            # 相对 5bp 阈值(采样时差噪声远小于此), 避免 BTC 秒级波动误报
+            if rel > 0.0005:
+                problems.append(f"SSE vs 文件 BTC last 偏差 {diff:.2f} ({rel*10000:.1f}bp)")
 
     status = "OK" if not problems else " | ".join(problems)
     print(f"[prices_reconcile] {time.strftime('%H:%M:%S')} {status}")
