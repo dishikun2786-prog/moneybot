@@ -1187,31 +1187,32 @@ function mkRows(){
   var key=MKTAB+'|'+MKQ.trim().toUpperCase()+'|'+(chgSort?'chg':'turn');
   var now=Date.now();
   if(MKROWS_CACHE&&MKROWS_KEY===key&&(chgSort?now-MKROWS_T<3000:true))return MKROWS_CACHE;
-  var rows=[],seen={};
+  var rows=[],seenLinear={};
   // M-S五期兜底: INSTR 空(清单API失败)时用 SSE 价格 keys 反推标的, 保证行情屏永不空白
   if(!INSTR.linear.length&&!INSTR.spot.length){
     var pks=Object.keys(PRICES||{});
     for(var pi=0;pi<pks.length;pi++){
       var s0=pks[pi],c0=(SYM_SPOT_ONLY&&SYM_SPOT_ONLY[s0])?'spot':'linear';
-      seen[s0]=1;
+      if(c0==='linear')seenLinear[s0]=1;
       rows.push({sym:s0,cat:c0,name:s0,turn:0});
     }
   }
   for(var i=0;i<INSTR.linear.length;i++){
     var it=INSTR.linear[i];
-    seen[it.symbol]=1;
+    seenLinear[it.symbol]=1;
     rows.push({sym:it.symbol,cat:'linear',name:it.name||it.base||it.symbol,turn:it.turnover24h||0});
   }
   for(var j=0;j<INSTR.spot.length;j++){
     var s2=INSTR.spot[j];
-    if(seen[s2.symbol])continue;
-    rows.push({sym:s2.symbol,cat:'spot',name:s2.name||s2.base||s2.symbol,turn:s2.turnover24h||0});
+    var dual=!!seenLinear[s2.symbol];
+    rows.push({sym:s2.symbol,cat:'spot',name:s2.name||s2.base||s2.symbol,turn:s2.turnover24h||0,dual:dual});
   }
   var q=MKQ.trim().toUpperCase(),out=[];
   for(var k=0;k<rows.length;k++){
     var r=rows[k];
     if(MKTAB==='linear'&&r.cat!=='linear')continue;
     if(MKTAB==='spot'&&r.cat!=='spot')continue;
+    if(MKTAB==='all'&&r.dual)continue;
     if(MKTAB==='fav'&&!MKFAV[r.sym])continue;
     if(q&&r.sym.indexOf(q)<0&&(r.name||'').toUpperCase().indexOf(q)<0)continue;
     out.push(r);
