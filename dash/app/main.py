@@ -958,8 +958,16 @@ async def stream_prices(request: Request, __=Depends(require_session)):
 
 @app.get("/api/instruments")
 def api_instruments(__=Depends(require_session)):
-    """R13c: 标的收敛 — 只返回白名单 BTCUSDT/ETHUSDT/XAUUSDT/XAGUSDT/XAUTUSDT"""
-    WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(","))  # R14-M2: +SOL/NEAR/XRP
+    """标的收敛 — 白名单与 bybit_ws_bridge/Go feed 同源(bybit_syms.txt 优先, 回退环境变量)"""
+    WL = None
+    _conf = os.path.expanduser("~/polymarket/data/bybit_syms.txt")
+    try:
+        if os.path.exists(_conf):
+            WL = {s.strip().upper() for s in open(_conf, encoding="utf-8").read().split(",") if s.strip()}
+    except Exception:
+        pass
+    if not WL:
+        WL = set(os.environ.get("BYBIT_SYMS", "BTCUSDT,ETHUSDT,XAUUSDT,XAGUSDT,XAUTUSDT,SOLUSDT,NEARUSDT,XRPUSDT").split(","))
     SPOT_ONLY = {"XAUTUSDT"}  # R14: 现货独占标的 (linear 清单中剔除, 防前端误标永续)
     try:
         with open(os.path.expanduser("~/polymarket/logs/bybit_instruments.json"),
