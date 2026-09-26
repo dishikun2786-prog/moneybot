@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -95,7 +96,7 @@ func writePricesFile(hub *feed.PriceHub, path string) {
 		if err != nil {
 			continue
 		}
-		tmp := path + ".tmp"
+		tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
 		if err := os.WriteFile(tmp, b, 0o644); err != nil {
 			continue
 		}
