@@ -10,7 +10,16 @@ import json, os, time, urllib.request
 BASE = os.path.expanduser("~/polymarket")
 PRICES = os.path.join(BASE, "logs", "bybit_prices.json")
 SSE_URL = "http://127.0.0.1:8090/api/stream/prices"
-EXPECT_SYMS = 7
+def _expected_syms():
+    try:
+        conf = os.path.expanduser("~/polymarket/data/bybit_syms.txt")
+        syms = [s.strip() for s in open(conf, encoding="utf-8").read().split(",") if s.strip()]
+        if syms:
+            return len(syms)
+    except Exception:
+        pass
+    return 7
+EXPECT_SYMS = _expected_syms()
 
 def _tg(text):
     try:
